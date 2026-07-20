@@ -51,9 +51,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online_sync() -> None:
     """同步引擎在线迁移（upgrade / downgrade / autogenerate 兜底）。"""
     # 使用同步 URL 用于连接
-    sync_url = config.get_main_option("sqlalchemy.url").replace(
-        "postgresql+asyncpg", "postgresql"
-    )
+    sync_url = config.get_main_option("sqlalchemy.url").replace("postgresql+asyncpg", "postgresql")
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

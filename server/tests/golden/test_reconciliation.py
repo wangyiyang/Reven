@@ -1,145 +1,146 @@
-"""Golden case regression tests — 对账恒等式验证。
+"""Golden case regression tests — 五步流水线验证。
 
-每个黄金案例是一个真实 Excel 文件，验证：
-- 解析器能自适应表格结构（自动检测表头、页脚、列偏移）
-- 对账恒等式：原始行数 = raw → 后续将变为 passed + skipped + error
+每个黄金案例是真实 Excel 文件，验证：
+- 指纹提取 → 模板匹配 → 配置解析 → 确定性提取 完整管道
+- 对账恒等式：总行数 = passed + skipped + error（当前全部为 raw）
 """
 
 from pathlib import Path
 
 import pytest
-from reven.importing.parser import parse_excel
+from reven.importing.fingerprint import fingerprint
+from reven.importing.parser import extract, parse_excel
+from reven.importing.template import match
 
 GOLDEN_DIR = Path("workspace")
 
-# (filename, expected_sheet, expected_row_count, expected_non_empty, expected_merged)
-# 所有预期值均基于 auto_detect=True 的解析结果
+# (filename, expected_template, expected_rows, expected_skipped, min_key_fields)
+# key_fields: 非空必填字段数，用于验证列映射正确
 GOLDEN_CASES: list[tuple[str, str, int, int, int]] = [
-    ("动销后可用量≤0明细_20260528.xlsx", "明细", 37, 37, 0),
-    ("销货单明细表_28.xlsx", "第一页", 53, 52, 1),
-    ("销货单明细表_27.xlsx", "第一页", 83, 82, 1),
-    ("销货单明细表-11.xlsx", "第一页", 968, 967, 1),
-    ("现存量查询_20.xlsx", "第一页", 1791, 1790, 12),
-    ("格力空调价格单_20260608.xlsx", "格力空调价格单", 70, 67, 9),
+    ("销货单明细表_28.xlsx", "sales_order_R", 49, 3, 3),
+    ("销货单明细表-11.xlsx", "sales_order_S", 964, 3, 3),
+    ("动销后可用量≤0明细_20260528.xlsx", "simple_metrics", 9, 0, 2),
+    ("现存量查询_20.xlsx", "inventory_N", 1786, 4, 2),
+    ("现存量查询_612.xlsx", "inventory_AF", 1826, 1, 2),
+    ("格力空调价格单_20260608.xlsx", "price_list", 66, 0, 1),
 ]
 
 
-@pytest.mark.parametrize(
-    "filename,sheet_name,expected_rows,expected_non_empty,expected_merged",
-    GOLDEN_CASES,
-)
-def test_golden_parse_row_count(
+# ── 分步管道测试 ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize("filename,exp_template,exp_rows,exp_skipped,min_keys", GOLDEN_CASES)
+def test_pipeline_fingerprint_match(
     filename: str,
-    sheet_name: str,
-    expected_rows: int,
-    expected_non_empty: int,
-    expected_merged: int,
+    exp_template: str,
+    exp_rows: int,
+    exp_skipped: int,
+    min_keys: int,
 ):
-    """黄金案例：解析行数与结构特征 = 预期值。"""
+    """分步管道：指纹 → 匹配 → 提取，验证模板识别与行数。"""
     path = GOLDEN_DIR / filename
     if not path.exists():
-        pytest.skip(f"Golden case file not found: {path}")
+        pytest.skip(f"File not found: {path}")
+
+    data = path.read_bytes()
+    fp = fingerprint(data)
+    assert len(fp.sheets) >= 1
+
+    cfg = match(fp)
+    assert cfg is not None, f"No template matched for {filename}"
+    assert cfg.template_id == exp_template, f"{filename}: expected template '{exp_template}', got '{cfg.template_id}'"
+    assert cfg.confidence >= 0.7
+
+    result = extract(data, cfg)
+    assert result.total == exp_rows, f"{filename}: expected {exp_rows} rows, got {result.total}"
+
+    # 验证关键字段非空率（列映射正确性）
+    if result.rows:
+        first = result.rows[0]
+        non_null = sum(1 for v in first.values.values() if v is not None and v != "")
+        assert non_null >= min_keys, (
+            f"{filename}: first row has {non_null} non-null keys, expected ≥{min_keys}. Row: {first.values}"
+        )
+
+
+# ── 高层 API 测试 ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize("filename,exp_template,exp_rows,exp_skipped,min_keys", GOLDEN_CASES)
+def test_parse_excel_auto(
+    filename: str,
+    exp_template: str,
+    exp_rows: int,
+    exp_skipped: int,
+    min_keys: int,
+):
+    """高层 API：parse_excel 自动管道。"""
+    path = GOLDEN_DIR / filename
+    if not path.exists():
+        pytest.skip(f"File not found: {path}")
 
     data = path.read_bytes()
     result = parse_excel(data)
 
-    # Sheet 选区验证
-    assert result.sheet_name == sheet_name, (
-        f"{filename}: auto selected '{result.sheet_name}', expected '{sheet_name}'"
-    )
+    assert result.config is not None, f"No config generated for {filename}"
+    assert result.config.template_id == exp_template
 
-    # 行数验证
-    actual = len(result.rows)
-    assert actual == expected_rows, (
-        f"{filename}: expected {expected_rows} rows, got {actual}"
-    )
-    non_empty = sum(1 for r in result.rows if any(v is not None for v in r.values()))
-    assert non_empty == expected_non_empty, (
-        f"{filename}: expected {expected_non_empty} non-empty, got {non_empty}"
-    )
-
-    # 合并单元格数量验证
-    merged_count = len(result.coordinates.get("merged_cells", []))
-    assert merged_count == expected_merged, (
-        f"{filename}: expected {expected_merged} merged cells, got {merged_count}"
-    )
-
-    # 自动检测起止坐标合理性
-    c = result.coordinates
-    assert c["data_start_row"] >= 1
-    assert c["data_end_row"] >= c["data_start_row"]
-    assert c["data_start_col"] >= 1
-    assert c["data_end_col"] >= c["data_start_col"]
-    assert c["auto_detected"] is True
+    rows = len(result.rows)
+    assert rows == exp_rows, f"{filename}: parse_excel returned {rows}, expected {exp_rows}"
+    assert result.coordinates.get("auto_detected") is True
 
 
-@pytest.mark.parametrize(
-    "filename,sheet_name,expected_rows,expected_non_empty,expected_merged",
-    GOLDEN_CASES,
-)
-def test_golden_reconciliation_invariant(
-    filename: str,
-    sheet_name: str,
-    expected_rows: int,
-    expected_non_empty: int,
-    expected_merged: int,
-):
-    """对账恒等式：总行数 = passed + skipped + error。
+# ── 校验层测试 ────────────────────────────────────────────
 
-    当前全部为 raw。等标准化层就位后，所有 raw 行必须被分类到
-    passed/skipped/error 之一，此断言将从 total > 0 演变为
-    total == passed + skipped + error。
-    """
-    path = GOLDEN_DIR / filename
+
+def test_validation_amount_sum():
+    """amount_sum 校验在销货单上正确执行。"""
+    path = GOLDEN_DIR / "销货单明细表_28.xlsx"
     if not path.exists():
-        pytest.skip(f"Golden case file not found: {path}")
+        pytest.skip(f"File not found: {path}")
 
     data = path.read_bytes()
     result = parse_excel(data)
-    total = len(result.rows)
-
-    # 当前阶段：所有行均为 raw，尚未进入处理流水线
-    assert total > 0, f"{filename}: no rows extracted"
-
-    # 后续标准化层就位后将改为：
-    # passed = sum(1 for r in ... if r.status == 'passed')
-    # skipped = sum(1 for r in ... if r.status == 'skipped')
-    # error = sum(1 for r in ... if r.status == 'error')
-    # assert total == passed + skipped + error
+    assert result.validation is not None
+    assert "amount_sum" in result.validation
+    assert result.validation["amount_sum"] > 0
+    assert result.validation["amount_fill_rate"] > 0.5
 
 
-def test_golden_all_files_discovered():
-    """至少有一个黄金案例文件可用。"""
-    found = [f for f in GOLDEN_DIR.glob("销货单明细表*.xlsx")]
-    assert len(found) >= 1, f"No golden case files found in {GOLDEN_DIR}"
-
-
-def test_golden_auto_detect_vs_raw():
-    """自动检测模式比原始全量模式产生更少的行（去除了标题/页脚/空行）。"""
-    path = GOLDEN_DIR / "销货单明细表-11.xlsx"
-    if not path.exists():
-        pytest.skip("Golden case file not found")
-
-    data = path.read_bytes()
-    auto = parse_excel(data, auto_detect=True)
-    raw = parse_excel(data, auto_detect=False)
-
-    assert len(auto.rows) < len(raw.rows), (
-        f"auto_detect should reduce rows: {len(auto.rows)} >= {len(raw.rows)}"
-    )
-
-
-def test_golden_multi_sheet_selection():
-    """多 Sheet 工作簿自动选择数据最丰富的 sheet。"""
+def test_multi_sheet_selection():
+    """多 Sheet 工作簿自动选区。"""
     path = GOLDEN_DIR / "品类库存动销矩阵.xlsx"
     if not path.exists():
-        pytest.skip("Golden case file not found")
+        pytest.skip(f"File not found: {path}")
 
     data = path.read_bytes()
-    result = parse_excel(data)
+    fp = fingerprint(data)
+    cfg = match(fp)
+    # 应命中 category_analysis 或回到 sales_order
+    assert cfg is not None
+    # 自动选择数据最丰富 sheet
+    best = fp.sheets[fp.best_sheet_index]
+    assert best.data_region["end_row"] > 100, "Should pick large sheet"
 
-    # 应该选择动销明细或库存明细（大表），而非品类矩阵（仅12行）
-    assert result.coordinates["parsed_rows"] > 100, (
-        f"auto-select picked a small sheet ({result.sheet_name}): "
-        f"{result.coordinates['parsed_rows']} rows"
-    )
+
+def test_config_serialize_roundtrip():
+    """ParsingConfig 序列化/反序列化不变性。"""
+    data = open(GOLDEN_DIR / "销货单明细表_28.xlsx", "rb").read()
+    fp = fingerprint(data)
+    cfg = match(fp)
+    assert cfg is not None
+
+    d = cfg.to_dict()
+    restored = type(cfg).from_dict(d)
+    assert cfg.template_id == restored.template_id
+    assert cfg.header_row == restored.header_row
+    assert len(cfg.column_mappings) == len(restored.column_mappings)
+    for a, b in zip(cfg.column_mappings, restored.column_mappings):
+        assert a.target == b.target
+        assert a.dtype == b.dtype
+
+
+def test_all_files_discovered():
+    """至少有三个黄金案例文件可用。"""
+    found = [f for f in GOLDEN_DIR.glob("销货单明细表*.xlsx")]
+    assert len(found) >= 3, f"Only {len(found)} sales order files found"

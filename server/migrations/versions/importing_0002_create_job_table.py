@@ -18,9 +18,7 @@ def upgrade() -> None:
         sa.Column("job_type", sa.String(64), nullable=False, index=True),
         sa.Column(
             "status",
-            sa.Enum(
-                "queued", "running", "completed", "failed", name="importing_job_status"
-            ),
+            sa.Enum("queued", "running", "completed", "failed", name="importing_job_status"),
             nullable=False,
             server_default="queued",
             index=True,
