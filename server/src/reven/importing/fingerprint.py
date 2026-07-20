@@ -71,6 +71,8 @@ class SheetFingerprint:
     """/总行数 ×100，每列的非空百分比。"""
     data_region: dict[str, int] = field(default_factory=dict)
     """探测到的数据区域 {start_row, end_row, start_col, end_col}。"""
+    header_signature: list[str] = field(default_factory=list)
+    """表头行列名集合（从左到右，去空）。"""
 
 
 @dataclass
@@ -209,6 +211,16 @@ def fingerprint_sheet(sheet: openpyxl.worksheet.Worksheet, index: int) -> SheetF
     data_region["start_col"] = _detect_start_col(sheet, data_region["start_row"], data_region["end_row"])
     data_region["end_col"] = max_col
 
+    # 表头列名签名（从探测到的 header row 提取）
+    hr = data_region["start_row"]
+    header_names: list[str] = []
+    if hr >= 1:
+        for cell in list(sheet[hr]):
+            v = str(cell.value).strip() if cell.value is not None else ""
+            if v:
+                header_names.append(v)
+    header_names = header_names[data_region["start_col"] - 1 :] if data_region["start_col"] > 1 else header_names
+
     return SheetFingerprint(
         index=index,
         name=sheet.title,
@@ -219,6 +231,7 @@ def fingerprint_sheet(sheet: openpyxl.worksheet.Worksheet, index: int) -> SheetF
         footer_candidates=footer_profiles,
         column_density=density,
         data_region=data_region,
+        header_signature=header_names,
     )
 
 

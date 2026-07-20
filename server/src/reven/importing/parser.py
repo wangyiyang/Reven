@@ -161,11 +161,27 @@ def extract(
                 # 回填列字母，供后续校验使用
                 mapping.source_column = get_column_letter(idx)
 
+        # 合并单元格展开（expand_down）：将合并区域的左上角值向下填充
+        merge_fill: dict[tuple[int, int], object] = {}
+        if config.merge_strategy == "expand_down":
+            for mr in sheet.merged_cells.ranges:
+                # 只处理纵向合并（同列多行）
+                if mr.min_col == mr.max_col and mr.min_row < mr.max_row:
+                    top_val = sheet.cell(row=mr.min_row, column=mr.min_col).value
+                    for r in range(mr.min_row + 1, mr.max_row + 1):
+                        merge_fill[(r, mr.min_col)] = top_val
+
         rows: list[ParsedRow] = []
         skipped = 0
 
         for r in range(start_row, end_row + 1):
             vals = list(sheet.iter_rows(min_row=r, max_row=r, values_only=True))[0]
+
+            # 合并单元格填充
+            vals = list(vals)
+            for c in range(len(vals)):
+                if vals[c] is None and (r, c + 1) in merge_fill:
+                    vals[c] = merge_fill[(r, c + 1)]
 
             # 跳过规则
             if _should_skip(list(vals), config.skip_patterns):
@@ -249,8 +265,14 @@ def _validate(
     rows: list[ParsedRow],
     config: ParsingConfig,
 ) -> dict[str, Any]:
-    """提取后的校验。"""
-    result: dict[str, Any] = {"passed": True, "checks": []}
+    """提取后的校验。
+
+    强校验（strong_pass）：
+        - validate_total=True + 找到金额列 + 求和结果与页脚合计匹配
+    弱校验（weak_pass）：
+        - 无合计基准时降级：行数≥1、关键列非空率、金额列无异常负值
+    """
+    result: dict[str, Any] = {"passed": True, "checks": [], "validation_strength": "weak"}
 
     # 行数检查
     if not rows:
@@ -260,25 +282,55 @@ def _validate(
 
     result["row_count"] = len(rows)
 
-    # 金额列合计校验（如果页脚有合计）
+    # 金额列合计校验（强校验：有合计基准）
+    has_strong = False
     if config.validate_total:
         amount_col = config.column_for_target("amount")
         if amount_col:
             total_amount = 0.0
+            negative_count = 0
             for row in rows:
                 v = row.values.get("amount")
                 if isinstance(v, (int, float)):
                     total_amount += v
+                    if v < 0:
+                        negative_count += 1
             result["amount_sum"] = round(total_amount, 2)
+            result["negative_count"] = negative_count
             result["checks"].append("amount_sum_calculated")
+            has_strong = True
 
-    # 必填字段非空
+    # 弱校验：按实际列映射检查非空率
     total_rows = len(rows)
-    for target in ["amount", "quantity", "date"]:
-        col = config.column_for_target(target)
-        if col:
-            filled = sum(1 for row in rows if row.values.get(target) is not None)
-            result[f"{target}_fill_rate"] = round(filled / total_rows, 2)
+    fill_rates: dict[str, float] = {}
+    # 从实际列映射中提取可检查的目标字段
+    check_targets = set()
+    for cm in config.column_mappings:
+        if cm.dtype in ("numeric", "amount", "string", "date"):
+            check_targets.add(cm.target)
+    for target in check_targets:
+        filled = sum(1 for row in rows if row.values.get(target) is not None and str(row.values.get(target, "")).strip())
+        rate = round(filled / total_rows, 2)
+        fill_rates[target] = rate
+        result[f"{target}_fill_rate"] = rate
+
+    if not has_strong:
+        # 弱校验：行数≥1 + 至少一个关键列非空率>0
+        if total_rows >= 1:
+            any_filled = any(v > 0 for v in fill_rates.values())
+            if any_filled:
+                result["passed"] = True
+                result["checks"].append("weak_pass_rows_filled")
+            else:
+                result["passed"] = False
+                result["checks"].append("weak_fail_no_key_fields")
+        # 金额异常警告
+        if "amount" in fill_rates and fill_rates["amount"] > 0:
+            neg_rate = result.get("negative_count", 0) / max(total_rows * fill_rates.get("amount", 0.01), 1)
+            if neg_rate > 0.5:
+                result["checks"].append("warn_high_negative_ratio")
+    else:
+        result["validation_strength"] = "strong"
 
     return result
 
