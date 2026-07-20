@@ -32,3 +32,6 @@ poc/downloads/
 
 # misc
 workspace/
+
+# SQLite database files (auto-generated caches)
+*.db
