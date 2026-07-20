@@ -329,22 +329,28 @@ def match(
     r = registry or default_registry()
 
     if sheet_index is not None:
-        # 匹配指定 sheet
+        # 匹配指定 sheet — 将 sheet_index 回填到返回的配置中
         if 0 <= sheet_index < len(fingerprint.sheets):
-            return r.match(fingerprint.sheets[sheet_index])
+            result = r.match(fingerprint.sheets[sheet_index])
+            if result is not None:
+                result.sheet_index = sheet_index
+            return result
         return None
 
     # 优先匹配 best_sheet
-    best_fp = fingerprint.sheets[fingerprint.best_sheet_index]
+    best_idx = fingerprint.best_sheet_index
+    best_fp = fingerprint.sheets[best_idx]
     result = r.match(best_fp)
     if result is not None:
+        result.sheet_index = best_idx
         return result
 
     # 兜底：逐 sheet 尝试
     for sf in fingerprint.sheets:
-        if sf.index == fingerprint.best_sheet_index:
+        if sf.index == best_idx:
             continue
         result = r.match(sf)
         if result is not None:
+            result.sheet_index = sf.index
             return result
     return None

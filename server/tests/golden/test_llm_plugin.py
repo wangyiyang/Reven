@@ -407,8 +407,14 @@ def test_llm_matcher_success(sample_fingerprint, monkeypatch):
     assert cfg.validate_total is True
 
 
-def test_llm_matcher_no_api_key(sample_fingerprint):
+def test_llm_matcher_no_api_key(sample_fingerprint, monkeypatch):
     """未配置 API key 时返回 None。"""
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # 重新加载模块级单例
+    import reven.intelligence.llm_matcher as lm
+    lm._cache = None
+    lm._queue = None
+
     from reven.intelligence.llm_matcher import llm_matcher
 
     cfg = llm_matcher(sample_fingerprint)

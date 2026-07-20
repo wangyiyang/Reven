@@ -1,11 +1,22 @@
 """Intelligence settings — DeepSeek API 配置。
 
-优先从环境变量读取，支持 .env 文件加载（可选）。
+优先从环境变量读取，自动加载 server/.env 文件（不会提交到 git）。
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+# 自动加载 server/.env（仅开发环境，生产环境通过容器 env 注入）
+_env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(str(_env_path))
+    except ImportError:
+        pass  # dotenv 未安装时静默跳过
 
 # ═══════════════════════════════════════════════════════════
 # DeepSeek API
@@ -25,7 +36,7 @@ LLM_MODEL_FALLBACK: str = os.environ.get(
     "deepseek-v4-pro",
 )
 LLM_TEMPERATURE: float = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
-LLM_MAX_TOKENS: int = int(os.environ.get("LLM_MAX_TOKENS", "2000"))
+LLM_MAX_TOKENS: int = int(os.environ.get("LLM_MAX_TOKENS", "65536"))
 LLM_MAX_RETRIES: int = int(os.environ.get("LLM_MAX_RETRIES", "3"))
 LLM_CONFIDENCE_CAP: float = float(os.environ.get("LLM_CONFIDENCE_CAP", "0.8"))
 
