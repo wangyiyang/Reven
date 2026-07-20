@@ -38,3 +38,4 @@ testpaths = [
     "server/tests",
     "bot/tests",
 ]
+pythonpath = ["server/src"]

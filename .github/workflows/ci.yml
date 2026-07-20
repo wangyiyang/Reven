@@ -23,14 +23,15 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
+      # 安装所有 workspace 成员（包括 server/bot 的生产依赖）
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-packages
 
       - name: ruff check
-        run: uv run ruff check server/ bot/ packages/
+        run: uv run ruff check server/ bot/ packages/ server/migrations/ server/tests/
 
       - name: ruff format
-        run: uv run ruff format --check server/ bot/ packages/
+        run: uv run ruff format --check server/ bot/ packages/ server/migrations/ server/tests/
 
       - name: mypy
         run: uv run mypy server/src/ bot/src/ packages/
@@ -39,4 +40,4 @@ jobs:
         run: uv run lint-imports
 
       - name: pytest
-        run: uv run pytest -v
+        run: uv run pytest -v --ignore=server/tests/golden
