@@ -133,9 +133,7 @@ class JobWorker:
     async def _fail_job(self, job_id: Any, message: str) -> None:
         """Mark a job as failed (or back to queued if retries remain)."""
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(Job).where(Job.id == job_id).with_for_update()
-            )
+            result = await session.execute(select(Job).where(Job.id == job_id).with_for_update())
             job = result.scalar_one_or_none()
             if job is None:
                 return

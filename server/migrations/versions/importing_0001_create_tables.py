@@ -16,9 +16,7 @@ def upgrade() -> None:
         "importing_source_file",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("original_filename", sa.String(512), nullable=False),
-        sa.Column(
-            "sha256_hash", sa.String(64), nullable=False, index=True, unique=True
-        ),
+        sa.Column("sha256_hash", sa.String(64), nullable=False, index=True, unique=True),
         sa.Column("storage_path", sa.String(1024), nullable=False),
         sa.Column("file_size", sa.BigInteger(), nullable=False),
         sa.Column("mime_type", sa.String(128), nullable=True),

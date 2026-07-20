@@ -55,9 +55,7 @@ class SourceFile(Base, UUIDPkMixin, TimestampMixin):
     __tablename__ = "importing_source_file"
 
     original_filename: Mapped[str] = mapped_column(String(512), nullable=False)
-    sha256_hash: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=False, index=True
-    )
+    sha256_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -67,9 +65,7 @@ class SourceFile(Base, UUIDPkMixin, TimestampMixin):
         nullable=False,
     )
 
-    batches: Mapped[list["ImportBatch"]] = relationship(
-        back_populates="source_file", cascade="all, delete-orphan"
-    )
+    batches: Mapped[list["ImportBatch"]] = relationship(back_populates="source_file", cascade="all, delete-orphan")
 
 
 class ImportBatch(Base, UUIDPkMixin, TimestampMixin):
@@ -94,12 +90,8 @@ class ImportBatch(Base, UUIDPkMixin, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source_file: Mapped["SourceFile"] = relationship(back_populates="batches")
-    raw_rows: Mapped[list["RawRow"]] = relationship(
-        back_populates="import_batch", cascade="all, delete-orphan"
-    )
-    jobs: Mapped[list["Job"]] = relationship(
-        back_populates="import_batch", cascade="all, delete-orphan"
-    )
+    raw_rows: Mapped[list["RawRow"]] = relationship(back_populates="import_batch", cascade="all, delete-orphan")
+    jobs: Mapped[list["Job"]] = relationship(back_populates="import_batch", cascade="all, delete-orphan")
 
 
 class RawRow(Base, UUIDPkMixin, TimestampMixin):
@@ -113,21 +105,15 @@ class RawRow(Base, UUIDPkMixin, TimestampMixin):
         nullable=False,
     )
     row_number: Mapped[int] = mapped_column(Numeric(12, 0), nullable=False)
-    cell_data: Mapped[dict[str, object]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
-    coordinates: Mapped[dict[str, object] | None] = mapped_column(
-        JSONB, nullable=True, default=dict
-    )
+    cell_data: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+    coordinates: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True, default=dict)
     status: Mapped[RowStatus] = mapped_column(
         Enum(RowStatus, name="importing_row_status"),
         default=RowStatus.RAW,
         nullable=False,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    processed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     import_batch: Mapped["ImportBatch"] = relationship(back_populates="raw_rows")
 
@@ -149,20 +135,12 @@ class Job(Base, UUIDPkMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
-    payload: Mapped[dict[str, object] | None] = mapped_column(
-        JSONB, nullable=True, default=dict
-    )
+    payload: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
-    queued_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     import_batch: Mapped["ImportBatch | None"] = relationship(back_populates="jobs")

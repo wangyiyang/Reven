@@ -32,9 +32,7 @@ class FileRegistrationService:
         sha256_hash = hashlib.sha256(data).hexdigest()
 
         # Dedup: skip if same hash already registered
-        existing = await self._session.execute(
-            select(SourceFile).where(SourceFile.sha256_hash == sha256_hash)
-        )
+        existing = await self._session.execute(select(SourceFile).where(SourceFile.sha256_hash == sha256_hash))
         existing_file = existing.scalar_one_or_none()
         if existing_file is not None:
             return existing_file

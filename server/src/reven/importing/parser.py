@@ -1,282 +1,302 @@
-"""Excel parser — 包容人工不确定性的原始网格解析器。
+"""Excel parser — 五步流水线：指纹→匹配→配置→提取→校验。
 
-核心设计原则：
-- 不假设数据从 (A1) 开始
-- 自动检测表头行、数据边界、列偏移
-- 跳过空行、页脚合计、页码等非数据行
-- 保留原始单元格坐标（血缘追踪的基础）
+使用方式：
+    # 快速解析（自动匹配模板）
+    result = parse_excel(data)
+
+    # 分步控制
+    fp = fingerprint(data)
+    config = match(fp)
+    result = extract(data, config)
 """
+
+from __future__ import annotations
 
 import io
 import re
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Any, cast
 
 import openpyxl
 from openpyxl.utils import get_column_letter
 
+from reven.importing.config import ColumnMapping, ParsingConfig
+from reven.importing.fingerprint import (
+    StructureFingerprint,
+)
+from reven.importing.fingerprint import (
+    fingerprint as fp_extract,
+)
+from reven.importing.template import match as tm_match
 
-class ExcelSheetParseResult:
-    """解析单个 sheet 的结果。"""
-
-    def __init__(
-        self,
-        *,
-        sheet_name: str,
-        rows: list[dict[str, object]],
-        coordinates: dict[str, object],
-    ) -> None:
-        self.sheet_name = sheet_name
-        self.rows = rows
-        self.coordinates = coordinates
+# ── 解析结果 ─────────────────────────────────────────────
 
 
-# ── 启发式模式 ─────────────────────────────────────────────
+@dataclass
+class ParsedRow:
+    """解析后的单行数据。"""
 
-# 用友导出常见的非数据行关键词（标题、筛选条件、页脚）
-_NON_DATA_KEYWORDS: set[str] = {
-    "销货单明细表",
-    "现存量查询",
-    "库存SKU",
-    "品类库存",
-    "格力空调",
-    "第1页",
-    "第 1 页",
-    "合计",
-    "小计",
-    "单据日期",
-    "打印日期",
-    "导出日期",
-    "价格以当天",
-    "价格以",
-    "量大价优",
-}
+    row_number: int
+    """Excel 中的原始行号。"""
 
-# 行内容中检测是否"像表头"的指标
-_HEADER_LIKE_THRESHOLD = 0.6  # 非空单元格比例超过此值视为表头行
+    values: dict[str, object]
+    """按 target 字段名索引的值。"""
+
+    raw_cells: dict[str, object] | None = None
+    """原始单元格值（按列字母），可选保留。"""
+
+    skipped: bool = False
+    """是否被跳过（匹配到 skip_pattern）。"""
 
 
-def _is_footer_row(vals: list[object]) -> bool:
-    """判断一行是否像页脚（合计、页码、空行）。"""
-    text = " ".join(str(v) for v in vals if v is not None)
+@dataclass
+class ExtractResult:
+    """提取结果。"""
+
+    rows: list[ParsedRow]
+    total: int
+    skipped: int
+    config: ParsingConfig
+    fingerprint: StructureFingerprint | None = None
+    validation: dict[str, Any] | None = None
+
+
+# ═══════════════════════════════════════════════════════════
+# 确定性提取引擎
+# ═══════════════════════════════════════════════════════════
+
+
+def _find_column_index(
+    sheet: openpyxl.worksheet.Worksheet,
+    mapping: ColumnMapping,
+    header_row: int,
+) -> int | None:
+    """在表头行中找到映射对应的列索引（1-based）。
+
+    优先精确匹配，其次子串匹配。
+    """
+    # 列字母直指定
+    if mapping.source_column:
+        col = ord(mapping.source_column.upper()) - ord("A") + 1
+        return col
+
+    if not mapping.source_name:
+        return None
+
+    header_cells = list(sheet[header_row])
+
+    # 第一遍：精确匹配
+    for cell in header_cells:
+        if cell.value is not None and mapping.source_name is not None:
+            if str(cell.value).strip() == mapping.source_name:
+                return cast(int, cell.column)
+
+    # 第二遍：子串匹配（排除歧义：长名优先于短名）
+    candidates: list[tuple[int, str]] = []
+    for cell in header_cells:
+        if cell.value is not None and mapping.source_name is not None and mapping.source_name in str(cell.value):
+            candidates.append((cast(int, cell.column), str(cell.value).strip()))
+    if len(candidates) == 1:
+        return candidates[0][0]
+    if len(candidates) > 1:
+        # 取列名长度最接近的
+        candidates.sort(key=lambda x: abs(len(x[1]) - len(mapping.source_name)))  # type: ignore[arg-type]
+        return candidates[0][0]
+
+    return None
+
+
+def _should_skip(
+    row_values: list[object],
+    patterns: list[str],
+) -> bool:
+    """检查一行是否匹配跳过规则。"""
+    text = " ".join(str(v) for v in row_values if v is not None)
     if not text.strip():
         return True
-    if re.search(r"(第\s*\d+\s*页)|(共\s*\d+\s*页)", text):
-        return True
-    if re.search(r"^(合计|总计|小计)", text.strip()):
-        return True
-    if any(kw in text for kw in ["量大价优", "价格以当天询价"]):
-        return True
+    for pattern in patterns:
+        if re.search(pattern, text):
+            return True
     return False
 
 
-def _is_header_row(vals: list[object]) -> bool:
-    """判断一行是否像列标题行。
-
-    表头行特征：非空占比高 + 值类型以字符串为主。
-    """
-    non_empty = [v for v in vals if v is not None]
-    if not non_empty:
-        return False
-    ratio = len(non_empty) / len(vals)
-    if ratio < _HEADER_LIKE_THRESHOLD:
-        return False
-    # 表头行通常以文本为主，数值占比很低
-    str_count = sum(1 for v in non_empty if isinstance(v, str))
-    return str_count >= len(non_empty) * 0.5
-
-
-def _detect_data_bounds(
-    sheet: "openpyxl.worksheet.Worksheet",  # noqa: F821
-) -> tuple[int, int, int, int]:
-    """自动检测数据区域的起止行列。
+def extract(
+    data: bytes,
+    config: ParsingConfig,
+    *,
+    keep_raw: bool = False,
+    fingerprint: StructureFingerprint | None = None,
+) -> ExtractResult:
+    """按解析配置确定性提取数据。
 
     Args:
-        sheet: Openpyxl worksheet object.
+        data: Excel 文件内容。
+        config: 解析配置（来自模板匹配或 LLM）。
+        keep_raw: 是否保留原始单元格值。
+        fingerprint: 结构指纹（可选，用于覆盖 data_end_row）。
 
     Returns:
-        (start_row, end_row, start_col, end_col)
+        提取结果（行列表 + 统计）。
     """
-    max_row = sheet.max_row or 0
-    max_col = sheet.max_column or 0
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    try:
+        sheet = wb.worksheets[config.sheet_index]
+        max_row = sheet.max_row or 0
 
-    if max_row == 0 or max_col == 0:
-        return (1, 0, 1, 0)
+        header_row = config.header_row
+        start_row = config.data_start_row or (header_row + 1)
 
-    # ── 逐行扫描，找到数据开始行 ──
-    start_row = 1
-    for r in range(1, min(max_row + 1, 20)):  # 只看前 20 行
-        vals = list(sheet.iter_rows(min_row=r, max_row=r, values_only=True))[0]
-        non_empty = [v for v in vals if v is not None]
+        # 优先使用 fingerprint 探测的 end_row，其次是 config，最后全量
+        fp_end_row: int | None = None
+        if fingerprint and config.sheet_index < len(fingerprint.sheets):
+            fp_end_row = fingerprint.sheets[config.sheet_index].data_region.get("end_row")
+        end_row = config.data_end_row or fp_end_row or max_row
 
-        if not non_empty:
-            start_row = r + 1  # 跳过空行
-            continue
+        # 构建（列索引 → 映射）查找表
+        col_mappings: dict[int, ColumnMapping] = {}
+        for mapping in config.column_mappings:
+            idx = _find_column_index(sheet, mapping, header_row)
+            if idx is not None:
+                col_mappings[idx] = mapping
+                # 回填列字母，供后续校验使用
+                mapping.source_column = get_column_letter(idx)
 
-        text = " ".join(str(v) for v in non_empty)
+        rows: list[ParsedRow] = []
+        skipped = 0
 
-        # 跳过明显的非数据行
-        if any(kw in text for kw in ["单据日期:", "价格以", "量大"]):
-            start_row = r + 1
-            continue
+        for r in range(start_row, end_row + 1):
+            vals = list(sheet.iter_rows(min_row=r, max_row=r, values_only=True))[0]
 
-        # 如果这一行像表头，标记为数据开始
-        if _is_header_row(list(vals)):
-            start_row = r
-            break
+            # 跳过规则
+            if _should_skip(list(vals), config.skip_patterns):
+                skipped += 1
+                continue
 
-        # 如果这一行已经像数据行（以日期开头等）
-        if re.match(r"^\d{4}[-/]\d{2}[-/]\d{2}", str(non_empty[0])):
-            start_row = r
-            break
+            # 空行跳过
+            non_empty = {i: v for i, v in enumerate(vals) if v is not None}
+            if not non_empty:
+                skipped += 1
+                continue
 
-        start_row = r + 1
+            # 按映射提取
+            extracted: dict[str, object] = {}
+            raw_cells: dict[str, object] = {}
+            for col_idx, mapping in col_mappings.items():
+                cell_val = vals[col_idx - 1] if col_idx <= len(vals) else None
+                col_letter = get_column_letter(col_idx)
+                raw_cells[col_letter] = cell_val
 
-    # ── 从底部扫描，找到数据结束行 ──
-    end_row = max_row
-    for r in range(max_row, max(start_row, max_row - 5) - 1, -1):
-        vals = list(sheet.iter_rows(min_row=r, max_row=r, values_only=True))[0]
-        non_empty = [v for v in vals if v is not None]
+                if cell_val is not None:
+                    extracted[mapping.target] = _coerce(cell_val, mapping.dtype)
 
-        if not non_empty:
-            if r == end_row:
-                end_row = r - 1
-            continue
+            # 跳过无映射行（如子表头行）
+            if not extracted:
+                skipped += 1
+                continue
 
-        if _is_footer_row(list(vals)):
-            end_row = r - 1
-            continue
-
-        break  # 找到最后一行数据
-
-    # ── 检测列偏移 ──
-    min_col = 1
-    max_col = max_col
-    if start_row <= end_row:
-        # 检查第一列是否几乎全空，是则偏移到第二列
-        first_col_vals = list(
-            sheet.iter_rows(
-                min_row=start_row,
-                max_row=end_row,
-                min_col=1,
-                max_col=1,
-                values_only=True,
+            rows.append(
+                ParsedRow(
+                    row_number=r,
+                    values=extracted,
+                    raw_cells=raw_cells if keep_raw else None,
+                )
             )
+
+        # 校验
+        validation = _validate(rows, config)
+
+        return ExtractResult(
+            rows=rows,
+            total=len(rows),
+            skipped=skipped,
+            config=config,
+            validation=validation,
         )
-        first_col_non_empty = sum(1 for v in first_col_vals if v[0] is not None)
-        total_rows_checked = end_row - start_row + 1
-        if total_rows_checked > 0 and first_col_non_empty / total_rows_checked < 0.1:
-            min_col = 2
-
-    return (start_row, end_row, min_col, max_col)
+    finally:
+        wb.close()
 
 
-def _serialize_cell(value: object) -> object:
-    """Convert openpyxl cell value to JSON-safe type."""
-    if isinstance(value, (str, int, float, bool, type(None))):
+def _coerce(value: object, dtype: str) -> object:
+    """按目标类型转换单元格值。
+
+    金额字段（amount）保留原始 numeric 类型，不做四舍五入。
+    """
+    if value is None:
+        return None
+    if dtype == "string":
+        return str(value)
+    if dtype in ("numeric", "amount"):
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").replace(" ", "")
+            try:
+                return float(cleaned)
+            except ValueError:
+                return value
         return value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
+    if dtype == "date":
+        if isinstance(value, str):
+            # 尝试解析常见日期格式
+            for fmt in (r"^\d{4}[-/]\d{2}[-/]\d{2}", r"^\d{4}\.\d{2}\.\d{2}"):
+                if re.match(fmt, value):
+                    return value  # 保留 ISO 格式
+        return value
+    return value
 
 
-def parse_sheet(
-    workbook: openpyxl.Workbook,
-    sheet_index: int = 0,
-    *,
-    auto_detect: bool = True,
-) -> ExcelSheetParseResult:
-    """Parse a single sheet into cell_data rows with coordinates.
+def _validate(
+    rows: list[ParsedRow],
+    config: ParsingConfig,
+) -> dict[str, Any]:
+    """提取后的校验。"""
+    result: dict[str, Any] = {"passed": True, "checks": []}
 
-    Args:
-        workbook: Openpyxl workbook object.
-        sheet_index: Index of the sheet to parse.
-        auto_detect: If True, automatically detect header/data/footer boundaries.
-    """
-    sheet = workbook.worksheets[sheet_index]
+    # 行数检查
+    if not rows:
+        result["passed"] = False
+        result["checks"].append("no_rows")
+        return result
 
-    if auto_detect:
-        start_row, end_row, min_col, max_col = _detect_data_bounds(sheet)
-    else:
-        start_row = sheet.min_row or 1
-        end_row = sheet.max_row or 1
-        min_col = sheet.min_column or 1
-        max_col = sheet.max_column or 1
+    result["row_count"] = len(rows)
 
-    rows: list[dict[str, object]] = []
-    non_empty_count = 0
+    # 金额列合计校验（如果页脚有合计）
+    if config.validate_total:
+        amount_col = config.column_for_target("amount")
+        if amount_col:
+            total_amount = 0.0
+            for row in rows:
+                v = row.values.get("amount")
+                if isinstance(v, (int, float)):
+                    total_amount += v
+            result["amount_sum"] = round(total_amount, 2)
+            result["checks"].append("amount_sum_calculated")
 
-    if start_row <= end_row and min_col <= max_col:
-        for row in sheet.iter_rows(
-            min_row=start_row,
-            max_row=end_row,
-            min_col=min_col,
-            max_col=max_col,
-            values_only=False,
-        ):
-            row_values: dict[str, object] = {}
-            has_data = False
-            for cell in row:
-                if cell.value is not None:
-                    col_letter = get_column_letter(cell.column)
-                    row_values[col_letter] = _serialize_cell(cell.value)
-                    has_data = True
-            if has_data:
-                rows.append(row_values)
-                non_empty_count += 1
-            else:
-                # 空行也保留（标记为空）以便行数对账
-                rows.append({})
+    # 必填字段非空
+    total_rows = len(rows)
+    for target in ["amount", "quantity", "date"]:
+        col = config.column_for_target(target)
+        if col:
+            filled = sum(1 for row in rows if row.values.get(target) is not None)
+            result[f"{target}_fill_rate"] = round(filled / total_rows, 2)
 
-    # 收集合并单元格信息
-    merged_info: list[dict[str, object]] = []
-    for mr in sheet.merged_cells.ranges:
-        merged_info.append(
-            {
-                "range": str(mr),
-                "min_row": mr.min_row,
-                "max_row": mr.max_row,
-                "min_col": mr.min_col,
-                "max_col": mr.max_col,
-            }
-        )
-
-    coords: dict[str, object] = {
-        "sheet_name": sheet.title,
-        "data_start_row": start_row,
-        "data_end_row": end_row,
-        "data_start_col": min_col,
-        "data_end_col": max_col,
-        "total_rows_raw": end_row - start_row + 1,
-        "non_empty_rows": non_empty_count,
-        "parsed_rows": len(rows),
-        "column_count": max_col - min_col + 1,
-        "auto_detected": auto_detect,
-        "merged_cells": merged_info,
-    }
-    return ExcelSheetParseResult(sheet_name=sheet.title, rows=rows, coordinates=coords)
+    return result
 
 
-def auto_select_sheet(
-    workbook: openpyxl.Workbook,
-) -> int:
-    """自动选择最可能包含数据的 sheet（非空行最多者）。
+# ═══════════════════════════════════════════════════════════
+# 高层 API（兼容旧接口）
+# ═══════════════════════════════════════════════════════════
 
-    处理多 Sheet 工作簿（如"品类库存动销矩阵"有品类矩阵/库存明细/动销明细）。
-    """
-    best_idx = 0
-    best_count = 0
-    for i, ws in enumerate(workbook.worksheets):
-        # 快速估算非空行数
-        count = 0
-        for row in ws.iter_rows(
-            min_row=1, max_row=min(ws.max_row or 0, 100), values_only=True
-        ):
-            if any(v is not None for v in row):
-                count += 1
-        if count > best_count:
-            best_count = count
-            best_idx = i
-    return best_idx
+
+@dataclass
+class ExcelSheetParseResult:
+    """解析结果（兼容旧接口）。"""
+
+    sheet_name: str
+    rows: list[dict[str, object]]
+    coordinates: dict[str, object]
+    config: ParsingConfig | None = None
+    validation: dict[str, Any] | None = None
 
 
 def parse_excel(
@@ -285,30 +305,128 @@ def parse_excel(
     *,
     auto_detect: bool = True,
     auto_sheet: bool = True,
+    keep_raw: bool = False,
+    config: ParsingConfig | None = None,
 ) -> ExcelSheetParseResult:
-    """Parse Excel bytes into raw grid data.
+    """解析 Excel 文件。
 
-    包容人工不确定性：自动检测表头、数据边界、页脚、列偏移。
-    支持多 Sheet 工作簿的智能选区。
+    全自动管道：fingerprint → match → extract。
+    也可传入现成 config 跳过匹配步骤。
 
     Args:
-        data: Excel file content as bytes.
-        sheet_index: Index of the sheet to parse (default: 0 or auto).
-        auto_detect: Auto-detect data boundaries (headers, footers, offsets).
-        auto_sheet: Auto-select the most data-rich sheet when sheet_index is None.
+        data: Excel 文件内容。
+        sheet_index: 指定 sheet 索引（None=自动）。
+        auto_detect: 是否启用自动探测（仅当无 config 时有效）。
+        auto_sheet: 是否自动选区（仅当无 config 时有效）。
+        keep_raw: 是否保留原始单元格值。
+        config: 直接使用现成配置，跳过模板匹配。
 
     Returns:
-        ExcelSheetParseResult with row list and coordinate metadata.
+        兼容旧接口的 ExcelSheetParseResult。
     """
+    if config is not None:
+        # 直接用传入配置提取
+        result = extract(data, config, keep_raw=keep_raw)
+        sheet_name = _get_sheet_name(data, config.sheet_index)
+        return _to_legacy_result(result, sheet_name, fingerprint=None)
+
+    if not auto_detect:
+        # 关闭自动探测 = 原始暴力解析（全量）
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+        try:
+            idx = sheet_index if sheet_index is not None else 0
+            ws = wb.worksheets[idx]
+            simple_rows: list[dict[str, object]] = []
+            for row in ws.iter_rows(values_only=False):
+                row_values: dict[str, object] = {}
+                for cell in row:
+                    if cell.value is not None:
+                        col_letter = get_column_letter(cell.column)
+                        row_values[col_letter] = cell.value
+                simple_rows.append(row_values)
+
+            return ExcelSheetParseResult(
+                sheet_name=ws.title,
+                rows=simple_rows,
+                coordinates={
+                    "data_start_row": ws.min_row,
+                    "data_end_row": ws.max_row,
+                    "data_start_col": ws.min_column,
+                    "data_end_col": ws.max_column,
+                    "auto_detected": False,
+                },
+            )
+        finally:
+            wb.close()
+
+    # 全自动管道
+    fp = fp_extract(data)
+    cfg = tm_match(fp) if config is None else config
+
+    if cfg is None:
+        # 无匹配模板，返回原始指纹（不走 LLM）
+        sheet = fp.sheets[sheet_index if sheet_index is not None else fp.best_sheet_index]
+        return ExcelSheetParseResult(
+            sheet_name=sheet.name,
+            rows=[],
+            coordinates={
+                "error": "no_template_match",
+                "total_rows": sheet.total_rows,
+                "total_cols": sheet.total_cols,
+                "detected_region": sheet.data_region,
+                "merged_cells": sheet.merged_cells,
+            },
+        )
+
+    # 覆盖 sheet_index（如果调用方指定）
+    if sheet_index is not None:
+        cfg.sheet_index = sheet_index
+
+    result = extract(data, cfg, keep_raw=keep_raw, fingerprint=fp)
+    sheet_name = _get_sheet_name(data, cfg.sheet_index)
+
+    return _to_legacy_result(result, sheet_name, fingerprint=fp)
+
+
+def _get_sheet_name(data: bytes, idx: int) -> str:
+    """快速读取 sheet 名。"""
     wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     try:
-        idx: int
-        if sheet_index is not None:
-            idx = sheet_index
-        elif auto_sheet:
-            idx = auto_select_sheet(wb)
-        else:
-            idx = 0
-        return parse_sheet(wb, idx, auto_detect=auto_detect)
+        return cast(str, wb.worksheets[idx].title)
     finally:
         wb.close()
+
+
+def _to_legacy_result(
+    result: ExtractResult,
+    sheet_name: str,
+    fingerprint: StructureFingerprint | None,
+) -> ExcelSheetParseResult:
+    """将新式 ExtractResult 转换为旧式 ExcelSheetParseResult。"""
+    legacy_rows: list[dict[str, object]] = []
+    for pr in result.rows:
+        legacy_rows.append(pr.values)
+
+    # coordinates 兼容旧接口
+    dr = fingerprint.sheets[result.config.sheet_index].data_region if fingerprint else {}
+    coords: dict[str, object] = {
+        "template_id": result.config.template_id,
+        "template_family": result.config.template_family,
+        "sheet_name": sheet_name,
+        "auto_detected": True,
+        "header_row": result.config.header_row,
+        "data_start_row": dr.get("start_row", result.config.data_start_row),
+        "data_end_row": dr.get("end_row"),
+        "data_start_col": dr.get("start_col", result.config.data_start_col),
+        "total_extracted": result.total,
+        "skipped": result.skipped,
+        "validation": result.validation,
+    }
+
+    return ExcelSheetParseResult(
+        sheet_name=sheet_name,
+        rows=legacy_rows,
+        coordinates=coords,
+        config=result.config,
+        validation=result.validation,
+    )
