@@ -1,2 +1,5 @@
 .DS_Store
 workspace/
+.env
+poc/.env
+poc/downloads/
