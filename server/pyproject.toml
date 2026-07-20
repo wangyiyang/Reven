@@ -1,0 +1,9 @@
+[project]
+name = "reven-server"
+version = "0.1.0"
+description = "Reven server — modular monolith (app + worker entries)"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = true

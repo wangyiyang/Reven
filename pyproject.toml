@@ -1,0 +1,40 @@
+[project]
+name = "reven"
+version = "0.1.0"
+description = "Reven — ERP Platform"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = [
+    "server",
+    "bot",
+    "packages/*",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.11",
+    "mypy>=1.15",
+    "pytest>=8",
+    "import-linter>=2",
+]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "server/tests",
+    "bot/tests",
+]

@@ -1,0 +1,9 @@
+[project]
+name = "tool-contracts"
+version = "0.1.0"
+description = "Agent tool contract schemas — Ronne kernel candidates"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = true
