@@ -169,6 +169,54 @@ def test_template_header_signature():
     assert len(best.header_signature) > 0
 
 
+def test_content_hash_dedup():
+    """重复文件内容哈希一致。"""
+    from reven.importing.fingerprint import content_hash
+
+    a = open(GOLDEN_DIR / "现存量查询_20.xlsx", "rb").read()
+    b = open(GOLDEN_DIR / "现存量查询_21.xlsx", "rb").read()
+    ha, hb = content_hash(a), content_hash(b)
+    assert ha != hb, "不同文件应不同hash"
+    assert len(ha) == 16
+
+
+def test_parse_all_sheets_multi():
+    """多 Sheet 工作簿全量解析。"""
+    from reven.importing.parser import parse_all_sheets
+
+    path = GOLDEN_DIR / "品类库存动销矩阵.xlsx"
+    if not path.exists():
+        pytest.skip(f"File not found: {path}")
+    data = path.read_bytes()
+    results = parse_all_sheets(data)
+    assert len(results) >= 3
+    # 品类矩阵 sheet 应命中 category_analysis
+    assert "品类矩阵" in results
+    cat = results["品类矩阵"]
+    assert cat.config is not None
+    assert cat.config.template_id == "category_analysis"
+
+
+def test_confidence_posterior():
+    """校验失败后置信度修正。"""
+    from reven.importing.config import ParsingConfig
+    from reven.importing.parser import extract
+
+    # 构造一个必然会 fail 的配置
+    bad_cfg = ParsingConfig(
+        template_id="test",
+        template_family="test",
+        header_row=1,
+        data_start_row=2,
+        data_start_col=1,
+        validate_total=False,
+    )
+    data = open(GOLDEN_DIR / "销货单明细表_28.xlsx", "rb").read()
+    result = extract(data, bad_cfg)
+    # 无映射列 → 弱校验失败 → confidence 降低
+    assert result.config.confidence <= 0.5
+
+
 def test_all_files_discovered():
     """至少有三个黄金案例文件可用。"""
     found = [f for f in GOLDEN_DIR.glob("销货单明细表*.xlsx")]

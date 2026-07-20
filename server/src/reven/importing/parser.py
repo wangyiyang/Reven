@@ -278,6 +278,9 @@ def _validate(
     if not rows:
         result["passed"] = False
         result["checks"].append("no_rows")
+        result["validation_strength"] = "weak"
+        # ⬇ 置信度修正（即使无行也要执行，确保 extract 返回正确值）
+        config.confidence = min(config.confidence, 0.5)
         return result
 
     result["row_count"] = len(rows)
@@ -309,7 +312,9 @@ def _validate(
         if cm.dtype in ("numeric", "amount", "string", "date"):
             check_targets.add(cm.target)
     for target in check_targets:
-        filled = sum(1 for row in rows if row.values.get(target) is not None and str(row.values.get(target, "")).strip())
+        filled = sum(
+            1 for row in rows if row.values.get(target) is not None and str(row.values.get(target, "")).strip()
+        )
         rate = round(filled / total_rows, 2)
         fill_rates[target] = rate
         result[f"{target}_fill_rate"] = rate
@@ -331,6 +336,12 @@ def _validate(
                 result["checks"].append("warn_high_negative_ratio")
     else:
         result["validation_strength"] = "strong"
+
+    # 置信度后验修正：校验失败或异常时降低置信度
+    if not result.get("passed", True):
+        config.confidence = min(config.confidence, 0.5)
+    elif "warn_high_negative_ratio" in result.get("checks", []):
+        config.confidence = min(config.confidence, 0.7)
 
     return result
 
@@ -447,6 +458,45 @@ def _get_sheet_name(data: bytes, idx: int) -> str:
         return cast(str, wb.worksheets[idx].title)
     finally:
         wb.close()
+
+
+def parse_all_sheets(
+    data: bytes,
+    *,
+    keep_raw: bool = False,
+) -> dict[str, ExcelSheetParseResult]:
+    """全量解析所有 sheet。
+
+    对多 Sheet 工作簿（如品类库存动销矩阵的 3 个 sheet），
+    分别提取指纹 → 匹配模板 → 提取数据，返回 {sheet_name: result}。
+
+    Args:
+        data: Excel 文件内容。
+        keep_raw: 是否保留原始单元格值。
+
+    Returns:
+        按 sheet 名索引的解析结果字典。
+        未匹配到模板的 sheet 会包含 error 标记但不抛出异常。
+    """
+    fp = fp_extract(data)
+    results: dict[str, ExcelSheetParseResult] = {}
+    for sf in fp.sheets:
+        cfg = tm_match(fp, sheet_index=sf.index)
+        if cfg is None:
+            results[sf.name] = ExcelSheetParseResult(
+                sheet_name=sf.name,
+                rows=[],
+                coordinates={
+                    "error": "no_template_match",
+                    "total_rows": sf.total_rows,
+                    "total_cols": sf.total_cols,
+                    "detected_region": sf.data_region,
+                },
+            )
+            continue
+        ext = extract(data, cfg, keep_raw=keep_raw, fingerprint=fp)
+        results[sf.name] = _to_legacy_result(ext, sf.name, fingerprint=fp)
+    return results
 
 
 def _to_legacy_result(

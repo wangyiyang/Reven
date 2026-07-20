@@ -304,17 +304,27 @@ def default_registry() -> TemplateRegistry:
 def match(
     fingerprint: StructureFingerprint,
     registry: TemplateRegistry | None = None,
+    *,
+    sheet_index: int | None = None,
 ) -> ParsingConfig | None:
     """对结构指纹执行模板匹配。
 
     Args:
         fingerprint: 结构指纹。
         registry: 匹配器注册表（默认使用内置规则）。
+        sheet_index: 指定 sheet（None=自动选最佳）。
 
     Returns:
         若命中则返回 ParsingConfig，否则返回 None。
     """
     r = registry or default_registry()
+
+    if sheet_index is not None:
+        # 匹配指定 sheet
+        if 0 <= sheet_index < len(fingerprint.sheets):
+            return r.match(fingerprint.sheets[sheet_index])
+        return None
+
     # 优先匹配 best_sheet
     best_fp = fingerprint.sheets[fingerprint.best_sheet_index]
     result = r.match(best_fp)

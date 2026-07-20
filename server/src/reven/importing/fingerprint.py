@@ -321,3 +321,25 @@ def fingerprint(data: bytes, filename: str = "") -> StructureFingerprint:
         )
     finally:
         wb.close()
+
+
+def content_hash(data: bytes) -> str:
+    """计算 Excel 文件的数据区内容哈希（用于重复检测）。
+
+    只哈希前 100 行数据，忽略文件元数据差异（如导出时间）。
+    """
+    import hashlib
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    try:
+        ws = wb.worksheets[0]
+        rows_data: list[str] = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i >= 100:
+                break
+            row_str = "|".join(str(c) if c is not None else "" for c in row[:20])
+            rows_data.append(row_str)
+        content = "\n".join(rows_data)
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    finally:
+        wb.close()
