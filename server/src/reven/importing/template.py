@@ -1,10 +1,11 @@
 """Template matching — 先规则匹配，后 LLM 兜底。
 
 核心流程：
-  指纹 → 规则匹配器 → 命中? → ParsingConfig
-                       → 未命中 → LLM 插件口 → ParsingConfig
+  指纹 → 规则匹配器 → 命中? → ParsingConfig（source="rule"）
+                       → 未命中 → LLM 插件口 → ParsingConfig（source="llm", confidence≤0.8）
+                               → LLM 失败 → 人工确认队列
 
-当前内置 6 类规则匹配器，覆盖已知的全部用友模板变体。
+当前内置 6 类规则匹配器 + 1 个 LLM 兜底匹配器。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from reven.importing.fingerprint import (
     SheetFingerprint,
     StructureFingerprint,
 )
+from reven.intelligence.llm_matcher import llm_matcher
 
 # ── 匹配器类型签名 ─────────────────────────────────────────
 MatcherFn = Callable[[SheetFingerprint], ParsingConfig | None]
@@ -290,7 +292,12 @@ def _match_simple_metrics(fp: SheetFingerprint) -> ParsingConfig | None:
 
 
 def default_registry() -> TemplateRegistry:
-    """创建默认的模板匹配器注册表（按优先级排序）。"""
+    """创建默认的模板匹配器注册表（按优先级排序）。
+
+    注册顺序：
+        1. 规则匹配器（高特异性优先）
+        2. LLM 兜底匹配器（全部规则未命中时调用）
+    """
     registry = TemplateRegistry()
     # 高特异性匹配器优先
     registry.register("sales_order", _match_sales_order)
@@ -298,6 +305,8 @@ def default_registry() -> TemplateRegistry:
     registry.register("price_list", _match_price_list)
     registry.register("simple_metrics", _match_simple_metrics)
     registry.register("category_analysis", _match_category_analysis)
+    # LLM 兜底（全部规则未命中时才调用）
+    registry.register("llm", llm_matcher)
     return registry
 
 

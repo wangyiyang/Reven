@@ -373,7 +373,7 @@ def parse_excel(
 ) -> ExcelSheetParseResult:
     """解析 Excel 文件。
 
-    全自动管道：fingerprint → match → extract。
+    全自动管道：fingerprint → match（规则匹配器 → LLM 兜底）→ extract。
     也可传入现成 config 跳过匹配步骤。
 
     Args:
@@ -386,6 +386,7 @@ def parse_excel(
 
     Returns:
         兼容旧接口的 ExcelSheetParseResult。
+        规则匹配器和 LLM 匹配器都未命中时，返回含 error 标记的空结果。
     """
     if config is not None:
         # 直接用传入配置提取
