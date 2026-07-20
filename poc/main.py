@@ -84,6 +84,12 @@ def handle_message(data: P2ImMessageReceiveV1) -> None:
             # 清洗 HTML 标签（飞书 Thread 回复消息会带 <p> 等标签）
             import re
             text = re.sub(r'<[^>]+>', '', text).strip()
+            # 清洗 @机器人 提及标记
+            if hasattr(msg, 'mentions') and msg.mentions:
+                for m in msg.mentions:
+                    key = getattr(m, 'key', '') or ''
+                    if key.startswith('@'):
+                        text = text.replace(key, '').strip()
             print(f"  💬 {text[:80]}")
             flushed = aggregator.feed_text(chat_id, sender_id, message_id, text)
             if flushed:
