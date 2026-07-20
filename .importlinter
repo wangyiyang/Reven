@@ -24,6 +24,7 @@ source_modules =
 forbidden_modules =
     reven.adapters
     lark_oapi
+    minio
 
 # Rule 3: 智能层只能 import 指标层与工具契约
 [importlinter:contract:intelligence-boundary]

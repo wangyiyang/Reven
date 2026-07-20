@@ -3,7 +3,14 @@ name = "reven-server"
 version = "0.1.0"
 description = "Reven server — modular monolith (app + worker entries)"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "psycopg2-binary>=2.9",
+    "minio>=7.2",
+    "openpyxl>=3.1",
+]
 
 [tool.uv]
 package = true
