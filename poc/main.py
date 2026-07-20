@@ -93,7 +93,6 @@ def handle_message(data: P2ImMessageReceiveV1) -> None:
             print(f"  💬 {text[:80]}")
             flushed = aggregator.feed_text(chat_id, sender_id, message_id, text)
             if flushed:
-                print(f"  ⏰ 旧会话超时，立即处理")
                 executor.submit(process_session, flushed)
 
         elif msg_type == "file":
@@ -175,6 +174,14 @@ def process_session(session):
             global _processed_echo
             _processed_echo += 1
             print(f"  📋 纯文字 #{_processed_echo}: {session.text[:60]}")
+
+            # #7 耗时任务模拟
+            if session.text == "\u6d4b\u8bd5\u8017\u65f6":
+                print("  \u23f3 \u6a21\u62df\u8017\u65f6 10s...")
+                import time
+                time.sleep(10)
+                print("  \u2705 \u8017\u65f6\u4efb\u52a1\u5b8c\u6210\uff0c\u56de\u590d")
+
             send_text(client, chat_id, session.text,
                       reply_message_id=session.text_message_id)
 

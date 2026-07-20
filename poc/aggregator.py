@@ -99,7 +99,7 @@ class SessionAggregator:
 
         Returns:
             None — 继续等待配对
-            AggregatedSession — 旧会话需立即处理
+            AggregatedSession — 需立即处理的会话
         """
         ts = timestamp or time.time()
         key = (chat_id, sender_id)
@@ -118,7 +118,15 @@ class SessionAggregator:
                 return old
 
             session.add_text(message_id, text, ts)
-            return None
+
+            # 纯文字无附件 → 立即派发（不等窗口）
+            if not session.has_files:
+                del self._sessions[key]
+                return session
+
+            # 文字 + 已有附件 → 立即配对
+            del self._sessions[key]
+            return session
 
     def feed_file(self, chat_id: str, sender_id: str,
                   message_id: str, file_key: str, file_name: str,

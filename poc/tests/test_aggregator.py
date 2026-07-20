@@ -13,57 +13,59 @@ from aggregator import SessionAggregator
 
 
 def test_only_text():
-    """场景：只有文字 → 窗口到期后成一次请求"""
-    ag = SessionAggregator(window_seconds=0.1)
+    """场景：只有文字 → 立即派发"""
+    ag = SessionAggregator()
     now = time.time()
 
-    ag.feed_text("chat_1", "user_1", "msg_1", "你好", now)
-
-    # 未超时，tick 不应返回
-    expired = ag.tick(now + 0.05)
-    assert len(expired) == 0, "窗口未超时不应返回"
-
-    # 超窗后
-    expired = ag.tick(now + 0.2)
-    assert len(expired) == 1, "应有一个会话超时"
-    assert expired[0].text == "你好"
-    assert not expired[0].has_files
+    # feed_text 对于纯文字会立即返回会话
+    result = ag.feed_text("chat_1", "user_1", "msg_1", "你好", now)
+    assert result is not None
+    assert result.text == "你好"
+    assert not result.has_files
+    assert ag.session_count() == 0, "纯文字应被立即派发，不缓存"
     print("✅ test_only_text PASS")
 
 
 def test_text_then_file():
-    """场景：先文字后文件 → 窗口到期后聚合成一次请求"""
+    """场景：先文字后文件 → 文字立即派发，文件单独缓存"""
     ag = SessionAggregator(window_seconds=0.1)
     now = time.time()
 
-    ag.feed_text("chat_1", "user_1", "msg_1", "出一下日报", now)
+    # 文字立即派发（不等文件）
+    result = ag.feed_text("chat_1", "user_1", "msg_1", "出一下日报", now)
+    assert result is not None
+    assert result.text == "出一下日报"
+    assert not result.has_files
+
+    # 文件单独缓存
     ag.feed_file("chat_1", "user_1", "msg_2", "file_key_1",
                   "日报.xlsx", "file", now + 0.02)
 
-    # 超窗
+    # 文件超时
     expired = ag.tick(now + 0.2)
     assert len(expired) == 1
-    session = expired[0]
-    assert session.text == "出一下日报"
-    assert len(session.files) == 1
-    assert session.files[0]["file_name"] == "日报.xlsx"
+    assert not expired[0].has_text
+    assert len(expired[0].files) == 1
     print("✅ test_text_then_file PASS")
 
 
 def test_file_then_text():
-    """场景：先文件后文字 → 窗口到期后聚合成一次请求"""
+    """场景：先文件后文字 → 立即配对"""
     ag = SessionAggregator(window_seconds=0.1)
     now = time.time()
 
-    ag.feed_file("chat_1", "user_1", "msg_1", "file_key_1",
-                  "数据.xlsx", "file", now)
-    ag.feed_text("chat_1", "user_1", "msg_2", "分析一下", now + 0.02)
+    # 文件缓存
+    r1 = ag.feed_file("chat_1", "user_1", "msg_1", "file_key_1",
+                       "数据.xlsx", "file", now)
+    assert r1 is None, "文件应缓存"
 
-    expired = ag.tick(now + 0.2)
-    assert len(expired) == 1
-    session = expired[0]
-    assert session.text == "分析一下"
-    assert len(session.files) == 1
+    # 文字到达 → 立即配对派发
+    result = ag.feed_text("chat_1", "user_1", "msg_2", "分析一下", now + 0.02)
+    assert result is not None
+    assert result.text == "分析一下"
+    assert len(result.files) == 1
+
+    assert ag.session_count() == 0
     print("✅ test_file_then_text PASS")
 
 
@@ -83,23 +85,31 @@ def test_only_file():
 
 
 def test_multiple_files():
-    """场景：窗口内多个文件 → 聚合为同一请求的多附件"""
+    """场景：多个文件 → 窗口内聚合"""
     ag = SessionAggregator(window_seconds=0.1)
     now = time.time()
 
-    ag.feed_text("chat_1", "user_1", "msg_0", "处理这些文件", now)
+    # 文件先到达
     ag.feed_file("chat_1", "user_1", "msg_1", "key_1",
-                  "a.xlsx", "file", now + 0.02)
+                  "a.xlsx", "file", now)
     ag.feed_file("chat_1", "user_1", "msg_2", "key_2",
-                  "b.xlsx", "file", now + 0.04)
+                  "b.xlsx", "file", now + 0.02)
 
     expired = ag.tick(now + 0.2)
     assert len(expired) == 1
     session = expired[0]
-    assert session.text == "处理这些文件"
+    assert not session.has_text
     assert len(session.files) == 2
     assert session.files[0]["file_name"] == "a.xlsx"
     assert session.files[1]["file_name"] == "b.xlsx"
+
+    # 如果有文字到达，立即配对
+    ag.feed_file("chat_1", "user_1", "msg_3", "key_3",
+                  "c.xlsx", "file", now + 1.0)
+    result = ag.feed_text("chat_1", "user_1", "msg_4", "处理文件", now + 1.1)
+    assert result is not None
+    assert result.text == "处理文件"
+    assert len(result.files) == 1  # 只有 msg_3 的文件，msg_1/2 已在之前 tick 过期
     print("✅ test_multiple_files PASS")
 
 
@@ -108,14 +118,17 @@ def test_different_sender_no_aggregate():
     ag = SessionAggregator(window_seconds=0.1)
     now = time.time()
 
-    ag.feed_text("chat_1", "user_1", "msg_1", "你好", now)
+    # user_1 的文字立即派发
+    r1 = ag.feed_text("chat_1", "user_1", "msg_1", "你好", now)
+    assert r1 is not None
+
+    # user_2 的文件缓存
     ag.feed_file("chat_1", "user_2", "msg_2", "key_1",
                   "file.xlsx", "file", now + 0.02)
 
     expired = ag.tick(now + 0.2)
-    assert len(expired) == 2, "两个不同发送者应各自超时"
-    senders = {s.sender_id for s in expired}
-    assert senders == {"user_1", "user_2"}
+    assert len(expired) == 1, "只有 user_2 的文件会话超时"
+    assert expired[0].sender_id == "user_2"
     print("✅ test_different_sender_no_aggregate PASS")
 
 
@@ -134,22 +147,19 @@ def test_concurrent_sessions():
     ag = SessionAggregator(window_seconds=0.1)
     now = time.time()
 
-    # chat_1: 文字
-    ag.feed_text("chat_1", "user_1", "m1", "hello", now)
-    # chat_2: 文字+文件
-    ag.feed_text("chat_2", "user_2", "m2", "world", now)
-    ag.feed_file("chat_2", "user_2", "m3", "key", "f.xlsx", "file", now + 0.02)
+    # chat_1: 纯文字立即派发
+    r1 = ag.feed_text("chat_1", "user_1", "m1", "hello", now)
+    assert r1 is not None
 
-    expired = ag.tick(now + 0.2)
-    assert len(expired) == 2
+    # chat_2: 文件先缓存，文字到达后配对
+    ag.feed_file("chat_2", "user_2", "m2", "key", "f.xlsx", "file", now)
+    r2 = ag.feed_text("chat_2", "user_2", "m3", "world", now + 0.02)
+    assert r2 is not None
+    assert r2.chat_id == "chat_2"
+    assert r2.text == "world"
+    assert len(r2.files) == 1
 
-    chat1 = [s for s in expired if s.chat_id == "chat_1"]
-    chat2 = [s for s in expired if s.chat_id == "chat_2"]
-    assert len(chat1) == 1
-    assert len(chat2) == 1
-    assert chat1[0].text == "hello"
-    assert chat2[0].text == "world"
-    assert len(chat2[0].files) == 1
+    assert ag.session_count() == 0, "所有会话应已派发"
     print("✅ test_concurrent_sessions PASS")
 
 
@@ -159,10 +169,14 @@ def test_session_count():
     now = time.time()
 
     assert ag.session_count() == 0
+
+    # 纯文字立即派发，不缓存
     ag.feed_text("chat_1", "user_1", "m1", "hello", now)
-    assert ag.session_count() == 1
+    assert ag.session_count() == 0, "纯文字不应缓存"
+
+    # 文件缓存
     ag.feed_file("chat_2", "user_2", "m2", "k", "f.xlsx", "file", now)
-    assert ag.session_count() == 2
+    assert ag.session_count() == 1
 
     ag.tick(now + 2.0)
     assert ag.session_count() == 0
@@ -177,6 +191,7 @@ def test_thread_safety():
 
     def feed_text_thread(idx):
         try:
+            # feed_text 返回会话是正常的，忽略即可
             ag.feed_text("chat_t", "user_t", f"msg_{idx}", f"text_{idx}", now)
         except Exception as e:
             errors.append(e)
