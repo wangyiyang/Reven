@@ -69,28 +69,38 @@ def _column_count(fp: SheetFingerprint, expected: int, tolerance: int = 2) -> bo
 
 
 def _match_sales_order(fp: SheetFingerprint) -> ParsingConfig | None:
-    """匹配销货单明细表（Q/R/S 列变体）。
+    """匹配销货单明细表（Q/R/S 列变体 + O 窄版）。
 
-    特征：表头含"销货单明细表"、列数 15~19、数据从 B 列开始。
+    特征：表头含"销货单明细表"。
+    变体判别依据列名签名而非列数——因为 R/S 实际都可能是 18 列。
+
+    header_signature 示例:
+        Q:  单据日期, 单据编号, 客户, 业务员, 存货, 仓库, 数量, 单价, 金额
+        R:  单据日期, 单据编号, 客户, 部门, 业务员, 存货, 仓库, 数量, 单价, 金额
+        S:  单据日期, 单据编号, 客户, 部门, 业务员, 联系人, 联系电话, ...
+        O:  单据日期, 单据编号, 客户, 存货, 数量, 单价, 金额 (窄版月报)
     """
     if not _has_keyword(fp.header_candidates, "销货单明细表"):
         return None
-    if not (15 <= fp.total_cols <= 19):
+    if not (13 <= fp.total_cols <= 20):
         return None
 
-    dr = fp.data_region
-    start_row = dr.get("start_row", 5)
-    header_row = start_row
-    start_col = dr.get("start_col", 2)
-
-    # 根据列数确定模板变体
-    col_count = fp.total_cols
-    if col_count <= 16:
-        template_id = "sales_order_Q"
-    elif col_count <= 18:
-        template_id = "sales_order_R"
+    # 使用表头非空列数（header_signature 长度）判别变体
+    # 实际数据揭示了 3 种宽度：
+    #   narrow (O): ≤15 个表头列（5月零售 14列）
+    #   standard (R): 16-17 个表头列（大多数标准导出）
+    #   wide (S): ≥18 个表头列（含额外扩展字段）
+    hdr_cols = len(fp.header_signature)
+    if hdr_cols >= 17:
+        template_id = "sales_order_wide"
+    elif hdr_cols >= 15:
+        template_id = "sales_order_standard"
     else:
-        template_id = "sales_order_S"
+        template_id = "sales_order_narrow"
+
+    dr = fp.data_region
+    header_row = dr.get("start_row", 5)
+    start_col = dr.get("start_col", 2)
 
     return ParsingConfig(
         template_id=template_id,
