@@ -1,5 +1,9 @@
+from uuid import uuid4
+
 import pytest
+from reven.integrations.github.client import GitHubTransientError
 from reven.jobs.errors import BlockedPublishError
+from reven.jobs.repository import JobClaim
 from reven.publishing.blog.publisher import (
     BlogPublisher,
     RequiredCheck,
@@ -154,6 +158,53 @@ def test_pages_latest_never_accepts_historical_or_other_commit() -> None:
     assert pages_state({"commit": "merge", "status": "built"}, "merge") == "success"
     with pytest.raises(BlockedPublishError, match="Pages"):
         pages_state({"commit": "other", "status": "errored"}, "merge")
+
+
+@pytest.mark.anyio
+async def test_merge_response_lost_recovers_only_from_merged_pr_query() -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.queries = 0
+
+        async def pull_requests(self, head, *, base, state="all"):  # type: ignore[no-untyped-def]
+            self.queries += 1
+            if self.queries == 1:
+                return [{"number": 7, "state": "open", "merged_at": None}]
+            return [
+                {
+                    "number": 7,
+                    "state": "closed",
+                    "merged_at": "2026-07-30",
+                    "merge_commit_sha": "merge-sha",
+                }
+            ]
+
+        async def merge(self, number, sha):  # type: ignore[no-untyped-def]
+            raise GitHubTransientError("lost", uncertain=True)
+
+    class Store:
+        async def save_result(self, claim, patch):  # type: ignore[no-untyped-def]
+            result.update(patch)
+            return True
+
+        async def clear_operation(self, claim, operation_id):  # type: ignore[no-untyped-def]
+            return True
+
+    class Never:
+        pass
+
+    result: dict[str, object] = {}
+    publisher = BlogPublisher(
+        Client(),  # type: ignore[arg-type]
+        Never(),  # type: ignore[arg-type]
+        Never(),  # type: ignore[arg-type]
+        Store(),  # type: ignore[arg-type]
+        remote_url="https://github.com/acme/blog.git",
+        token="secret",
+    )
+    claim = JobClaim(uuid4(), uuid4())
+    assert await publisher._ensure_merge(claim, result, 7, "head-sha", "reven/branch", "trunk") == "merge-sha"
+    assert result["merge_sha"] == "merge-sha"
 
 
 def test_pull_request_fallback_has_pyramid_sections() -> None:
