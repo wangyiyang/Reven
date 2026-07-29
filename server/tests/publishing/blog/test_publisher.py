@@ -1,8 +1,8 @@
 from uuid import uuid4
 
 import pytest
-from reven.integrations.github.client import GitHubTransientError
-from reven.jobs.errors import BlockedPublishError
+from reven.integrations.github.client import GitHubBlockedError, GitHubPermanentError, GitHubTransientError
+from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim
 from reven.publishing.blog.publisher import (
     BlogPublisher,
@@ -166,18 +166,16 @@ async def test_merge_response_lost_recovers_only_from_merged_pr_query() -> None:
         def __init__(self) -> None:
             self.queries = 0
 
-        async def pull_requests(self, head, *, base, state="all"):  # type: ignore[no-untyped-def]
+        async def get_pull(self, number):  # type: ignore[no-untyped-def]
             self.queries += 1
             if self.queries == 1:
-                return [{"number": 7, "state": "open", "merged_at": None}]
-            return [
-                {
-                    "number": 7,
-                    "state": "closed",
-                    "merged_at": "2026-07-30",
-                    "merge_commit_sha": "merge-sha",
-                }
-            ]
+                return {"number": 7, "state": "open", "merged_at": None}
+            return {
+                "number": 7,
+                "state": "closed",
+                "merged_at": "2026-07-30",
+                "merge_commit_sha": "b" * 40,
+            }
 
         async def merge(self, number, sha):  # type: ignore[no-untyped-def]
             raise GitHubTransientError("lost", uncertain=True)
@@ -203,8 +201,62 @@ async def test_merge_response_lost_recovers_only_from_merged_pr_query() -> None:
         token="secret",
     )
     claim = JobClaim(uuid4(), uuid4())
-    assert await publisher._ensure_merge(claim, result, 7, "head-sha", "reven/branch", "trunk") == "merge-sha"
-    assert result["merge_sha"] == "merge-sha"
+    assert await publisher._ensure_merge(claim, result, 7, "head-sha", "reven/branch", "trunk") == "b" * 40
+    assert result["merge_sha"] == "b" * 40
+
+
+@pytest.mark.anyio
+async def test_merge_lost_does_not_recover_historical_pr_for_same_head() -> None:
+    class Client:
+        async def get_pull(self, number):  # type: ignore[no-untyped-def]
+            return {"number": 7, "state": "open", "merged_at": None}
+
+        async def merge(self, number, sha):  # type: ignore[no-untyped-def]
+            raise GitHubTransientError("lost", uncertain=True)
+
+        async def pull_requests(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            return [{"number": 6, "merged_at": "old", "merge_commit_sha": "wrong"}]
+
+    class Store:
+        async def save_result(self, claim, patch):  # type: ignore[no-untyped-def]
+            result.update(patch)
+            return True
+
+    class Never:
+        pass
+
+    result: dict[str, object] = {}
+    publisher = BlogPublisher(
+        Client(),  # type: ignore[arg-type]
+        Never(),  # type: ignore[arg-type]
+        Never(),  # type: ignore[arg-type]
+        Store(),  # type: ignore[arg-type]
+        remote_url="https://github.com/acme/blog.git",
+        token="secret",
+    )
+    with pytest.raises(BlockedPublishError, match="不确定"):
+        await publisher._ensure_merge(JobClaim(uuid4(), uuid4()), result, 7, "head", "reven/branch", "trunk")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("github_error", "publish_error"),
+    [
+        (GitHubTransientError("secret detail", status=429), TransientPublishError),
+        (GitHubBlockedError("secret detail", status=403), BlockedPublishError),
+        (GitHubPermanentError("secret detail", status=422), PermanentPublishError),
+    ],
+)
+async def test_all_github_errors_map_to_runner_publish_errors(
+    github_error: Exception,
+    publish_error: type[Exception],
+) -> None:
+    async def failed():  # type: ignore[no-untyped-def]
+        raise github_error
+
+    with pytest.raises(publish_error) as caught:
+        await BlogPublisher._external(failed())
+    assert "secret detail" not in str(caught.value)
 
 
 def test_pull_request_fallback_has_pyramid_sections() -> None:
