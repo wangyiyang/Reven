@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,7 +129,7 @@ class BlogPublisher:
         trusted = self.workspace.capture_artifacts(build_path, converted.manifest)
         await self.workspace.build(build_path)
         self.workspace.verify_artifacts(build_path, trusted)
-        shutil.rmtree(build_path)
+        self.workspace.cleanup_repository(build_path)
         path = await self.workspace.clone_at(attempt / "push", self.remote_url, self.token)
         await self.workspace.switch(path, branch)
         self.workspace.restore_artifacts(path, trusted)

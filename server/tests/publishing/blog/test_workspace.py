@@ -10,6 +10,8 @@ class Recorder:
 
     async def run(self, argv, *, cwd=None, env=None, secrets=()):  # type: ignore[no-untyped-def]
         self.calls.append((list(argv), cwd, env))
+        if "clone" in argv:
+            Path(argv[-1]).mkdir()
         return type("Result", (), {"stdout": "ruby-platform"})()
 
 
@@ -36,8 +38,9 @@ async def test_workspace_commands_use_isolated_home_tmp_and_bundle(tmp_path: Pat
     path.mkdir(parents=True)
     await workspace.prepare(path, "reven/11111111-aaaaaaaaaaaa")
     environments = [env for _argv, _cwd, env in runner.calls]
-    assert all(env is not None and env["HOME"].startswith(str(path)) for env in environments)
-    assert all(env is not None and env["BUNDLE_PATH"].startswith(str(path)) for env in environments)
+    assert all(env is not None and ".reven-runtime" in env["HOME"] for env in environments)
+    assert all(env is not None and env["BUNDLE_PATH"] == "/opt/reven-blog/vendor/bundle" for env in environments)
+    assert not (path / ".reven").exists()
 
 
 @pytest.mark.anyio
@@ -53,10 +56,39 @@ async def test_workspace_sandboxes_bundle_network_and_offline_build(tmp_path: Pa
     await workspace.build(path)
 
     bundle_commands = [argv for argv, _cwd, _env in runner.calls if "bundle" in argv]
-    assert "--share-net" in bundle_commands[0]
-    assert "--share-net" in bundle_commands[1]
-    assert "--share-net" not in bundle_commands[2]
+    assert len(bundle_commands) == 2
+    assert all("--share-net" not in command for command in bundle_commands)
     assert all("--unshare-all" in command for command in bundle_commands)
+    assert all(command[0] == "/usr/bin/prlimit" for command in bundle_commands)
+
+
+@pytest.mark.anyio
+async def test_workspace_rejects_repository_symlink_before_creating_environment(tmp_path: Path) -> None:
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
+    path = workspace.path("job-id")
+    path.mkdir(parents=True)
+    (path / ".reven").symlink_to(victim, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="符号链接"):
+        await workspace.prepare(path, "reven/11111111-aaaaaaaaaaaa")
+
+    assert list(victim.iterdir()) == []
+
+
+def test_workspace_rejects_symlink_in_attempt_path(tmp_path: Path) -> None:
+    workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    base = workspace.path("job-id")
+    base.parent.mkdir(parents=True)
+    base.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        workspace.create_attempt("job-id")
+
+    assert list(outside.iterdir()) == []
 
 
 def test_workspace_cleanup_removes_only_safe_blog_path(tmp_path: Path) -> None:
@@ -118,5 +150,6 @@ def test_build_cannot_forge_in_memory_trusted_artifacts(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="构建篡改"):
         workspace.verify_artifacts(repo, trusted)
     push_repo = attempt / "push"
+    push_repo.mkdir()
     workspace.restore_artifacts(push_repo, trusted)
     assert (push_repo / "_posts/post.md").read_text() == "trusted"

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22.22.2-bookworm-slim AS node-build
+FROM node:22.22.2-bookworm-slim@sha256:9f6d5975c7dca860947d3915877f85607946403fc55349f39b4bc3688448bb6e AS node-build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -18,14 +18,14 @@ COPY vendor/doocs-md/shared/ vendor/doocs-md/shared/
 RUN pnpm --filter @reven/renderer build \
     && pnpm --filter @reven/web build
 
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS python-build
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS python-build
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY server/pyproject.toml server/pyproject.toml
 COPY server/src/ server/src/
 RUN uv sync --frozen --no-dev --all-packages
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS runtime
 ARG BUNDLER_VERSION=2.5.22
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -33,14 +33,21 @@ RUN apt-get update \
     && gem install bundler -v "${BUNDLER_VERSION}" --no-document \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+COPY infra/blog/runtime/ /opt/reven-blog/
+RUN BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle config set --local deployment true \
+    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle config set --local path /opt/reven-blog/vendor/bundle \
+    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle install --jobs 4 \
+    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle check \
+    && chmod 755 /opt/reven-blog \
+    && chmod 644 /opt/reven-blog/Gemfile /opt/reven-blog/Gemfile.lock \
+    && chmod -R a+rX /opt/reven-blog/vendor
 RUN useradd --create-home --uid 10001 reven \
     && mkdir -p /app /data/jobs /srv/reven \
     && chown -R reven:reven /app /data /srv/reven
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
-# Copy the complete Node runtime prefix so node keeps its matching shared libraries
-# and runtime files instead of relying on an incompatible standalone binary.
-COPY --from=node-build /usr/local/ /usr/local/
+# The renderer only needs the Node executable; excluding npm/corepack shrinks the runtime attack surface.
+COPY --from=node-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-build --chown=reven:reven /app/renderer/dist /app/renderer/dist
 COPY --from=node-build --chown=reven:reven /app/web/dist /app/web-dist
 RUN find /app/web-dist -type f -print0 \
