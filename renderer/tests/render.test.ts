@@ -57,7 +57,7 @@ describe("renderWechatHtml", () => {
     expect(html).toContain("margin:4px");
   });
 
-  test("restores only encoded asset image sources", () => {
+  test("restores only asset sources registered during this render", () => {
     const assetOne = Buffer.from("reven-asset://image/1").toString("base64url");
     const assetTwo = Buffer.from("reven-asset://image/2").toString("base64url");
     const markdown = [
@@ -70,9 +70,10 @@ describe("renderWechatHtml", () => {
     const html = renderWechatHtml(markdown);
 
     expect(html.match(/src="reven-asset:\/\/image\/1"/g)).toHaveLength(1);
-    expect(html.match(/src="reven-asset:\/\/image\/2"/g)).toHaveLength(2);
+    expect(html.match(/src="reven-asset:\/\/image\/2"/g)).toHaveLength(1);
     expect(html).toContain(`href="https://reven.invalid/assets/${assetOne}"`);
     expect(html).toContain('src="https://reven.invalid/assets/invalid"');
+    expect(html).toContain(`src="https://reven.invalid/assets/${assetTwo}"`);
   });
 
   test("is deterministic", () => {
