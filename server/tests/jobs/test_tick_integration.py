@@ -6,7 +6,7 @@ import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
-from reven.jobs.notification_outbox import PreparationNotificationOutbox
+from reven.jobs.notification_outbox import NotificationOutbox
 from reven.jobs.preparation_models import PrepareResult
 from reven.jobs.repository import JobRepository
 from reven.jobs.runner import PublicationJobTick
@@ -249,7 +249,7 @@ async def test_blocked_prepare_result_never_calls_executor(db_session) -> None: 
     assert job.overall_status == JobStatus.BLOCKED
     assert "delivery_finalization" not in job.snapshot_metadata
     async with factory() as session:
-        event = await session.scalar(select(PreparationNotificationOutbox))
+        event = await session.scalar(select(NotificationOutbox))
         assert event is not None and event.event == "preparation_blocked"
 
 

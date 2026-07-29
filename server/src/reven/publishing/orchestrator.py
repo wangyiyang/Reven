@@ -11,19 +11,8 @@ from uuid import UUID
 from reven.domain import JobStatus, TargetChannel
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim
-from reven.publishing.notifications import DeliveryNotifier, Notification
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class PendingNotification:
-    fingerprint: str
-    event: str
-    stage: str
-    summary: str
-    error_code: str | None
-    channel: TargetChannel | None
 
 
 @dataclass(frozen=True)
@@ -42,7 +31,6 @@ class DeliveryRecord:
     final_reason: str
     notion_pending: bool
     cleanup_pending: bool
-    notifications: tuple[PendingNotification, ...]
     workspace_anchor: Path
     workspace: Path
 
@@ -63,9 +51,7 @@ class DeliveryStore(Protocol):
     ) -> DeliveryRecord: ...
     async def begin_delivery(self, claim: JobClaim, status: JobStatus, reason: str) -> DeliveryRecord: ...
     async def finish_delivery(self, claim: JobClaim) -> DeliveryRecord: ...
-    async def resolve_notification(self, claim: JobClaim, fingerprint: str, *, sent: bool) -> bool: ...
     async def finish_cleanup(self, claim: JobClaim) -> bool: ...
-    async def bump_notification_revision(self, claim: JobClaim) -> int: ...
 
 
 class ChannelPublisher(Protocol):
@@ -83,18 +69,15 @@ class PublicationOrchestrator:
         blog: ChannelPublisher,
         wechat: ChannelPublisher,
         notion: NotionDeliveryWriter,
-        notifier: DeliveryNotifier,
     ) -> None:
         self.store = store
         self.publishers = {TargetChannel.BLOG: blog, TargetChannel.WECHAT: wechat}
         self.notion = notion
-        self.notifier = notifier
 
     async def execute(self, claim: JobClaim) -> None:
         record = await self.store.load(claim)
         if not _is_finalized(record):
             record = await self.store.ensure_default_event(claim)
-            await self._drain_notifications(claim, record)
             record = await self.store.load(claim)
             record = await self._publish_channels(claim, record)
             status, reason = _aggregate(record)
@@ -102,7 +85,6 @@ class PublicationOrchestrator:
         if record.notion_pending:
             await self.notion.write(record, _required_status(record), record.final_reason)
             record = await self.store.finish_delivery(claim)
-        await self._drain_notifications(claim, record)
         await self._cleanup(claim, record)
 
     async def _publish_channels(self, claim: JobClaim, record: DeliveryRecord) -> DeliveryRecord:
@@ -118,7 +100,6 @@ class PublicationOrchestrator:
                 record = await self._record_failure(claim, channel, JobStatus.BLOCKED, exc)
             except PermanentPublishError as exc:
                 record = await self._record_failure(claim, channel, JobStatus.FAILED, exc)
-            await self._drain_notifications(claim, record)
         return record
 
     async def _record_failure(
@@ -136,19 +117,6 @@ class PublicationOrchestrator:
             error_fingerprint(error),
         )
 
-    async def _drain_notifications(self, claim: JobClaim, record: DeliveryRecord) -> None:
-        for event in record.notifications:
-            sent = False
-            try:
-                await self.notifier.send(_notification(record, event))
-                sent = True
-            except Exception as exc:
-                logger.warning("飞书通知失败（error_type=%s）", type(exc).__name__)
-            try:
-                await self.store.resolve_notification(claim, event.fingerprint, sent=sent)
-            except Exception as exc:
-                logger.warning("飞书通知状态写入失败（error_type=%s）", type(exc).__name__)
-
     async def _cleanup(self, claim: JobClaim, record: DeliveryRecord) -> None:
         if not record.cleanup_pending:
             return
@@ -161,16 +129,6 @@ class PublicationOrchestrator:
             await self.store.finish_cleanup(claim)
         except Exception as exc:
             logger.warning("清理状态写入失败（error_type=%s）", type(exc).__name__)
-
-
-def notification_fingerprint(
-    job_id: UUID,
-    event: str,
-    error_code: str | None,
-    channel: TargetChannel | None,
-) -> str:
-    value = f"{job_id}:{event}:{error_code or ''}:{channel or ''}"
-    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def error_fingerprint(error: Exception) -> str:
@@ -247,22 +205,3 @@ def _result_dict(result: object) -> dict[str, object]:
     if is_dataclass(result) and not isinstance(result, type):
         return cast(dict[str, object], asdict(result))
     raise RuntimeError("渠道发布结果格式无效")
-
-
-def _notification(record: DeliveryRecord, event: PendingNotification) -> Notification:
-    return Notification(
-        record.title,
-        event.stage,
-        event.summary,
-        _links(record),
-    )
-
-
-def _links(record: DeliveryRecord) -> dict[str, str]:
-    links = {"Notion": record.notion_url, "Reven": record.reven_url}
-    blog = record.channel_results.get(TargetChannel.BLOG, {})
-    for label, key in (("博客", "article_url"), ("PR", "pull_request_url")):
-        value = blog.get(key)
-        if isinstance(value, str):
-            links[label] = value
-    return links

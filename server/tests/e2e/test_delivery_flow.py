@@ -14,7 +14,7 @@ from reven.integrations.models import Integration
 from reven.integrations.notion.sync import NotionSyncService
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.models import PublicationJob
-from reven.jobs.notification_outbox import PreparationNotificationOutbox, PreparationNotificationTick
+from reven.jobs.notification_outbox import NotificationOutbox, NotificationOutboxTick
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.jobs.runner import PublicationJobTick
 from reven.jobs.service import PreparationConflictError, PublicationJobService
@@ -22,11 +22,11 @@ from reven.publishing.blog.converter import BlogConverter
 from reven.publishing.blog.publisher import BlogPublisher
 from reven.publishing.blog.store import SqlAlchemyBlogResultStore
 from reven.publishing.delivery_store import SqlAlchemyDeliveryStore
-from reven.publishing.factory import _notion_properties, build_configured_orchestrator
+from reven.publishing.factory import _notion_properties, build_configured_notifier, build_configured_orchestrator
 from reven.publishing.orchestrator import PublicationOrchestrator
 from reven.publishing.wechat.publisher import WeChatPublisher
 from reven.publishing.wechat.store import SqlAlchemyWeChatResultStore
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .fakes import FakeDeliveryWriter, FakeMaterializer, FakeNotifier, FakeNotion, FakePublisher, notion_page
@@ -55,9 +55,8 @@ class E2ESystem:
             self.blog,
             self.wechat,
             self.delivery_writer,
-            self.feishu,
         )
-        self.notification_tick = PreparationNotificationTick(factory, self.feishu)
+        self.notification_tick = NotificationOutboxTick(factory, self.feishu)
 
     async def sync_once(self) -> None:
         await self._ensure_integrations()
@@ -98,10 +97,16 @@ class E2ESystem:
 
     async def make_notification_due(self) -> None:
         async with self.factory.begin() as session:
-            outbox = await session.scalar(select(PreparationNotificationOutbox))
+            outbox = await session.scalar(select(NotificationOutbox))
             now = await session.scalar(select(func.clock_timestamp()))
             assert outbox is not None and now is not None
             outbox.next_attempt_at = now - timedelta(seconds=1)
+
+    async def make_all_notifications_due(self) -> None:
+        async with self.factory.begin() as session:
+            now = await session.scalar(select(func.clock_timestamp()))
+            assert now is not None
+            await session.execute(update(NotificationOutbox).values(next_attempt_at=now - timedelta(seconds=1)))
 
     async def make_due(self) -> None:
         async with self.factory.begin() as session:
@@ -179,7 +184,6 @@ async def test_production_publishers_consume_one_frozen_snapshot(e2e_system: E2E
         blog_publisher,
         wechat_publisher,
         e2e_system.delivery_writer,
-        e2e_system.feishu,
     )
 
     await orchestrator.execute(claim)
@@ -222,11 +226,12 @@ async def test_production_factory_wires_configured_channel_publishers(
     )
 
     orchestrator = build_configured_orchestrator(e2e_system.factory, settings)
+    notifier = build_configured_notifier(e2e_system.factory, settings)
 
     assert set(orchestrator.publishers) == {TargetChannel.BLOG, TargetChannel.WECHAT}
     assert orchestrator.store.__class__.__name__ == "SqlAlchemyDeliveryStore"
     assert orchestrator.notion.__class__.__name__ == "ConfiguredNotionDeliveryWriter"
-    assert orchestrator.notifier.__class__.__name__ == "ConfiguredFeishuNotifier"
+    assert notifier.__class__.__name__ == "ConfiguredFeishuNotifier"
 
 
 @pytest.mark.anyio
@@ -285,7 +290,7 @@ async def test_persistent_feishu_failure_never_blocks_cover_recovery(e2e_system:
     assert recovered.overall_status == JobStatus.COMPLETED
     assert len(e2e_system.blog.calls) == len(e2e_system.wechat.calls) == 1
     async with e2e_system.factory() as session:
-        outbox = await session.scalar(select(PreparationNotificationOutbox))
+        outbox = await session.scalar(select(NotificationOutbox))
         assert outbox is not None and outbox.status == "pending"
         assert outbox.next_attempt_at > datetime.now(tz=UTC)
 
@@ -294,6 +299,41 @@ async def test_persistent_feishu_failure_never_blocks_cover_recovery(e2e_system:
     await e2e_system.notification_tick()
     await e2e_system.notification_tick()
     assert e2e_system.feishu.events.count("preparation_blocked") == 1
+
+
+@pytest.mark.anyio
+async def test_failed_notifications_from_article_a_never_starve_article_b(e2e_system: E2ESystem) -> None:
+    e2e_system.feishu.failures = 100
+    await e2e_system.sync_once()
+    await e2e_system.run_once()
+
+    second_id = "22222222-2222-2222-2222-222222222222"
+    e2e_system.notion.page = notion_page(
+        page_id=second_id,
+        edited_at=datetime(2026, 7, 29, 0, 2, tzinfo=UTC),
+        title="第二篇稿件",
+    )
+    await e2e_system.sync_once()
+    await e2e_system.run_once()
+
+    assert len(e2e_system.blog.calls) == len(e2e_system.wechat.calls) == 2
+    async with e2e_system.factory() as session:
+        pending = list((await session.scalars(select(NotificationOutbox))).all())
+        assert len(pending) == 8
+        assert all(row.status == "pending" and row.attempts == 1 for row in pending)
+        assert all(row.next_attempt_at > datetime.now(tz=UTC) for row in pending)
+    calls_after_failures = len(e2e_system.feishu.calls)
+    await e2e_system.notification_tick()
+    assert len(e2e_system.feishu.calls) == calls_after_failures
+
+    e2e_system.feishu.failures = 0
+    await e2e_system.make_all_notifications_due()
+    await e2e_system.notification_tick()
+    expected = ["default_channels", "blog_succeeded", "wechat_succeeded", "delivery_completed"]
+    assert e2e_system.feishu.events == [*expected, *expected]
+    async with e2e_system.factory() as session:
+        rows = list((await session.scalars(select(NotificationOutbox))).all())
+        assert all(row.status == "sent" and row.attempts == 2 for row in rows)
 
 
 @pytest.mark.anyio

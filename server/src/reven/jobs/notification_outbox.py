@@ -1,4 +1,4 @@
-"""独立于发布状态机的准备阶段通知 Outbox。"""
+"""独立于发布状态机的统一通知 Outbox。"""
 
 import hashlib
 import logging
@@ -19,9 +19,9 @@ from reven.publishing.notifications import DeliveryNotifier, Notification
 logger = logging.getLogger(__name__)
 
 
-class PreparationNotificationOutbox(Base):
-    __tablename__ = "preparation_notification_outbox"
-    __table_args__ = (Index("ix_preparation_notification_due", "status", "next_attempt_at"),)
+class NotificationOutbox(Base):
+    __tablename__ = "notification_outbox"
+    __table_args__ = (Index("ix_notification_outbox_due", "status", "next_attempt_at"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
@@ -37,6 +37,7 @@ class PreparationNotificationOutbox(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.clock_timestamp())
 
 
 def enqueue_preparation_notification(
@@ -52,9 +53,34 @@ def enqueue_preparation_notification(
     if job.notification_state.get("_preparation_terminal_marker") == marker:
         return
     revision = _next_revision(job)
-    fingerprint = hashlib.sha256(f"{job.id}:{event}:r{revision}".encode()).hexdigest()
+    enqueue_notification(
+        session,
+        job,
+        article,
+        event=event,
+        stage=stage,
+        summary=summary,
+        revision=revision,
+    )
+    job.notification_state = {**job.notification_state, "_preparation_terminal_marker": marker}
+
+
+def enqueue_notification(
+    session: AsyncSession,
+    job: PublicationJob,
+    article: Article,
+    *,
+    event: str,
+    stage: str,
+    summary: str,
+    revision: int,
+    error_code: str | None = None,
+    channel: str | None = None,
+    links: dict[str, str] | None = None,
+) -> None:
+    fingerprint = _fingerprint(job.id, event, revision, error_code, channel)
     session.add(
-        PreparationNotificationOutbox(
+        NotificationOutbox(
             fingerprint=fingerprint,
             job_id=job.id,
             article_id=article.id,
@@ -64,12 +90,18 @@ def enqueue_preparation_notification(
                 "title": article.title,
                 "stage": stage,
                 "summary": summary[:1000],
-                "links": {"Notion": article.notion_url},
+                "links": links or {"Notion": article.notion_url},
+                "error_code": error_code,
+                "channel": channel,
             },
             next_attempt_at=func.clock_timestamp(),
         )
     )
-    job.notification_state = {**job.notification_state, "_preparation_terminal_marker": marker}
+
+
+def _fingerprint(job_id: UUID, event: str, revision: int, error_code: str | None, channel: str | None) -> str:
+    value = f"{job_id}:{event}:r{revision}:{error_code or ''}:{channel or ''}"
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _next_revision(job: PublicationJob) -> int:
@@ -86,7 +118,7 @@ class OutboxClaim:
     notification: Notification
 
 
-class PreparationNotificationTick:
+class NotificationOutboxTick:
     def __init__(
         self,
         factory: async_sessionmaker[AsyncSession],
@@ -94,20 +126,26 @@ class PreparationNotificationTick:
         *,
         lease_seconds: int = 30,
         max_backoff_seconds: int = 3600,
+        max_batch: int = 50,
     ) -> None:
         self.factory = factory
         self.notifier = notifier
         self.lease_seconds = lease_seconds
         self.max_backoff_seconds = max_backoff_seconds
+        self.max_batch = max_batch
 
     async def __call__(self) -> None:
-        claim = await self._claim()
-        if claim is None:
-            return
+        for _ in range(self.max_batch):
+            claim = await self._claim()
+            if claim is None:
+                return
+            await self._deliver(claim)
+
+    async def _deliver(self, claim: OutboxClaim) -> None:
         try:
             await self.notifier.send(claim.notification)
         except Exception as exc:
-            logger.warning("准备阶段飞书通知失败（error_type=%s）", type(exc).__name__)
+            logger.warning("飞书通知失败（error_type=%s）", type(exc).__name__)
             await self._failed(claim, type(exc).__name__)
             return
         await self._sent(claim)
@@ -116,16 +154,13 @@ class PreparationNotificationTick:
         async with self.factory.begin() as session:
             now = await _database_now(session)
             row = await session.scalar(
-                select(PreparationNotificationOutbox)
+                select(NotificationOutbox)
                 .where(
-                    PreparationNotificationOutbox.status == "pending",
-                    PreparationNotificationOutbox.next_attempt_at <= now,
-                    (
-                        PreparationNotificationOutbox.lease_expires_at.is_(None)
-                        | (PreparationNotificationOutbox.lease_expires_at < now)
-                    ),
+                    NotificationOutbox.status == "pending",
+                    NotificationOutbox.next_attempt_at <= now,
+                    (NotificationOutbox.lease_expires_at.is_(None) | (NotificationOutbox.lease_expires_at < now)),
                 )
-                .order_by(PreparationNotificationOutbox.next_attempt_at)
+                .order_by(NotificationOutbox.next_attempt_at, NotificationOutbox.created_at, NotificationOutbox.id)
                 .with_for_update(skip_locked=True)
                 .limit(1)
             )
@@ -140,15 +175,15 @@ class PreparationNotificationTick:
         async with self.factory.begin() as session:
             now = await _database_now(session)
             await session.execute(
-                update(PreparationNotificationOutbox)
+                update(NotificationOutbox)
                 .where(
-                    PreparationNotificationOutbox.id == claim.id,
-                    PreparationNotificationOutbox.lease_token == claim.lease_token,
-                    PreparationNotificationOutbox.lease_expires_at >= now,
+                    NotificationOutbox.id == claim.id,
+                    NotificationOutbox.lease_token == claim.lease_token,
+                    NotificationOutbox.lease_expires_at >= now,
                 )
                 .values(
                     status="sent",
-                    attempts=PreparationNotificationOutbox.attempts + 1,
+                    attempts=NotificationOutbox.attempts + 1,
                     sent_at=now,
                     lease_token=None,
                     lease_expires_at=None,
@@ -160,10 +195,10 @@ class PreparationNotificationTick:
         async with self.factory.begin() as session:
             now = await _database_now(session)
             row = await session.scalar(
-                select(PreparationNotificationOutbox).where(
-                    PreparationNotificationOutbox.id == claim.id,
-                    PreparationNotificationOutbox.lease_token == claim.lease_token,
-                    PreparationNotificationOutbox.lease_expires_at >= now,
+                select(NotificationOutbox).where(
+                    NotificationOutbox.id == claim.id,
+                    NotificationOutbox.lease_token == claim.lease_token,
+                    NotificationOutbox.lease_expires_at >= now,
                 )
             )
             if row is None:

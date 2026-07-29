@@ -37,7 +37,6 @@ def _record() -> DeliveryRecord:
         "",
         False,
         False,
-        (),
         Path("/tmp/jobs"),
         Path("/tmp/jobs/one"),
     )

@@ -118,8 +118,15 @@ def build_configured_orchestrator(
             settings.renderer_command,
         ),
         ConfiguredNotionDeliveryWriter(session_factory),
-        ConfiguredFeishuNotifier(session_factory, secret_box),
     )
+
+
+def build_configured_notifier(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> ConfiguredFeishuNotifier:
+    secret_box = SecretBox.from_base64(settings.reven_master_key.get_secret_value())
+    return ConfiguredFeishuNotifier(session_factory, secret_box)
 
 
 def _notion_properties(
