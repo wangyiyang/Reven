@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from reven.publishing.assets import MaterializedAsset, MaterializedAssets
-from reven.publishing.blog.converter import BlogArticle, BlogConverter
+from reven.publishing.blog.converter import BlogArticle, BlogConverter, replace_image_sources
 from reven.publishing.snapshot import build_snapshot
 
 
@@ -54,3 +54,24 @@ def test_converter_rejects_symlinked_output_root(tmp_path: Path) -> None:
             linked,
             BlogArticle("11111111-2222-3333-4444-555555555555", snapshot, MaterializedAssets((), None)),
         )
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "![x](reven-asset://image/999)",
+        "![x](reven-asset://wrong/1)",
+        "![x](https://example.com/x.png)",
+        "![a](reven-asset://image/1)\n![b](reven-asset://image/1)",
+    ],
+)
+def test_image_sources_reject_unknown_malformed_external_and_duplicate(markdown: str) -> None:
+    with pytest.raises(ValueError, match="素材"):
+        replace_image_sources(markdown, ("https://www.wangyiyang.cc/images/posts/x/01.png",))
+
+
+def test_image_source_replacement_does_not_touch_code_literal() -> None:
+    markdown = "`reven-asset://image/1`\n\n![x](reven-asset://image/1)"
+    output = replace_image_sources(markdown, ("https://www.wangyiyang.cc/images/posts/x/01.png",))
+    assert output.startswith("`reven-asset://image/1`")
+    assert output.count("https://www.wangyiyang.cc/images/posts/x/01.png") == 1

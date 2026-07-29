@@ -9,7 +9,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 @pytest.mark.anyio
-async def test_blog_result_store_fences_stale_claim(db_session) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("branch", "reven/11111111-aaaaaaaaaaaa"),
+        ("commit_sha", "a" * 40),
+        ("pull_request_number", 7),
+        ("merge_sha", "b" * 40),
+        ("pages_build_id", 9),
+        ("article_url", "https://www.wangyiyang.cc/2026/08/01/post/"),
+    ],
+)
+async def test_blog_result_store_fences_stale_claim_at_every_phase(db_session, field: str, value: object) -> None:  # type: ignore[no-untyped-def]
     now = datetime.now(tz=UTC)
     article = Article(
         notion_page_id="11111111-1111-1111-1111-111111111111",
@@ -34,6 +45,6 @@ async def test_blog_result_store_fences_stale_claim(db_session) -> None:  # type
     await db_session.commit()
     store = SqlAlchemyBlogResultStore(async_sessionmaker(db_session.bind, expire_on_commit=False))
 
-    assert await store.save_result(claim, {"branch": "reven/11111111-aaaaaaaaaaaa"})
+    assert await store.save_result(claim, {field: value})
     stale = type(claim)(claim.job_id, uuid4())
-    assert not await store.save_result(stale, {"branch": "reven/stale"})
+    assert not await store.save_result(stale, {field: "stale"})
