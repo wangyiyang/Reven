@@ -39,9 +39,9 @@ async def _load_notion_config(
     if not isinstance(data_source_id, str) or not data_source_id:
         raise HTTPException(status_code=409, detail="Notion data_source_id 未配置")
     try:
-        secrets = SecretBox.from_base64(
-            get_settings().reven_master_key.get_secret_value()
-        ).decrypt(integration.encrypted_secret)
+        secrets = SecretBox.from_base64(get_settings().reven_master_key.get_secret_value()).decrypt(
+            integration.encrypted_secret
+        )
     except SecretBoxError as exc:
         raise HTTPException(status_code=500, detail="Notion Token 密文无法解密") from exc
     token = secrets.get("token")
