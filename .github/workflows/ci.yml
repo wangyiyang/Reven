@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
         env:
           POSTGRES_DB: reven_test
           POSTGRES_USER: reven_test
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
         env:
           POSTGRES_DB: reven_migration
           POSTGRES_USER: reven_migration
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: docker build -f infra/docker/Dockerfile -t reven:test .
+      - run: docker build --pull --no-cache -f infra/docker/Dockerfile -t reven:test .
       - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
       - run: docker run --rm reven:test ruby --version
       - run: docker run --rm reven:test bundle --version
@@ -112,8 +112,9 @@ jobs:
             -e REVEN_BASIC_AUTH_USER=smoke \
             -e 'CADDY_BASIC_AUTH_HASH=$2a$14$abcdefghijklmnopqrstuuuuuuuuuuuuuuuuuuuuuuuuuuuu' \
             -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10.0-alpine caddy validate --config /etc/caddy/Caddyfile
-      - name: Verify non-root runtime and OS sandbox
+            caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c \
+            caddy validate --config /etc/caddy/Caddyfile
+      - name: Verify non-root runtime and renderer sandbox
         run: |
           test "$(docker run --rm reven:test id -u)" = "10001"
           docker run --rm \
@@ -125,18 +126,56 @@ jobs:
             from reven.publishing.wechat.renderer import WechatRenderer; \
             asyncio.run(WechatRenderer('node', Path('/app/renderer/dist/cli.mjs'), \
             sandbox_executable=Path('/usr/bin/bwrap')).render('# sandbox'))"
-      - name: Verify sandbox denies network, application data and writes
+      - name: Verify production blog sandbox and resource limits
         run: |
+          docker volume create reven-ci-security
           docker run --rm --cap-drop=ALL \
             --security-opt=no-new-privileges:true \
             --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
-            reven:test bwrap --die-with-parent --new-session --unshare-all \
-            --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
-            --ro-bind /etc /etc --dev /dev --tmpfs /proc --tmpfs /tmp -- \
-            node -e 'const fs=require("fs");let blocked=0;
-            for(const p of ["/data/secret","/app/server","/proc/1/environ"])
-            {try{fs.readFileSync(p)}catch{blocked++}}
-            try{fs.writeFileSync("/usr/escape","x")}catch{blocked++}
-            fetch("https://example.com").then(()=>process.exit(9))
-            .catch(()=>process.exit(blocked===4?0:8));
-            setTimeout(()=>process.exit(7),3000)'
+            --memory=2g --cpus=2 --pids-limit=128 --tmpfs /tmp:size=256m \
+            -v reven-ci-security:/data \
+            -v "$PWD/server/tests/fixtures/blog:/fixture:ro" \
+            -v "$PWD/scripts/container_security_smoke.py:/smoke.py:ro" \
+            reven:test python /smoke.py
+          docker volume rm reven-ci-security
+      - name: Verify migration failure preserves current static release
+        run: |
+          docker volume create reven-ci-static
+          docker run --rm -v reven-ci-static:/srv/reven \
+            reven:test sh -c 'mkdir -p /srv/reven/releases/old &&
+            ln -s releases/old /srv/reven/current'
+          if docker run --rm --read-only --tmpfs /tmp:size=256m \
+            --cap-drop=ALL --security-opt=no-new-privileges:true \
+            --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
+            -v reven-ci-static:/srv/reven -v reven-ci-security-data:/data \
+            -e DATABASE_URL=postgresql+asyncpg://invalid:invalid@127.0.0.1:1/invalid \
+            -e REVEN_MASTER_KEY=dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ= \
+            reven:test; then
+            exit 1
+          fi
+          test "$(docker run --rm -v reven-ci-static:/srv/reven \
+            reven:test readlink /srv/reven/current)" = "releases/old"
+          docker volume rm reven-ci-static reven-ci-security-data
+      - name: Generate container SBOM
+        run: |
+          docker volume create reven-trivy-cache
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v reven-trivy-cache:/root/.cache/trivy \
+            -v "$PWD:/work" \
+            aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
+            image --scanners vuln \
+            --format cyclonedx --output /work/reven-sbom.cdx.json reven:test
+      - name: Scan fixed critical container vulnerabilities
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v reven-trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
+            image --scanners vuln \
+            --exit-code 1 --ignore-unfixed --severity CRITICAL reven:test
+          docker volume rm reven-trivy-cache
+      - name: Upload container SBOM
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reven-container-sbom
+          path: reven-sbom.cdx.json

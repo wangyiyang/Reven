@@ -11,6 +11,9 @@ services:
       - reven-data:/data
       - reven-static:/srv/reven
     read_only: true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 128
     tmpfs:
       - /tmp:size=256m,mode=1777
     cap_drop:
@@ -30,7 +33,7 @@ services:
       start_period: 30s
 
   caddy:
-    image: caddy:2.10.0-alpine
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
     environment:
       REVEN_BASIC_AUTH_USER: ${REVEN_BASIC_AUTH_USER:?REVEN_BASIC_AUTH_USER is required}
