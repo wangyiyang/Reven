@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -106,24 +107,40 @@ class FakeMaterializer:
         self.calls = 0
 
     async def materialize(self, job_id: UUID, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
-        del image_urls
         self.calls += 1
-        cover = None
-        if cover_url is not None:
-            digest = hashlib.sha256(b"cover").hexdigest()
-            cover = MaterializedAsset(cover_url, self.root / str(job_id) / "cover.png", digest, "image/png", 5)
-        return MaterializedAssets((), cover)
+        staging = self.root / "jobs" / str(job_id) / "staging" / "00000000-0000-0000-0000-000000000001"
+        final = self.root / "jobs" / str(job_id) / "snapshot"
+        staging.mkdir(parents=True, exist_ok=True)
+        images = tuple(
+            self._write_asset(staging / f"image-{index}.png", url, f"image-{index}".encode())
+            for index, url in enumerate(image_urls)
+        )
+        cover = self._write_asset(staging / "cover.png", cover_url, b"cover") if cover_url else None
+        return MaterializedAssets(images, cover, staging, final)
 
     async def finalize(self, assets: MaterializedAssets) -> MaterializedAssets:
-        return assets
+        assert assets.staging_dir is not None and assets.final_dir is not None
+        assets.final_dir.parent.mkdir(parents=True, exist_ok=True)
+        assets.staging_dir.replace(assets.final_dir)
+        return assets.final_view()
 
     async def discard(self, assets: MaterializedAssets) -> None:
-        del assets
+        if assets.staging_dir is not None:
+            shutil.rmtree(assets.staging_dir, ignore_errors=True)
 
     async def resume_finalize(
         self, job_id: UUID, staging_identity: str, expected_manifest: list[dict[str, str]]
     ) -> None:
-        del job_id, staging_identity, expected_manifest
+        del expected_manifest
+        staging = self.root / "jobs" / str(job_id) / "staging" / staging_identity
+        final = self.root / "jobs" / str(job_id) / "snapshot"
+        staging.replace(final)
+
+    @staticmethod
+    def _write_asset(path: Path, url: str, payload: bytes) -> MaterializedAsset:
+        content = b"\x89PNG\r\n\x1a\n" + payload
+        path.write_bytes(content)
+        return MaterializedAsset(url, path, hashlib.sha256(content).hexdigest(), "image/png", len(content))
 
 
 class FakePublisher:
@@ -158,6 +175,7 @@ class FakeDeliveryWriter:
 
 class FakeNotifier:
     _EVENTS = {
+        "发布准备阻塞": "preparation_blocked",
         "默认双渠道": "default_channels",
         "博客已上线": "blog_succeeded",
         "微信草稿已生成": "wechat_succeeded",
@@ -167,9 +185,13 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.events: list[str] = []
         self.calls: list[Notification] = []
+        self.failures = 0
 
     async def send(self, notification: Notification) -> None:
         self.calls.append(notification)
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("fake feishu failure")
         event = self._EVENTS.get(notification.stage)
         if event is not None:
             self.events.append(event)

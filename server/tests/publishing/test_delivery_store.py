@@ -74,6 +74,22 @@ async def test_store_fences_channel_completion_and_notification(db_session) -> N
 
 
 @pytest.mark.anyio
+async def test_failed_notification_remains_pending_for_retry(db_session) -> None:  # type: ignore[no-untyped-def]
+    job, claim = await create_job(db_session)
+    store = SqlAlchemyDeliveryStore(
+        async_sessionmaker(db_session.bind, expire_on_commit=False),
+        Path("/tmp/jobs"),
+    )
+    record = await store.channel_succeeded(claim, TargetChannel.BLOG, {"article_url": "https://example/post"})
+    event = record.notifications[0]
+
+    assert await store.resolve_notification(claim, event.fingerprint, sent=False)
+    pending = await store.load(claim)
+
+    assert [item.fingerprint for item in pending.notifications] == [event.fingerprint]
+
+
+@pytest.mark.anyio
 async def test_completion_updates_article_and_preserves_pending_until_finish(db_session) -> None:  # type: ignore[no-untyped-def]
     job, claim = await create_job(db_session)
     store = SqlAlchemyDeliveryStore(

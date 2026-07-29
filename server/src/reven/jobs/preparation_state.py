@@ -13,6 +13,7 @@ from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, 
 from reven.integrations.models import Integration
 from reven.integrations.notion.models import MappedNotionPage
 from reven.jobs.models import PublicationJob
+from reven.jobs.notification_state import enqueue_preparation_terminal
 from reven.jobs.preparation_models import PersistedPreparation, PrepareResult
 from reven.jobs.repository import compute_target_channels_hash
 from reven.publishing.assets import MaterializedAssets
@@ -136,6 +137,13 @@ def persist_blocked(
     job.lease_expires_at = None
     article.automation_status = AutomationStatus.BLOCKED
     article.last_error = reason
+    enqueue_preparation_terminal(
+        job,
+        article,
+        JobStatus.BLOCKED,
+        reason,
+        "preparation_blocked",
+    )
     result = PrepareResult(job.id, blocked=True, validation=validation)
     return PersistedPreparation(result, article.notion_page_id, AutomationStatus.BLOCKED, reason)
 

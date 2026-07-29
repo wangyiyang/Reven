@@ -133,9 +133,9 @@ class SqlAlchemyDeliveryStore:
     async def resolve_notification(self, claim: JobClaim, fingerprint: str, *, sent: bool) -> bool:
         async with self.session_factory.begin() as session:
             job, _article = await _locked_pair(session, claim)
-            events = [item for item in _events(job) if item.get("fingerprint") != fingerprint]
-            _set_events(job, events)
             if sent:
+                events = [item for item in _events(job) if item.get("fingerprint") != fingerprint]
+                _set_events(job, events)
                 job.notification_state = {
                     **job.notification_state,
                     fingerprint: {"sent": True},
