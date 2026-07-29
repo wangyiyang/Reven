@@ -2,11 +2,13 @@ from typing import Any
 
 import pytest
 from reven.articles.models import Article
+from reven.articles.repository import ArticleRepository
 from reven.domain import JobStatus
 from reven.integrations.notion.sync import NotionSyncService
 from reven.jobs.models import PublicationJob
 from reven.system.models import SystemState
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -258,3 +260,35 @@ async def test_sync_isolates_page_processing_error_and_redacts_details(
     assert error is not None
     assert "ValueError" in str(error.value["error"])
     assert "ntn_secret" not in str(error.value)
+
+
+@pytest.mark.anyio
+async def test_sync_propagates_database_error_without_marking_success(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: AsyncSession,
+) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    notion_pages = FakeNotionPages()
+    service = NotionSyncService(factory, notion_pages, "data-source")
+    original_upsert = ArticleRepository.upsert_from_notion
+    attempts = 0
+
+    async def fail_upsert(
+        repository: ArticleRepository,
+        page: Any,
+    ) -> Article:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OperationalError("INSERT", {}, ConnectionError("database unavailable"))
+        return await original_upsert(repository, page)
+
+    monkeypatch.setattr(ArticleRepository, "upsert_from_notion", fail_upsert)
+
+    with pytest.raises(OperationalError):
+        await service.sync_once()
+
+    assert await _count(db_session, Article) == 0
+    assert notion_pages.cursors == [None]
+    state = await db_session.get(SystemState, "notion_sync")
+    assert state is None or "last_success_at" not in state.value
