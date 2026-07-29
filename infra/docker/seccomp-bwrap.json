@@ -39,7 +39,7 @@
         "mq_getsetattr", "mq_notify", "mq_open", "mq_timedreceive", "mq_timedreceive_time64", "mq_timedsend",
         "mq_timedsend_time64", "mq_unlink", "mremap", "msgctl", "msgget", "msgrcv", "msgsnd", "msync",
         "munlock", "munlockall", "munmap", "nanosleep", "newfstatat", "open", "openat", "openat2", "pause",
-        "personality", "pidfd_open", "pidfd_send_signal", "pipe", "pipe2", "poll", "ppoll", "ppoll_time64",
+        "pidfd_open", "pidfd_send_signal", "pipe", "pipe2", "poll", "ppoll", "ppoll_time64",
         "prctl", "pread64", "preadv", "preadv2", "prlimit64", "process_mrelease", "pselect6", "pselect6_time64",
         "pwrite64", "pwritev", "pwritev2", "read", "readahead", "readlink", "readlinkat", "readv", "recv",
         "recvfrom", "recvmmsg", "recvmmsg_time64", "recvmsg", "remap_file_pages", "removexattr", "rename",
@@ -88,6 +88,31 @@
         }
       ],
       "comment": "Allow CLONE_NEWUSER; all capabilities remain scoped to the new user namespace."
+    },
+    {
+      "names": ["personality"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [{"index": 0, "value": 0, "op": "SCMP_CMP_EQ"}]
+    },
+    {
+      "names": ["personality"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [{"index": 0, "value": 8, "op": "SCMP_CMP_EQ"}]
+    },
+    {
+      "names": ["personality"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [{"index": 0, "value": 131072, "op": "SCMP_CMP_EQ"}]
+    },
+    {
+      "names": ["personality"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [{"index": 0, "value": 131080, "op": "SCMP_CMP_EQ"}]
+    },
+    {
+      "names": ["personality"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [{"index": 0, "value": 4294967295, "op": "SCMP_CMP_EQ"}]
     },
     {
       "names": ["clone3"],
