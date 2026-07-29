@@ -4,8 +4,13 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_inline.image import image as markdown_image_rule
+from markdown_it.rules_inline.state_inline import StateInline
+from markdown_it.token import Token
 
 
 @dataclass(frozen=True)
@@ -45,8 +50,9 @@ class ContentSnapshot:
 
 
 def image_urls(markdown: str) -> tuple[str, ...]:
+    _, tokens, _ = _parse_with_image_positions(markdown)
     urls: list[str] = []
-    for token in MarkdownIt().parse(markdown):
+    for token in tokens:
         if token.type != "inline" or token.children is None:
             continue
         urls.extend(
@@ -65,10 +71,11 @@ def build_snapshot(
     categories: tuple[str, ...] = (),
     image_paths: tuple[Path, ...] = (),
 ) -> ContentSnapshot:
-    urls = image_urls(markdown)
+    _, tokens, env = _parse_with_image_positions(markdown)
+    urls = _image_urls_from_tokens(tokens)
     if len(urls) != len(image_sha256):
         raise ValueError("正文图片数量与素材摘要数量不一致")
-    canonical = _replace_image_urls(markdown, urls)
+    canonical = _canonical_markdown(markdown, tokens, env)
     normalized_categories = tuple(sorted(categories))
     payload = {
         "title": title.strip(),
@@ -94,131 +101,116 @@ def build_snapshot(
     )
 
 
-def _replace_image_urls(markdown: str, urls: tuple[str, ...]) -> str:
-    spans = _image_destination_spans(markdown)
-    if len(spans) != len(urls):
-        raise ValueError("无法在 Markdown 中精确定位已解析的图片地址")
-    result = markdown
-    for index, (start, end) in reversed(list(enumerate(spans, start=1))):
-        replacement = f"reven-asset://image/{index}"
-        result = result[:start] + replacement + result[end:]
-    return result
+def _parse_with_image_positions(markdown: str) -> tuple[MarkdownIt, list[Token], dict[str, Any]]:
+    parser = MarkdownIt("commonmark", {"store_labels": True})
+    parser.inline.ruler.at("image", _recording_image_rule)
+    env: dict[str, Any] = {}
+    return parser, parser.parse(markdown, env), env
 
 
-def _image_destination_spans(markdown: str) -> tuple[tuple[int, int], ...]:
-    excluded = _block_exclusions(markdown)
-    spans: list[tuple[int, int]] = []
-    index = 0
-    while index < len(markdown):
-        block_end = _containing_end(index, excluded)
-        if block_end is not None:
-            index = block_end
-        elif markdown[index] == "`":
-            index = _skip_code_span(markdown, index)
-        elif markdown[index] == "<":
-            index = _skip_html_tag(markdown, index)
-        elif markdown.startswith("![", index) and not _is_escaped(markdown, index):
-            span = _inline_image_destination(markdown, index)
-            if span is None:
-                index += 2
-            else:
-                spans.append(span)
-                index = span[1]
-        else:
-            index += 1
-    return tuple(spans)
+def _recording_image_rule(state: StateInline, silent: bool) -> bool:
+    start = state.pos
+    matched = markdown_image_rule(state, silent)
+    if matched and not silent:
+        token = state.tokens[-1]
+        token.meta["source_start"] = start
+        token.meta["source_end"] = state.pos
+    return matched
 
 
-def _block_exclusions(markdown: str) -> tuple[tuple[int, int], ...]:
-    line_starts = [0]
-    line_starts.extend(index + 1 for index, character in enumerate(markdown) if character == "\n")
-    line_starts.append(len(markdown))
-    ranges: list[tuple[int, int]] = []
-    for token in MarkdownIt().parse(markdown):
-        if token.type not in {"fence", "code_block", "html_block"} or token.map is None:
+def _image_urls_from_tokens(tokens: list[Token]) -> tuple[str, ...]:
+    return tuple(
+        src
+        for token in tokens
+        for child in (token.children or ())
+        if child.type == "image" and isinstance(src := child.attrGet("src"), str)
+    )
+
+
+def _canonical_markdown(markdown: str, tokens: list[Token], env: dict[str, Any]) -> str:
+    replacements: list[tuple[int, int, str]] = []
+    line_starts = _line_starts(markdown)
+    used_labels: set[str] = set()
+    ordinal = 0
+    for token in tokens:
+        if token.type != "inline" or token.map is None or token.children is None:
             continue
-        start_line, end_line = token.map
-        ranges.append((line_starts[start_line], line_starts[min(end_line, len(line_starts) - 1)]))
-    return tuple(ranges)
+        base = _inline_source_offset(markdown, token, line_starts)
+        for child in token.children:
+            if child.type != "image":
+                continue
+            ordinal += 1
+            start = child.meta.get("source_start")
+            end = child.meta.get("source_end")
+            if not isinstance(start, int) or not isinstance(end, int):
+                raise ValueError("Markdown 图片缺少解析器源位置")
+            replacement = f"![{_escape_alt(child.content)}](reven-asset://image/{ordinal})"
+            replacements.append((base + start, base + end, replacement))
+            label = child.meta.get("label")
+            if isinstance(label, str):
+                used_labels.add(label)
+    replacements.extend(_reference_replacements(markdown, env, used_labels, line_starts))
+    return _apply_replacements(markdown, replacements)
 
 
-def _containing_end(index: int, ranges: tuple[tuple[int, int], ...]) -> int | None:
-    for start, end in ranges:
-        if start <= index < end:
-            return end
-    return None
+def _line_starts(markdown: str) -> list[int]:
+    starts = [0]
+    starts.extend(index + 1 for index, character in enumerate(markdown) if character == "\n")
+    starts.append(len(markdown))
+    return starts
 
 
-def _skip_code_span(markdown: str, start: int) -> int:
-    run = 1
-    while start + run < len(markdown) and markdown[start + run] == "`":
-        run += 1
-    marker = "`" * run
-    end = markdown.find(marker, start + run)
-    return start + run if end < 0 else end + run
+def _inline_source_offset(markdown: str, token: Token, line_starts: list[int]) -> int:
+    assert token.map is not None
+    start_line, end_line = token.map
+    block_start = line_starts[start_line]
+    block_end = line_starts[min(end_line, len(line_starts) - 1)]
+    position = markdown.find(token.content, block_start, block_end)
+    if position < 0:
+        raise ValueError("无法将解析器识别的 Markdown 图片安全映射回源文")
+    return position
 
 
-def _skip_html_tag(markdown: str, start: int) -> int:
-    quote: str | None = None
-    index = start + 1
-    while index < len(markdown):
-        character = markdown[index]
-        if quote is not None:
-            if character == quote and not _is_escaped(markdown, index):
-                quote = None
-        elif character in {'"', "'"}:
-            quote = character
-        elif character == ">":
-            return index + 1
-        index += 1
-    return start + 1
+def _reference_replacements(
+    markdown: str,
+    env: dict[str, Any],
+    used_labels: set[str],
+    line_starts: list[int],
+) -> list[tuple[int, int, str]]:
+    references = env.get("references")
+    if not isinstance(references, dict):
+        return []
+    replacements: list[tuple[int, int, str]] = []
+    for label in sorted(used_labels):
+        reference = references.get(label)
+        if not isinstance(reference, dict) or not isinstance(reference.get("map"), list):
+            raise ValueError("Markdown 图片引用缺少定义源位置")
+        start_line, end_line = reference["map"]
+        start = line_starts[start_line]
+        end = line_starts[min(end_line, len(line_starts) - 1)]
+        href = reference.get("href")
+        if not isinstance(href, str):
+            raise ValueError("Markdown 图片引用缺少地址")
+        suffix = "\n" if markdown[start:end].endswith("\n") else ""
+        replacements.append((start, end, f"[{label}]: <{_stable_reference_href(href)}>{suffix}"))
+    return replacements
 
 
-def _inline_image_destination(markdown: str, start: int) -> tuple[int, int] | None:
-    label_end = _find_unescaped(markdown, "]", start + 2)
-    if label_end < 0 or label_end + 1 >= len(markdown) or markdown[label_end + 1] != "(":
-        return None
-    destination = label_end + 2
-    while destination < len(markdown) and markdown[destination] in " \t\n":
-        destination += 1
-    if destination >= len(markdown):
-        return None
-    if markdown[destination] == "<":
-        end = _find_unescaped(markdown, ">", destination + 1)
-        return (destination + 1, end) if end >= 0 else None
-    return _bare_destination(markdown, destination)
+def _stable_reference_href(href: str) -> str:
+    parsed = urlsplit(href)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", parsed.fragment))
 
 
-def _bare_destination(markdown: str, start: int) -> tuple[int, int] | None:
-    depth = 0
-    index = start
-    while index < len(markdown):
-        character = markdown[index]
-        if _is_escaped(markdown, index):
-            index += 1
-        elif character == "(":
-            depth += 1
-        elif character == ")" and depth == 0:
-            return (start, index)
-        elif character == ")":
-            depth -= 1
-        elif character.isspace() and depth == 0:
-            return (start, index)
-        index += 1
-    return None
+def _escape_alt(alt: str) -> str:
+    return alt.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
-def _find_unescaped(markdown: str, target: str, start: int) -> int:
-    index = start
-    while index < len(markdown):
-        if markdown[index] == target and not _is_escaped(markdown, index):
-            return index
-        index += 1
-    return -1
-
-
-def _is_escaped(markdown: str, index: int) -> bool:
-    slashes = 0
-    while index - slashes - 1 >= 0 and markdown[index - slashes - 1] == "\\":
-        slashes += 1
-    return slashes % 2 == 1
+def _apply_replacements(markdown: str, replacements: list[tuple[int, int, str]]) -> str:
+    result = markdown
+    last_start = len(markdown) + 1
+    for start, end, replacement in sorted(replacements, reverse=True):
+        if end > last_start:
+            raise ValueError("Markdown 图片源位置发生重叠")
+        result = result[:start] + replacement + result[end:]
+        last_start = start
+    return result

@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.domain import JobStatus
@@ -53,6 +53,7 @@ class JobRepository:
             select(PublicationJob)
             .where(
                 PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
+                func.coalesce(PublicationJob.snapshot_metadata["notion_write_pending"].astext, "false") != "true",
                 PublicationJob.scheduled_at <= now,
                 or_(
                     PublicationJob.lease_expires_at.is_(None),
@@ -69,4 +70,24 @@ class JobRepository:
         job.overall_status = JobStatus.PROCESSING
         job.lease_expires_at = now + timedelta(seconds=lease_seconds)
         await self.session.flush()
+        return job
+
+    async def claim_next_preparation_pending(self) -> PublicationJob | None:
+        """Lock one frozen Job that only needs its idempotent Notion status write.
+
+        This does not change status or lease and must never be treated as permission
+        to execute publication channels. The caller must pass the Job to prepare().
+        """
+        statement = (
+            select(PublicationJob)
+            .where(
+                PublicationJob.content_hash.is_not(None),
+                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
+                PublicationJob.snapshot_metadata["notion_write_pending"].astext == "true",
+            )
+            .order_by(PublicationJob.scheduled_at, PublicationJob.created_at)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        job: PublicationJob | None = await self.session.scalar(statement)
         return job
