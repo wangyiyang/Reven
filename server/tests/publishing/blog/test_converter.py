@@ -1,0 +1,56 @@
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+from reven.publishing.assets import MaterializedAsset, MaterializedAssets
+from reven.publishing.blog.converter import BlogArticle, BlogConverter
+from reven.publishing.snapshot import build_snapshot
+
+
+def test_converter_matches_blog_contract_and_copies_frozen_assets(tmp_path: Path) -> None:
+    source = tmp_path / "snapshot" / "asset.png"
+    source.parent.mkdir()
+    source.write_bytes(b"\x89PNG\r\n\x1a\nfrozen")
+    markdown = "<callout>注意</callout>\n<empty-block/>\n![图](reven-asset://1)\n"
+    snapshot = build_snapshot(
+        markdown,
+        image_sha256=("a" * 64,),
+        cover_sha256="b" * 64,
+        title='测试 "稿件"',
+        summary="摘要",
+        categories=("AI",),
+        image_paths=(source,),
+    )
+    assets = MaterializedAssets((MaterializedAsset("", source, "a" * 64, "image/png", source.stat().st_size),), None)
+
+    output = BlogConverter("https://www.wangyiyang.cc").write(
+        tmp_path / "blog",
+        BlogArticle("11111111-2222-3333-4444-555555555555", snapshot, assets),
+        now=datetime(2026, 8, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    text = output.post_path.read_text()
+    assert text.startswith('---\nlayout: post\ntitle: "测试 \\"稿件\\""\ndate: 2026-08-01')
+    assert 'categories: ["AI"]' in text
+    assert 'description: "摘要"' in text
+    assert "> 注意\n\n" in text
+    assert "https://www.wangyiyang.cc/images/posts/2026-08-01-notion-11111111/01.png" in text
+    assert output.manifest == (
+        Path("_posts/2026-08-01-notion-11111111.md"),
+        Path("images/posts/2026-08-01-notion-11111111/01.png"),
+    )
+    assert output.article_path == "/2026/08/01/notion-11111111/"
+
+
+def test_converter_rejects_symlinked_output_root(tmp_path: Path) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(actual, target_is_directory=True)
+    snapshot = build_snapshot("body", image_sha256=(), cover_sha256="", title="title")
+    with pytest.raises(ValueError, match="符号链接"):
+        BlogConverter("https://www.wangyiyang.cc").write(
+            linked,
+            BlogArticle("11111111-2222-3333-4444-555555555555", snapshot, MaterializedAssets((), None)),
+        )
