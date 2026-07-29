@@ -1,37 +1,17 @@
-# OS
 .DS_Store
-
-# Python
+.env
+.env.*
+!.env.example
+.venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-# Environment
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-
-# Build
+node_modules/
 dist/
-build/
-
-# infra / compose overrides
-infra/compose/.env
-
-# POC
-poc/.env
-poc/downloads/
-
-# misc
-workspace/
-
-# SQLite database files (auto-generated caches)
-*.db
+coverage/
+htmlcov/
+.vite/
+.data/
