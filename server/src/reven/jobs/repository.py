@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.domain import JobStatus
-from reven.jobs.errors import PublishError
+from reven.jobs.errors import BlockedPublishError, PublishError
 from reven.jobs.models import PublicationJob
 
 
@@ -88,7 +88,7 @@ class JobRepository:
             select(PublicationJob)
             .where(
                 PublicationJob.content_hash.is_not(None),
-                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING, JobStatus.BLOCKED]),
+                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
                 or_(
                     PublicationJob.snapshot_metadata["notion_write_pending"].astext == "true",
                     PublicationJob.snapshot_metadata["asset_finalize_pending"].astext == "true",
@@ -131,12 +131,14 @@ class JobRepository:
         delay_seconds: int | None,
         error: PublishError,
     ) -> bool:
-        status = JobStatus.WAITING if delay_seconds is not None else JobStatus.FAILED
+        if isinstance(error, BlockedPublishError):
+            status = JobStatus.BLOCKED
+        else:
+            status = JobStatus.WAITING if delay_seconds is not None else JobStatus.FAILED
         values: dict[str, object] = {
             "overall_status": status,
             "lease_expires_at": None,
             "lease_token": None,
-            "blog_error": f"{type(error).__name__}: 发布失败",
         }
         if delay_seconds is not None:
             values["scheduled_at"] = datetime.now(tz=UTC) + timedelta(seconds=delay_seconds)
@@ -160,6 +162,26 @@ class JobRepository:
         job.attempt_count += 1
         await self.session.flush()
         return job.attempt_count
+
+    async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:
+        job = await self.session.get(PublicationJob, claim.job_id)
+        if job is None or job.lease_token != claim.lease_token:
+            return None
+        metadata = dict(job.snapshot_metadata)
+        previous = metadata.get("preparation_attempt_count", 0)
+        attempt = previous + 1 if isinstance(previous, int) else 1
+        metadata["preparation_attempt_count"] = attempt
+        job.snapshot_metadata = metadata
+        await self.session.flush()
+        return attempt
+
+    async def clear_preparation_attempts(self, claim: "JobClaim") -> None:
+        job = await self.session.get(PublicationJob, claim.job_id)
+        if job is None or job.lease_token != claim.lease_token:
+            return
+        metadata = dict(job.snapshot_metadata)
+        metadata.pop("preparation_attempt_count", None)
+        job.snapshot_metadata = metadata
 
 
 @dataclass(frozen=True)
