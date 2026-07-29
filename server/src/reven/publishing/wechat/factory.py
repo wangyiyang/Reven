@@ -9,19 +9,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
 from reven.integrations.notion.client import NotionClient
+from reven.integrations.notion.mapper import map_notion_page
+from reven.integrations.notion.models import (
+    MappedNotionPage,
+    NotionConfigError,
+    NotionSchemaError,
+    NotionTransientError,
+)
 from reven.integrations.repository import IntegrationRepository
 from reven.integrations.service import public_config_without_hint
 from reven.integrations.wechat.client import WeChatClient
-from reven.jobs.errors import BlockedPublishError
+from reven.jobs.errors import BlockedPublishError, TransientPublishError
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim
 from reven.publishing.assets import AssetMaterializer
 from reven.publishing.wechat.images import SnapshotAssetRecoverer
-from reven.publishing.wechat.publisher import (
-    SqlAlchemyWeChatResultStore,
-    WeChatPublisher,
-)
+from reven.publishing.wechat.publisher import WeChatPublisher
 from reven.publishing.wechat.renderer import WechatRenderer
+from reven.publishing.wechat.store import SqlAlchemyWeChatResultStore
 from reven.security.secrets import SecretBox, SecretBoxError
 
 
@@ -66,7 +71,7 @@ class ConfiguredWeChatPublisher:
             ) as notion_http,
         ):
             notion = NotionClient(config.notion_token, notion_http)
-            source: tuple[str, str | None] | None = None
+            source: tuple[str, MappedNotionPage] | None = None
 
             async def load_markdown() -> str:
                 nonlocal source
@@ -76,12 +81,18 @@ class ConfiguredWeChatPublisher:
             async def load_cover() -> str | None:
                 nonlocal source
                 source = source or await self._source(claim.job_id, notion)
+                return source[1].cover.url if source[1].cover else None
+
+            async def load_mapped() -> MappedNotionPage:
+                nonlocal source
+                source = source or await self._source(claim.job_id, notion)
                 return source[1]
 
             recoverer = SnapshotAssetRecoverer(
                 AssetMaterializer(self.data_root),
                 load_markdown,
                 load_cover,
+                load_mapped,
             )
             executable, cli_path = _renderer_parts(self.renderer_command)
             publisher = WeChatPublisher(
@@ -126,7 +137,7 @@ class ConfiguredWeChatPublisher:
         self,
         job_id: UUID,
         notion: NotionClient,
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, MappedNotionPage]:
         async with self.session_factory() as session:
             pair = (
                 await session.execute(
@@ -138,9 +149,19 @@ class ConfiguredWeChatPublisher:
         if pair is None:
             raise BlockedPublishError("发布任务不存在")
         _job, article = pair
-        markdown = await notion.retrieve_page_markdown(article.notion_page_id)
-        cover = article.cover_metadata.get("url")
-        return markdown, cover if isinstance(cover, str) else None
+        try:
+            before = map_notion_page(await notion.retrieve_page(article.notion_page_id))
+            markdown = await notion.retrieve_page_markdown(article.notion_page_id)
+            after = map_notion_page(await notion.retrieve_page(article.notion_page_id))
+        except NotionTransientError as exc:
+            raise TransientPublishError("Notion 页面读取暂时失败，请稍后重试") from exc
+        except NotionConfigError as exc:
+            raise BlockedPublishError("Notion 配置或页面权限无效") from exc
+        except NotionSchemaError as exc:
+            raise BlockedPublishError("Notion 页面结构无效，无法恢复素材") from exc
+        if before.last_edited_at != after.last_edited_at:
+            raise TransientPublishError("Notion 页面读取期间发生变化，请稍后重试")
+        return markdown, after
 
 
 class ConfiguredWeChatPublisherFactory:
