@@ -1,6 +1,5 @@
 """Notion editorial index synchronization without fetching article bodies."""
 
-import asyncio
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Protocol
@@ -105,9 +104,7 @@ class NotionSyncService:
             page_id = str(raw_page.get("id", "unknown"))
             await self._record_page_error(page_id, str(exc))
             return "failed"
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
+        except ValueError as exc:
             page_id = str(raw_page.get("id", "unknown"))
             await self._record_page_error(page_id, f"页面处理失败（{type(exc).__name__}）")
             return "failed"
