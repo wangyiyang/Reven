@@ -151,7 +151,7 @@ async def _reconcile_job(session: AsyncSession, article: Article) -> None:
         )
         article.automation_status = AutomationStatus.WAITING
         return
-    if job.overall_status == JobStatus.WAITING:
+    if job.overall_status == JobStatus.WAITING and job.content_hash is None:
         _update_waiting_job(job, article)
     elif job.overall_status == JobStatus.BLOCKED:
         _retry_blocked_job(job, article)
