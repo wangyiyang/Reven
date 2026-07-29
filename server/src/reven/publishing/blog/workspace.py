@@ -2,8 +2,10 @@
 
 import base64
 import hashlib
+import os
 import re
 import shutil
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -11,6 +13,7 @@ from uuid import uuid4
 
 from reven.publishing.commands import CommandResult, CommandRunner
 from reven.publishing.sandbox import bubblewrap_command
+from reven.publishing.secure_fs import ensure_directory, verify_directory
 
 _JOB_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
@@ -28,93 +31,90 @@ class BlogWorkspace:
         jobs_root: Path,
         runner: CommandRunner,
         sandbox_executable: Path | None = None,
+        bundle_root: Path = Path("/opt/reven-blog"),
     ) -> None:
-        self.root = jobs_root.resolve()
+        self.root = jobs_root.absolute()
         self.runner = runner
         self.sandbox_executable = sandbox_executable
+        self.bundle_root = bundle_root
+        verify_directory(self.root.parent, self.root)
 
     async def clone(self, job_id: str, remote_url: str, token: str) -> Path:
         path = self.path(job_id)
         if path.exists():
+            self._assert_cwd(path)
             shutil.rmtree(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_directory(self.root, path.parent)
         await self.runner.run(
             ["git", "clone", remote_url, str(path)],
             env=_git_auth_env(remote_url, token),
             secrets=(token,),
         )
+        self._verify_repository(path)
         return path
 
     def create_attempt(self, job_id: str) -> Path:
         base = self.path(job_id)
         attempt = base / str(uuid4())
-        attempt.mkdir(parents=True, mode=0o700)
+        ensure_directory(self.root, attempt)
+        ensure_directory(self.root, attempt / ".reven-runtime")
         return attempt
 
     async def clone_at(self, path: Path, remote_url: str, token: str) -> Path:
-        self._assert_attempt_child(path)
+        self._assert_attempt_parent(path)
         await self.runner.run(
             ["git", "-c", "submodule.recurse=false", "clone", "--no-recurse-submodules", remote_url, str(path)],
             env=_git_auth_env(remote_url, token),
             secrets=(token,),
         )
+        self._verify_repository(path)
         return path
 
     async def prepare(self, path: Path, branch: str) -> None:
-        self._assert_cwd(path)
-        environment = _workspace_env(path)
+        self._verify_repository(path)
+        environment = self._workspace_env(path)
         await self.runner.run(["git", "switch", "-c", branch], cwd=path, env=environment)
-        platform = (
-            await self.runner.run(
-                ["ruby", "-e", "print Gem::Platform.local"],
-                cwd=path,
-                env=environment,
-            )
-        ).stdout.strip()
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+", platform):
-            raise ValueError("Ruby platform 输出无效")
         await self.runner.run(
-            self._bundle_command(path, ["bundle", "lock", "--add-platform", platform]),
+            self._sandbox_command(path, ["bundle", "check"]),
             cwd=path,
             env=environment,
         )
-        await self.runner.run(
-            self._bundle_command(path, ["bundle", "install"]),
-            cwd=path,
-            env=environment,
-        )
+        self._verify_repository(path)
 
     async def switch(self, path: Path, branch: str) -> None:
-        self._assert_cwd(path)
+        self._verify_repository(path)
         await self.runner.run(
             ["git", "switch", "-c", branch],
             cwd=path,
-            env=_workspace_env(path),
+            env=self._workspace_env(path),
         )
 
     async def build(self, path: Path) -> None:
-        self._assert_cwd(path)
+        self._verify_repository(path)
         argv = ["bundle", "exec", "jekyll", "build"]
         if self.sandbox_executable is not None:
-            argv = bubblewrap_command(self.sandbox_executable, argv, writable_path=path)
-        await self.runner.run(argv, cwd=path, env=_workspace_env(path))
+            argv = self._sandbox_command(path, argv)
+        await self.runner.run(argv, cwd=path, env=self._workspace_env(path))
+        self._verify_repository(path)
 
-    def _bundle_command(self, path: Path, argv: list[str]) -> list[str]:
+    def _sandbox_command(self, path: Path, argv: list[str]) -> list[str]:
         if self.sandbox_executable is None:
             return argv
         return bubblewrap_command(
             self.sandbox_executable,
             argv,
             writable_path=path,
-            network=True,
+            writable_paths=(self._runtime_root(path),),
+            readable_paths=(self.bundle_root,),
+            resource_profile="blog",
         )
 
     async def commit(self, path: Path, manifest: tuple[Path, ...], title: str) -> str:
-        self._assert_cwd(path)
+        self._verify_repository(path)
         paths = [item.as_posix() for item in manifest]
         if not paths or any(item.startswith("/") or ".." in Path(item).parts for item in paths):
             raise ValueError("Git manifest 无效")
-        environment = _workspace_env(path)
+        environment = self._workspace_env(path)
         await self.runner.run(["git", "add", "--", *paths], cwd=path, env=environment)
         safe_title = " ".join(title.replace("\0", "").split())[:120]
         await self.runner.run(
@@ -126,14 +126,14 @@ class BlogWorkspace:
         return result.stdout.strip()
 
     async def push(self, path: Path, remote_url: str, branch: str, token: str) -> CommandResult:
-        self._assert_attempt_child(path)
+        self._verify_repository(path)
         if not branch.startswith("reven/"):
             raise ValueError("只允许推送 Reven 发布分支")
         return await self.runner.run(
             [
                 "git",
                 "-c",
-                f"core.hooksPath={path / '.reven' / 'empty-hooks'}",
+                f"core.hooksPath={self._runtime_root(path) / 'empty-hooks'}",
                 "-c",
                 "credential.helper=",
                 "-c",
@@ -143,7 +143,7 @@ class BlogWorkspace:
                 f"HEAD:refs/heads/{branch}",
             ],
             cwd=path,
-            env={**_workspace_env(path), **_git_auth_env(remote_url, token)},
+            env={**self._workspace_env(path), **_git_auth_env(remote_url, token)},
             secrets=(token,),
         )
 
@@ -153,6 +153,7 @@ class BlogWorkspace:
         return self.root / job_id / "blog"
 
     def capture_artifacts(self, repo: Path, manifest: tuple[Path, ...]) -> tuple[TrustedArtifact, ...]:
+        self._verify_repository(repo)
         trusted = []
         for relative in manifest:
             content = (repo / relative).read_bytes()
@@ -160,21 +161,24 @@ class BlogWorkspace:
         return tuple(trusted)
 
     def restore_artifacts(self, repo: Path, trusted: tuple[TrustedArtifact, ...]) -> None:
+        self._verify_repository(repo)
         for artifact in trusted:
             destination = repo / artifact.relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(artifact.content)
 
     def verify_artifacts(self, repo: Path, trusted: tuple[TrustedArtifact, ...]) -> None:
+        self._verify_repository(repo)
         for artifact in trusted:
             candidate = repo / artifact.relative
             if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).digest() != artifact.digest:
                 raise ValueError("Jekyll 构建篡改了发布 manifest")
 
     def _assert_cwd(self, path: Path) -> None:
-        resolved = path.resolve()
-        if not resolved.is_relative_to(self.root) or "blog" not in resolved.parts:
+        absolute = path.absolute()
+        if not absolute.is_relative_to(self.root) or "blog" not in absolute.parts:
             raise ValueError("命令工作目录越界")
+        verify_directory(self.root, absolute)
 
     def cleanup(self, job_id: str) -> None:
         path = self.path(job_id)
@@ -190,10 +194,44 @@ class BlogWorkspace:
             raise ValueError("拒绝清理符号链接工作区")
         shutil.rmtree(attempt, ignore_errors=True)
 
+    def cleanup_repository(self, path: Path) -> None:
+        self._assert_cwd(path)
+        shutil.rmtree(path)
+
     def _assert_attempt_child(self, path: Path) -> None:
-        resolved = path.resolve()
-        if not resolved.is_relative_to(self.root) or "blog" not in resolved.parts:
+        absolute = path.absolute()
+        if not absolute.is_relative_to(self.root) or "blog" not in absolute.parts:
             raise ValueError("attempt 工作目录越界")
+        verify_directory(self.root, absolute)
+
+    def _assert_attempt_parent(self, path: Path) -> None:
+        self._assert_attempt_child(path.parent)
+        if path.exists() or path.is_symlink():
+            raise ValueError("clone 目标必须不存在")
+
+    def _verify_repository(self, path: Path) -> None:
+        self._assert_cwd(path)
+        _reject_symlinks(path)
+
+    def _runtime_root(self, path: Path) -> Path:
+        runtime = path.parent / ".reven-runtime" / path.name
+        return ensure_directory(self.root, runtime)
+
+    def _workspace_env(self, path: Path) -> dict[str, str]:
+        runtime = self._runtime_root(path)
+        directories = {
+            "HOME": runtime / "home",
+            "TMPDIR": runtime / "tmp",
+            "BUNDLE_USER_HOME": runtime / "bundle-user",
+        }
+        for directory in directories.values():
+            ensure_directory(self.root, directory)
+        return {
+            **{key: str(value) for key, value in directories.items()},
+            "BUNDLE_FROZEN": "true",
+            "BUNDLE_GEMFILE": str(self.bundle_root / "Gemfile"),
+            "BUNDLE_PATH": str(self.bundle_root / "vendor" / "bundle"),
+        }
 
 
 def _git_auth_env(remote_url: str, token: str) -> dict[str, str]:
@@ -208,15 +246,9 @@ def _git_auth_env(remote_url: str, token: str) -> dict[str, str]:
     }
 
 
-def _workspace_env(path: Path) -> dict[str, str]:
-    isolated = path / ".reven"
-    directories = {
-        "HOME": isolated / "home",
-        "TMPDIR": isolated / "tmp",
-        "BUNDLE_USER_HOME": isolated / "bundle",
-        "BUNDLE_PATH": isolated / "bundle" / "path",
-        "GEM_HOME": isolated / "gem",
-    }
-    for directory in directories.values():
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    return {key: str(value) for key, value in directories.items()}
+def _reject_symlinks(root: Path) -> None:
+    for current, directories, files in os.walk(root, followlinks=False):
+        for name in [*directories, *files]:
+            candidate = Path(current) / name
+            if stat.S_ISLNK(candidate.lstat().st_mode):
+                raise ValueError("博客仓库包含不允许的符号链接")

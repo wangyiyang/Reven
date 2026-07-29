@@ -33,7 +33,7 @@ class WechatRenderer:
         self._sandbox_executable = sandbox_executable
 
     async def render(self, markdown: str) -> str:
-        argv = [self._executable, self._cli_path]
+        argv = _renderer_argv(self._executable, self._cli_path)
         if self._sandbox_executable is not None:
             argv = bubblewrap_command(
                 self._sandbox_executable,
@@ -123,3 +123,10 @@ def _limit_resources() -> None:
     resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
     resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
     resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (8 * 1024 * 1024, 8 * 1024 * 1024))
+
+
+def _renderer_argv(executable: str, cli_path: str) -> list[str]:
+    if Path(executable).name == "node":
+        return [executable, "--max-old-space-size=384", cli_path]
+    return [executable, cli_path]
