@@ -167,6 +167,21 @@ describe("ArticleDetailPage", () => {
     await vi.waitFor(() => expect(calls).toBe(1))
     expect(await screen.findByTitle("测试稿件的微信预览")).toBeInTheDocument()
   })
+
+  it("rejects a timezone-naive article date without rendering Intl output", async () => {
+    useDetailHandlers({ articlePatch: { planned_at: "2026-07-30T08:01:00" } })
+    renderPage()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("稿件响应格式无效")
+  })
+
+  it("shows a local error for an invalid job date", async () => {
+    useDetailHandlers({ jobPatch: { created_at: "invalid-date" } })
+    renderPage()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("任务详情响应格式无效")
+    expect(screen.queryByRole("button", { name: "重试个人博客" })).not.toBeInTheDocument()
+  })
 })
 
 function useDetailHandlers(options: {

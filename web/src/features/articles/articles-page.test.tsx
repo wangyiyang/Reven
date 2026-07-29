@@ -113,6 +113,21 @@ describe("ArticlesPage", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("同步操作响应格式无效"))
     expect(toast.success).not.toHaveBeenCalled()
   })
+
+  it.each(["not-a-date", "2026-07-30T08:01:00"])(
+    "shows a recoverable error for malformed or timezone-naive list date %s",
+    async (lastSyncedAt) => {
+      server.use(http.get("/api/articles", () => HttpResponse.json({
+        items: [{ ...article, last_synced_at: lastSyncedAt }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      })))
+      renderPage("/articles")
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("稿件响应格式无效")
+    },
+  )
 })
 
 function renderPage(initialEntry: string) {

@@ -16,9 +16,9 @@ export function parseArticleList(value: unknown): ArticleList {
   const data = record(value, "稿件列表")
   return {
     items: array(data.items, "稿件列表").map(parseArticleSummary),
-    total: integer(data.total, "稿件列表"),
-    page: integer(data.page, "稿件列表"),
-    page_size: integer(data.page_size, "稿件列表"),
+    total: integer(data.total, "稿件列表", 0),
+    page: integer(data.page, "稿件列表", 1),
+    page_size: integer(data.page_size, "稿件列表", 1),
   }
 }
 
@@ -50,8 +50,8 @@ export function parseJobDetail(value: unknown): JobDetail {
     wechat: parseChannelResult(data.wechat),
     wechat_html: nullableString(data.wechat_html, "任务详情"),
     attempt_count: integer(data.attempt_count, "任务详情"),
-    created_at: string(data.created_at, "任务详情"),
-    updated_at: string(data.updated_at, "任务详情"),
+    created_at: dateTime(data.created_at, "任务详情"),
+    updated_at: dateTime(data.updated_at, "任务详情"),
   }
 }
 
@@ -88,9 +88,9 @@ function parseArticleSummary(value: unknown): ArticleSummary {
     notion_status: string(data.notion_status, "稿件"),
     automation_status: string(data.automation_status, "稿件"),
     target_channels: channelArray(data.target_channels, "稿件"),
-    planned_at: nullableString(data.planned_at, "稿件"),
-    notion_last_edited_at: string(data.notion_last_edited_at, "稿件"),
-    last_synced_at: string(data.last_synced_at, "稿件"),
+    planned_at: nullableDateTime(data.planned_at, "稿件"),
+    notion_last_edited_at: dateTime(data.notion_last_edited_at, "稿件"),
+    last_synced_at: dateTime(data.last_synced_at, "稿件"),
     cover_valid: boolean(data.cover_valid, "稿件"),
     blog_status: nullableString(data.blog_status, "稿件"),
     wechat_status: nullableString(data.wechat_status, "稿件"),
@@ -103,7 +103,7 @@ function parseJobSummary(value: unknown, name = "任务"): JobSummary {
     id: string(data.id, name),
     overall_status: string(data.overall_status, name),
     target_channels: channelArray(data.target_channels, name),
-    scheduled_at: string(data.scheduled_at, name),
+    scheduled_at: dateTime(data.scheduled_at, name),
     content_hash: nullableString(data.content_hash, name),
     blog_status: string(data.blog_status, name),
     wechat_status: string(data.wechat_status, name),
@@ -181,9 +181,21 @@ function nullableError(value: unknown, name: string): string | null {
     .slice(0, 1000)
 }
 
-function integer(value: unknown, name: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) invalid(name)
+function integer(value: unknown, name: string, minimum = 0): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) invalid(name)
   return value
+}
+
+function nullableDateTime(value: unknown, name: string): string | null {
+  if (value === null) return null
+  return dateTime(value, name)
+}
+
+function dateTime(value: unknown, name: string): string {
+  const parsed = string(value, name)
+  const awareIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+  if (!awareIso.test(parsed) || !Number.isFinite(Date.parse(parsed))) invalid(name)
+  return parsed
 }
 
 function boolean(value: unknown, name: string): boolean {
