@@ -13,10 +13,11 @@ interface IntegrationCardProps {
   definition: ProviderDefinition
   integration?: Integration
   egressIp?: string | null
+  actionsDisabled: boolean
   busyAction?: string
   onSave: (provider: Provider, publicConfig: Record<string, string>) => void
   onReplace: (provider: Provider, publicConfig: Record<string, string>, secret: Record<string, string>) => void
-  onDelete: (provider: Provider) => void
+  onDelete: (provider: Provider) => Promise<boolean>
   onTest: (provider: Provider) => void
   onBootstrap: () => void
 }
@@ -25,6 +26,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
   const form = useIntegrationForm(props.definition, props.integration)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
+  const saveButtonRef = useRef<HTMLButtonElement>(null)
   const busy = props.busyAction?.startsWith(props.definition.provider)
   const deleteLabel = `删除${props.definition.title}密钥`
   return (
@@ -33,6 +35,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
       <ConfigFields definition={props.definition} egressIp={props.egressIp} form={form} integration={props.integration} />
       <StatusNotices definition={props.definition} integration={props.integration} />
       <CardActions
+        actionsDisabled={props.actionsDisabled}
         busy={busy}
         definition={props.definition}
         form={form}
@@ -43,19 +46,37 @@ export function IntegrationCard(props: IntegrationCardProps) {
         onReplace={props.onReplace}
         onSave={props.onSave}
         onTest={props.onTest}
+        saveButtonRef={saveButtonRef}
       />
       <ConfirmDialog
         busy={busy}
         confirmLabel={`确认${deleteLabel}`}
         description="删除后，依赖此密钥的自动同步或发布会立即停止。公共配置仍会保留。"
         onClose={() => setConfirmOpen(false)}
-        onConfirm={() => { setConfirmOpen(false); props.onDelete(props.definition.provider) }}
+        onConfirm={() => handleDeleteConfirm(props, () => setConfirmOpen(false), deleteButtonRef, saveButtonRef)}
         open={confirmOpen}
         returnFocusRef={deleteButtonRef}
         title={`确认${deleteLabel}？`}
       />
     </article>
   )
+}
+
+async function handleDeleteConfirm(
+  props: IntegrationCardProps,
+  close: () => void,
+  triggerRef: RefObject<HTMLButtonElement | null>,
+  stableRef: RefObject<HTMLButtonElement | null>,
+) {
+  const trigger = triggerRef.current
+  close()
+  if (!await props.onDelete(props.definition.provider)) return
+  window.setTimeout(() => {
+    const active = document.activeElement
+    if (active === document.body || active === trigger || !active?.isConnected) {
+      stableRef.current?.focus()
+    }
+  }, 0)
 }
 
 interface IntegrationForm {
@@ -170,6 +191,7 @@ function StatusNotices({ definition, integration }: { definition: ProviderDefini
 }
 
 interface CardActionsProps {
+  actionsDisabled: boolean
   busy?: boolean
   definition: ProviderDefinition
   form: IntegrationForm
@@ -180,6 +202,7 @@ interface CardActionsProps {
   onBootstrap: () => void
   onDelete: () => void
   deleteButtonRef: RefObject<HTMLButtonElement | null>
+  saveButtonRef: RefObject<HTMLButtonElement | null>
 }
 
 function CardActions(props: CardActionsProps) {
@@ -187,31 +210,31 @@ function CardActions(props: CardActionsProps) {
   const secretPayload = { [definition.secretField.key]: form.secret }
   return (
     <footer className="mt-7 flex flex-wrap items-center gap-3">
-      <Button aria-label={`保存${definition.title}配置`} disabled={props.busy} onClick={() => props.onSave(definition.provider, form.publicConfig)}>
+      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled} onClick={() => props.onSave(definition.provider, form.publicConfig)} ref={props.saveButtonRef}>
         <Save aria-hidden size={15} />保存配置
       </Button>
       <Button
         aria-label={`${integration?.secret_configured ? "替换" : "保存"}${definition.title}密钥`}
-        disabled={props.busy || !form.secret}
+        disabled={props.actionsDisabled || !form.secret}
         onClick={() => props.onReplace(definition.provider, form.publicConfig, secretPayload)}
         variant="outline"
       >
         <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
       </Button>
-      <TestButton busy={props.busy} definition={definition} onTest={props.onTest} />
-      {definition.provider === "notion" && <Button disabled={props.busy} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
-      {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
+      <TestButton actionsDisabled={props.actionsDisabled} definition={definition} onTest={props.onTest} />
+      {definition.provider === "notion" && <Button disabled={props.actionsDisabled} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
+      {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} disabled={props.actionsDisabled} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
       {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--blue)]" size={18} />}
     </footer>
   )
 }
 
-function TestButton(props: Pick<CardActionsProps, "busy" | "definition" | "onTest">) {
+function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definition" | "onTest">) {
   const feishu = props.definition.provider === "feishu"
   return (
     <Button
       aria-label={feishu ? "发送飞书测试消息" : `测试${props.definition.title}连接`}
-      disabled={props.busy}
+      disabled={props.actionsDisabled}
       onClick={() => props.onTest(props.definition.provider)}
       variant="outline"
     >
