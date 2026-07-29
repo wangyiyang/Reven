@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from reven.articles.models import Article
+from reven.articles.query import ARTICLE_DETAIL_JOB_LIMIT
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import compute_target_channels_hash
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -62,6 +63,19 @@ def test_preview_uses_injected_latest_source_service_without_state_write(workben
     assert response.json() == {"html": f"<p>{article.notion_page_id}</p>"}
 
 
+def test_article_detail_bounds_recent_job_history(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    article = _article("历史", datetime.now(tz=UTC))
+    asyncio.run(_seed_job_history(factory, article, ARTICLE_DETAIL_JOB_LIMIT + 3))
+
+    payload = client.get(f"/api/articles/{article.id}").json()
+
+    assert len(payload["jobs"]) == ARTICLE_DETAIL_JOB_LIMIT
+    assert payload["jobs_total"] == ARTICLE_DETAIL_JOB_LIMIT + 3
+    assert payload["jobs_has_more"] is True
+    assert payload["jobs"][0]["content_hash"] == f"{ARTICLE_DETAIL_JOB_LIMIT + 2:064x}"
+
+
 def _article(
     title: str,
     edited_at: datetime,
@@ -116,3 +130,30 @@ async def _seed_pair(
 async def _merge(factory: async_sessionmaker, value: object) -> None:
     async with factory.begin() as session:
         await session.merge(value)
+
+
+async def _seed_job_history(
+    factory: async_sessionmaker,
+    article: Article,
+    count: int,
+) -> None:
+    now = datetime.now(tz=UTC)
+    async with factory.begin() as session:
+        session.add(article)
+        for index in range(count):
+            channels = ["个人博客"]
+            session.add(
+                PublicationJob(
+                    article_id=article.id,
+                    content_hash=f"{index:064x}",
+                    target_channels=channels,
+                    target_channels_hash=compute_target_channels_hash(channels),
+                    snapshot_metadata={},
+                    overall_status="已完成",
+                    blog_status="已上线",
+                    wechat_status="待处理",
+                    scheduled_at=now,
+                    created_at=now + timedelta(seconds=index),
+                    updated_at=now + timedelta(seconds=index),
+                )
+            )

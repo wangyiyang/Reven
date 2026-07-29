@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from reven.articles.models import Article
 from reven.domain import AutomationStatus, JobStatus
 from reven.jobs.errors import BlockedPublishError, PublishError
+from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
 
 
@@ -266,19 +267,7 @@ class JobRepository:
         self,
         job_id: UUID,
     ) -> tuple[Article, PublicationJob] | None:
-        article_id = await self.session.scalar(select(PublicationJob.article_id).where(PublicationJob.id == job_id))
-        if article_id is None:
-            return None
-        article = await self.session.scalar(select(Article).where(Article.id == article_id).with_for_update())
-        job = await self.session.scalar(
-            select(PublicationJob)
-            .where(PublicationJob.id == job_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if article is None or job is None or job.article_id != article.id:
-            return None
-        return article, job
+        return await lock_article_job(self.session, job_id)
 
     @staticmethod
     def _update_article_after_notion_failure(

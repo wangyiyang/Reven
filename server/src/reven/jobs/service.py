@@ -3,6 +3,7 @@
 from typing import Any, Protocol
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -10,6 +11,7 @@ from reven.articles.models import Article
 from reven.domain import AutomationStatus, JobStatus, TargetChannel, parse_target_channels
 from reven.integrations.notion.mapper import map_notion_page
 from reven.integrations.notion.models import MappedNotionPage
+from reven.jobs.locking import lock_article_job as _lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.preparation_models import (
     PersistedPreparation as _PersistedPreparation,
@@ -31,7 +33,6 @@ from reven.jobs.preparation_state import freeze as _freeze
 from reven.jobs.preparation_state import (
     is_idempotency_conflict as _is_idempotency_conflict,
 )
-from reven.jobs.preparation_state import locked_job as _locked_job
 from reven.jobs.preparation_state import persist_blocked as _persist_blocked
 from reven.jobs.preparation_state import refresh_article as _refresh_article
 from reven.jobs.preparation_state import source_failure as _source_failure
@@ -151,12 +152,10 @@ class PublicationJobService:
 
     async def _preflight(self, job_id: UUID) -> tuple[_Preflight | None, _PersistedPreparation | None]:
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, job_id)
-            if job is None:
+            pair = await _lock_article_job(session, job_id)
+            if pair is None:
                 raise PublicationPreparationError("发布任务不存在")
-            article = await session.get(Article, job.article_id)
-            if article is None:
-                raise PublicationPreparationError("发布任务关联的稿件不存在")
+            article, job = pair
             if job.content_hash is not None:
                 if job.snapshot_metadata.get("asset_finalize_pending") is True:
                     identity = job.snapshot_metadata.get("asset_staging_identity")
@@ -236,16 +235,25 @@ class PublicationJobService:
 
     async def _persist_prepared(self, work: _PreparedWork) -> _PersistedPreparation:
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, work.preflight.job_id)
-            if job is None:
+            pair = await _lock_article_job(
+                session,
+                work.preflight.job_id,
+                article_id=work.preflight.article_id,
+            )
+            if pair is None:
                 raise PreparationConflictError("发布任务在准备期间被删除")
-            article = await session.get(Article, work.preflight.article_id)
-            if article is None:
-                raise PreparationConflictError("稿件在准备期间被删除")
+            article, job = pair
+            article_changed = (
+                article.updated_at != work.preflight.article_updated_at
+                and (
+                    work.mapped is None
+                    or article.notion_last_edited_at != work.mapped.last_edited_at
+                )
+            )
             if (
                 job.content_hash is not None
                 or job.overall_status == JobStatus.CANCELLED
-                or article.updated_at != work.preflight.article_updated_at
+                or article_changed
             ):
                 raise PreparationConflictError("发布任务或稿件在准备期间发生变化，请重试")
             if work.mapped is None:
@@ -349,30 +357,31 @@ class PublicationJobService:
 
     async def _record_status_write_failure(self, job_id: UUID, error: str) -> None:
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, job_id)
-            if job is None:
+            pair = await _lock_article_job(session, job_id)
+            if pair is None:
                 return
-            article = await session.get(Article, job.article_id)
-            if article is not None:
-                article.last_error = error
+            article, _job = pair
+            article.last_error = error
 
     async def _record_finalize_failure(self, job_id: UUID) -> None:
         reason = "素材快照最终化失败，任务保持阻塞，可安全重试"
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, job_id)
-            if job is None:
+            pair = await _lock_article_job(session, job_id)
+            if pair is None:
                 return
+            article, job = pair
             job.overall_status = JobStatus.BLOCKED
             job.lease_expires_at = None
-            article = await session.get(Article, job.article_id)
-            if article is not None:
-                article.automation_status = AutomationStatus.BLOCKED
-                article.last_error = reason
+            article.automation_status = AutomationStatus.BLOCKED
+            article.last_error = reason
 
     async def _mark_assets_finalized(self, job_id: UUID) -> None:
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, job_id)
-            if job is None or job.snapshot_metadata.get("asset_finalize_pending") is not True:
+            pair = await _lock_article_job(session, job_id)
+            if pair is None:
+                return
+            article, job = pair
+            if job.snapshot_metadata.get("asset_finalize_pending") is not True:
                 return
             metadata = dict(job.snapshot_metadata)
             metadata.pop("asset_finalize_pending", None)
@@ -380,31 +389,31 @@ class PublicationJobService:
             metadata.pop("asset_manifest", None)
             job.snapshot_metadata = metadata
             job.overall_status = JobStatus.WAITING
-            article = await session.get(Article, job.article_id)
-            if article is not None:
-                article.automation_status = AutomationStatus.WAITING
-                article.last_error = None
+            article.automation_status = AutomationStatus.WAITING
+            article.last_error = None
 
     async def _mark_processing(self, job_id: UUID) -> None:
         async with self.session_factory.begin() as session:
-            job = await _locked_job(session, job_id)
-            if job is None or job.snapshot_metadata.get("notion_write_pending") is not True:
+            pair = await _lock_article_job(session, job_id)
+            if pair is None:
+                return
+            article, job = pair
+            if job.snapshot_metadata.get("notion_write_pending") is not True:
                 return
             metadata = dict(job.snapshot_metadata)
             metadata.pop("notion_write_pending", None)
             job.snapshot_metadata = metadata
             job.overall_status = JobStatus.PROCESSING
             job.started_at = utc_now()
-            article = await session.get(Article, job.article_id)
-            if article is not None:
-                article.automation_status = AutomationStatus.PROCESSING
-                article.last_error = None
+            article.automation_status = AutomationStatus.PROCESSING
+            article.last_error = None
 
     async def _resolve_unique_conflict(self, job_id: UUID, conflict: _FreezeConflictError) -> PrepareResult:
         async with self.session_factory.begin() as session:
-            current = await _locked_job(session, job_id)
-            if current is None:
+            pair = await _lock_article_job(session, job_id, article_id=conflict.article_id)
+            if pair is None:
                 raise PublicationPreparationError("唯一冲突后无法找到当前任务")
+            article, current = pair
             existing = await _existing_frozen(
                 session,
                 conflict.article_id,
@@ -414,9 +423,14 @@ class PublicationJobService:
             )
             if existing is None:
                 raise PublicationPreparationError("唯一冲突后无法找到已冻结任务")
-            article = await session.get(Article, current.article_id)
-            if article is None:
-                raise PublicationPreparationError("唯一冲突后无法找到关联稿件")
+            existing = await session.scalar(
+                select(PublicationJob)
+                .where(PublicationJob.id == existing.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if existing is None or existing.article_id != article.id:
+                raise PublicationPreparationError("唯一冲突后已冻结任务发生变化")
             return _adopt_existing(current, existing, article).result
 
 

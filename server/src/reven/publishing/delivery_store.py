@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from reven.articles.models import Article
 from reven.domain import AutomationStatus, JobStatus, TargetChannel
 from reven.jobs.errors import TransientPublishError
+from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim
 from reven.publishing.orchestrator import (
@@ -194,18 +195,10 @@ async def _pair(session: AsyncSession, job_id: UUID) -> tuple[PublicationJob, Ar
 
 
 async def _locked_pair(session: AsyncSession, claim: JobClaim) -> tuple[PublicationJob, Article]:
-    article_id = await session.scalar(select(PublicationJob.article_id).where(PublicationJob.id == claim.job_id))
-    if article_id is None:
+    pair = await lock_article_job(session, claim.job_id)
+    if pair is None:
         raise RuntimeError("发布任务不存在")
-    article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
-    job = await session.scalar(
-        select(PublicationJob)
-        .where(PublicationJob.id == claim.job_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if article is None or job is None or job.article_id != article.id:
-        raise RuntimeError("发布任务不存在")
+    article, job = pair
     await _require_lease(session, job, claim)
     return job, article
 

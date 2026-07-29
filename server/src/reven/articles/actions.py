@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
 from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, WechatStage
+from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobRepository
 
 
-@dataclass(frozen=True)
+@dataclass
 class ActionConflictError(Exception):
     code: str
     message: str
@@ -66,13 +67,10 @@ async def _locked_pair(
     article_id: UUID,
     job_id: UUID,
 ) -> tuple[Article, PublicationJob]:
-    article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
-    job = await session.scalar(
-        select(PublicationJob).where(PublicationJob.id == job_id).with_for_update()
-    )
-    if article is None or job is None or job.article_id != article.id:
+    pair = await lock_article_job(session, job_id, article_id=article_id)
+    if pair is None:
         raise ActionConflictError("JOB_NOT_FOUND", "稿件或发布任务不存在")
-    return article, job
+    return pair
 
 
 def _validate_retry(job: PublicationJob, channels: list[TargetChannel]) -> None:

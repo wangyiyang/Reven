@@ -37,6 +37,27 @@ class FakeNotionPages:
         }
 
 
+class OversizedPageNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        return {"results": [{}] * 101, "has_more": False, "next_cursor": None}
+
+
+class CyclicCursorNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        next_cursor = "page-2" if start_cursor is None else "page-2"
+        return {"results": [], "has_more": True, "next_cursor": next_cursor}
+
+
 class EmptyChannelsNotionPages(FakeNotionPages):
     async def query_data_source(
         self,
@@ -450,6 +471,24 @@ async def test_sync_rejects_non_object_result_items(
         await service.sync_once()
 
     assert await db_session.get(SystemState, "notion_sync") is None
+
+
+@pytest.mark.anyio
+async def test_sync_rejects_oversized_page_result_count(db_session: AsyncSession) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, OversizedPageNotionPages(), "data-source")
+
+    with pytest.raises(NotionSchemaError, match="单页数量"):
+        await service.sync_once()
+
+
+@pytest.mark.anyio
+async def test_sync_rejects_cyclic_pagination_cursor(db_session: AsyncSession) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, CyclicCursorNotionPages(), "data-source")
+
+    with pytest.raises(NotionSchemaError, match="游标发生循环"):
+        await service.sync_once()
 
 
 @pytest.mark.anyio

@@ -56,6 +56,8 @@ class ArticleDetail(ArticleSummary):
     blog: ChannelResult | None
     wechat: ChannelResult | None
     jobs: list[JobSummary]
+    jobs_total: int
+    jobs_has_more: bool
 
 
 class JobDetail(JobSummary):

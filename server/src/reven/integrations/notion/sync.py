@@ -19,6 +19,8 @@ from reven.scheduling import utc_now
 from reven.system.models import SystemState
 
 _ACTIVE_STATUSES = (JobStatus.WAITING, JobStatus.PROCESSING, JobStatus.BLOCKED, JobStatus.FAILED)
+MAX_SYNC_PAGES = 1000
+NOTION_PAGE_SIZE = 100
 
 
 class NotionPageClient(Protocol):
@@ -52,9 +54,13 @@ class NotionSyncService:
     async def sync_once(self) -> SyncResult:
         started = monotonic()
         cursor: str | None = None
+        seen_cursors: set[str] = set()
+        page_count = 0
         created = updated = failed = 0
         while True:
             response = await self.client.query_data_source(self.data_source_id, start_cursor=cursor)
+            page_count += 1
+            _validate_pagination(response, cursor, seen_cursors, page_count)
             for raw_page in _page_results(response):
                 outcome = await self._sync_raw_page(raw_page)
                 created += outcome == "created"
@@ -76,8 +82,12 @@ class NotionSyncService:
 
     async def _sync_known_page(self, notion_page_id: str, started: float) -> SyncResult:
         cursor: str | None = None
+        seen_cursors: set[str] = set()
+        page_count = 0
         while True:
             response = await self.client.query_data_source(self.data_source_id, start_cursor=cursor)
+            page_count += 1
+            _validate_pagination(response, cursor, seen_cursors, page_count)
             for raw_page in _page_results(response):
                 if raw_page.get("id") == notion_page_id:
                     outcome = await self._sync_raw_page(raw_page)
@@ -97,7 +107,7 @@ class NotionSyncService:
             async with self.session_factory.begin() as session:
                 await _lock_notion_page(session, mapped.page_id)
                 articles = ArticleRepository(session)
-                existing = await articles.get_by_notion_page_id(mapped.page_id)
+                existing = await articles.get_by_notion_page_id(mapped.page_id, for_update=True)
                 article = await articles.upsert_from_notion(mapped)
                 await _reconcile_job(session, article)
             return "created" if existing is None else "updated"
@@ -166,6 +176,7 @@ async def _active_job(session: AsyncSession, article_id: UUID) -> PublicationJob
             PublicationJob.overall_status.in_(_ACTIVE_STATUSES),
         )
         .order_by(PublicationJob.created_at.desc())
+        .with_for_update()
         .limit(1)
     )
     job: PublicationJob | None = await session.scalar(statement)
@@ -232,6 +243,8 @@ def _page_results(response: dict[str, Any]) -> list[dict[str, Any]]:
         raise NotionSchemaError("Notion 查询响应缺少 results 列表")
     if not all(isinstance(item, dict) for item in results):
         raise NotionSchemaError("Notion 查询响应 results 包含非对象项")
+    if len(results) > NOTION_PAGE_SIZE:
+        raise NotionSchemaError("Notion 查询响应超过单页数量限制")
     return results
 
 
@@ -240,6 +253,21 @@ def _next_cursor(response: dict[str, Any]) -> str | None:
     if response.get("has_more") and not isinstance(cursor, str):
         raise NotionSchemaError("Notion 查询响应分页游标缺失")
     return cursor if isinstance(cursor, str) else None
+
+
+def _validate_pagination(
+    response: dict[str, Any],
+    current: str | None,
+    seen: set[str],
+    page_count: int,
+) -> None:
+    if page_count > MAX_SYNC_PAGES:
+        raise NotionSchemaError("Notion 同步分页超过安全上限")
+    if current is not None:
+        seen.add(current)
+    next_cursor = _next_cursor(response)
+    if next_cursor is not None and next_cursor in seen:
+        raise NotionSchemaError("Notion 同步分页游标发生循环")
 
 
 async def _lock_notion_page(session: AsyncSession, page_id: str) -> None:
