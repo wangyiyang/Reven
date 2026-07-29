@@ -93,16 +93,20 @@ mkdir -p /opt/reven
 cd /opt/reven
 ```
 
-检出待部署的已审核 Git Tag，在 `/opt/reven/.env` 填写 `.env.example`
-列出的全部变量，并限制权限：
+Git Tag 触发 `.github/workflows/release.yml` 后，先核对 CI 保存的 SBOM、漏洞扫描
+和 `image-digest.txt`。在 `/opt/reven/.env` 中把 `REVEN_IMAGE` 固定为已审核的
+GHCR 版本 Tag 或 digest，并填写 `.env.example` 列出的其余变量：
 
 ```bash
 chmod 600 .env
 docker compose --env-file .env -f infra/compose/docker-compose.yml config
-docker compose --env-file .env -f infra/compose/docker-compose.yml build --pull
+docker compose --env-file .env -f infra/compose/docker-compose.yml pull reven
 docker compose --env-file .env -f infra/compose/docker-compose.yml up -d
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 ```
+
+服务器不构建生产镜像。发布 workflow 只构建并推送 GHCR 镜像，不执行 SSH 或自动
+部署；升级仍由用户审核 release 证据后手工执行。Tag 不得复用或覆盖。
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
 前端静态文件。迁移和静态切换共享排他锁；迁移失败时旧 `current` 保持不变。
@@ -148,8 +152,8 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml logs --tail=2
 
 ## 9. 按镜像 Tag 回滚
 
-生产环境只部署不可变镜像 Tag。回滚时把 `.env` 中 `REVEN_IMAGE` 改为上一已验证
-Tag，然后执行：
+生产环境只部署不可变镜像 Tag 或 digest。回滚时把 `.env` 中 `REVEN_IMAGE`
+改为上一已验证的 digest（优先）或版本 Tag，然后执行：
 
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yml pull reven

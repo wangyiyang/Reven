@@ -1,9 +1,6 @@
 services:
   reven:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile
-    image: ${REVEN_IMAGE:-reven:local}
+    image: ${REVEN_IMAGE:?REVEN_IMAGE must be an immutable GHCR tag or digest}
     restart: unless-stopped
     env_file:
       - ../../.env
