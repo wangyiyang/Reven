@@ -50,3 +50,18 @@ async def test_rejects_failed_webhook_response_without_exposing_body() -> None:
         )
         with pytest.raises(RuntimeError, match="飞书 Webhook"):
             await client.send(NotificationCard("稿件", "失败", "需要处理", {}))
+
+
+@pytest.mark.anyio
+async def test_rejects_oversized_streaming_response() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, content=b"x" * (64 * 1024 + 1))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False) as http:
+        client = FeishuWebhookClient(
+            "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+            http=http,
+        )
+        with pytest.raises(RuntimeError, match="大小限制"):
+            await client.send(NotificationCard("稿件", "失败", "需要处理", {}))

@@ -364,3 +364,34 @@ async def test_blocked_after_transient_preparation_clears_retry_cycle(db_session
 
     assert job.overall_status == JobStatus.WAITING
     assert job.snapshot_metadata["preparation_attempt_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_terminal_finalization_bypasses_content_preparation(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.overall_status = JobStatus.COMPLETED
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": False,
+            "cleanup_pending": True,
+        }
+    }
+    await db_session.commit()
+    preparation = RaisingPreparation(AssertionError("must not prepare"))
+
+    class RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, claim):  # type: ignore[no-untyped-def]
+            del claim
+            self.calls += 1
+
+    executor = RecordingExecutor()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    await PublicationJobTick(factory, preparation, executor)()
+
+    assert preparation.calls == 0
+    assert executor.calls == 1

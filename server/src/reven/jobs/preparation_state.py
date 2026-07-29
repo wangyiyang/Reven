@@ -100,6 +100,7 @@ def freeze(
     job.target_channels_hash = compute_target_channels_hash(values)
     job.source_markdown = markdown
     metadata["notion_write_pending"] = True
+    metadata["target_channels_used_default"] = job.snapshot_metadata.get("target_channels_used_default", False)
     job.snapshot_metadata = metadata
     job.overall_status = JobStatus.WAITING
     job.lease_expires_at = None

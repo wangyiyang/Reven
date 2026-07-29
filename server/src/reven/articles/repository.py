@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.articles.models import Article
+from reven.domain import parse_target_channels
 from reven.integrations.notion.models import MappedNotionPage
 from reven.scheduling import resolve_scheduled_at, utc_now
 
@@ -36,7 +37,11 @@ class ArticleRepository:
         article.target_channels = page.target_channels
         article.planned_at = resolve_scheduled_at(page.planned_raw) if page.planned_raw else None
         article.cover_metadata = _cover_metadata(page)
-        article.notion_metadata = {"categories": page.categories, "summary": page.summary}
+        article.notion_metadata = {
+            "categories": page.categories,
+            "summary": page.summary,
+            "target_channels_used_default": parse_target_channels(page.target_channels).used_default,
+        }
         article.notion_last_edited_at = page.last_edited_at
         article.last_synced_at = utc_now()
         await self.session.flush()

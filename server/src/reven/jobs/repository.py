@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.domain import JobStatus
@@ -37,6 +37,7 @@ class JobRepository:
         content_hash: str | None,
         target_channels: list[str],
         scheduled_at: datetime,
+        used_default: bool = False,
     ) -> PublicationJob:
         job = PublicationJob(
             article_id=article_id,
@@ -47,6 +48,7 @@ class JobRepository:
             blog_status="待处理",
             wechat_status="待处理",
             scheduled_at=scheduled_at,
+            snapshot_metadata={"target_channels_used_default": used_default},
         )
         self.session.add(job)
         await self.session.flush()
@@ -61,7 +63,13 @@ class JobRepository:
         statement = (
             select(PublicationJob)
             .where(
-                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
+                or_(
+                    PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
+                    and_(
+                        PublicationJob.overall_status.in_([JobStatus.BLOCKED, JobStatus.FAILED, JobStatus.COMPLETED]),
+                        PublicationJob.snapshot_metadata.has_key("delivery_finalization"),  # noqa: W601
+                    ),
+                ),
                 func.coalesce(PublicationJob.snapshot_metadata["notion_write_pending"].astext, "false") != "true",
                 func.coalesce(PublicationJob.snapshot_metadata["asset_finalize_pending"].astext, "false") != "true",
                 PublicationJob.scheduled_at <= now,
@@ -77,7 +85,8 @@ class JobRepository:
         job = await self.session.scalar(statement)
         if job is None:
             return None
-        job.overall_status = JobStatus.PROCESSING
+        if "delivery_finalization" not in job.snapshot_metadata:
+            job.overall_status = JobStatus.PROCESSING
         job.lease_expires_at = now + timedelta(seconds=lease_seconds)
         job.lease_token = uuid4()
         await self.session.flush()
@@ -172,6 +181,15 @@ class JobRepository:
         error: PublishError,
     ) -> bool:
         now = await self._database_now()
+        current = await self.session.get(PublicationJob, claim.job_id)
+        finalization = current.snapshot_metadata.get("delivery_finalization") if current is not None else None
+        if (
+            isinstance(finalization, dict)
+            and finalization.get("notion_pending") is False
+            and current is not None
+            and current.overall_status in {JobStatus.BLOCKED, JobStatus.FAILED, JobStatus.COMPLETED}
+        ):
+            return False
         if isinstance(error, BlockedPublishError):
             status = JobStatus.BLOCKED
         else:
@@ -204,12 +222,41 @@ class JobRepository:
             or job.lease_expires_at < now
             or job.snapshot_metadata.get("notion_write_pending") is True
             or job.snapshot_metadata.get("asset_finalize_pending") is True
-            or job.overall_status != JobStatus.PROCESSING
+            or (job.overall_status != JobStatus.PROCESSING and "delivery_finalization" not in job.snapshot_metadata)
         ):
             return None
         job.attempt_count += 1
         await self.session.flush()
         return job.attempt_count
+
+    async def is_finalization_pending(self, claim: "JobClaim") -> bool:
+        now = await self._database_now()
+        job = await self.session.get(PublicationJob, claim.job_id)
+        return bool(
+            job is not None
+            and job.lease_token == claim.lease_token
+            and job.lease_expires_at is not None
+            and job.lease_expires_at >= now
+            and "delivery_finalization" in job.snapshot_metadata
+        )
+
+    async def bump_notification_revision_for_retry(self, job_id: UUID) -> int | None:
+        """人工重试入口：仅在没有有效 worker lease 时递增事件 revision。"""
+        now = await self._database_now()
+        job = await self.session.scalar(
+            select(PublicationJob)
+            .where(PublicationJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if job is None:
+            return None
+        if job.lease_token is not None and job.lease_expires_at is not None and job.lease_expires_at >= now:
+            return None
+        current = job.notification_state.get("_revision", 0)
+        revision = (current if isinstance(current, int) else 0) + 1
+        job.notification_state = {**job.notification_state, "_revision": revision}
+        return revision
 
     async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:
         now = await self._database_now()
