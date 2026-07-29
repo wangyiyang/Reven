@@ -1,0 +1,29 @@
+import { Navigate, Route, Routes } from "react-router-dom"
+
+import { AppShell } from "@/components/app-shell"
+import { IntegrationsPage } from "@/features/integrations/integrations-page"
+
+export function App() {
+  return (
+    <AppShell>
+      <Routes>
+        <Route element={<Placeholder eyebrow="Editorial queue" title="稿件" />} path="/articles" />
+        <Route element={<IntegrationsPage />} path="/integrations" />
+        <Route element={<Placeholder eyebrow="Operations" title="系统状态" />} path="/system" />
+        <Route element={<Navigate replace to="/articles" />} path="*" />
+      </Routes>
+    </AppShell>
+  )
+}
+
+function Placeholder({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <main className="page-enter grid min-h-[75vh] place-items-center px-6">
+      <div className="text-center">
+        <p className="section-kicker justify-center">{eyebrow}</p>
+        <h1 className="font-display mt-4 text-6xl">{title}</h1>
+        <p className="mt-5 text-sm text-[var(--muted)]">此页面将在下一阶段接入。</p>
+      </div>
+    </main>
+  )
+}
