@@ -19,11 +19,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="font-display text-3xl tracking-[-0.05em]">REVEN</span>
             <span className="h-2 w-2 bg-[var(--red)] transition-transform group-hover:rotate-45" aria-hidden />
           </NavLink>
-          <nav aria-label="主导航" className="lg:my-auto">
+          <nav aria-label="内容工作台主导航" className="lg:my-auto">
             <ul className="flex gap-1 lg:flex-col lg:gap-2">
               {navigation.map(({ to, label, icon: Icon }) => (
                 <li key={to}>
                   <NavLink
+                    aria-label={label}
                     className={({ isActive }) => cn(
                       "nav-link flex min-h-11 items-center gap-3 px-3 text-sm font-semibold",
                       isActive && "active",

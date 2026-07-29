@@ -13,9 +13,29 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   })
-  const body = await response.json().catch(() => null) as { code?: string; message?: string } | null
+  const text = await response.text()
+  const body = parseJson(text)
   if (!response.ok) {
-    throw new ApiError(response.status, body?.code ?? "request_failed", body?.message)
+    const error = isObject(body) ? body : null
+    throw new ApiError(
+      response.status,
+      typeof error?.code === "string" ? error.code : "request_failed",
+      typeof error?.message === "string" ? error.message : undefined,
+    )
   }
+  if (body === undefined) throw new ApiError(response.status, "invalid_response", "服务返回了空响应")
   return body as T
+}
+
+function parseJson(text: string): unknown {
+  if (!text) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
