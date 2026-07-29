@@ -111,3 +111,11 @@ async def test_large_dual_pipe_output_is_retained_with_fixed_bounds() -> None:
     assert len(result.stdout.encode()) <= 1024
     assert len(result.stderr.encode()) <= 1024
     assert result.truncated
+
+
+@pytest.mark.anyio
+async def test_command_runner_context_removes_isolated_environment() -> None:
+    async with CommandRunner() as runner:
+        isolated = runner.isolated
+        assert isolated.exists()
+    assert not isolated.exists()

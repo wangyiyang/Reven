@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import os
+import shutil
 import signal
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -30,6 +31,16 @@ class CommandRunner:
         (isolated / "home").mkdir(mode=0o700)
         (isolated / "tmp").mkdir(mode=0o700)
         self.base_env = _base_environment(isolated)
+        self.isolated = isolated
+
+    async def __aenter__(self) -> "CommandRunner":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        shutil.rmtree(self.isolated, ignore_errors=True)
 
     async def run(
         self,

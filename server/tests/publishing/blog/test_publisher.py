@@ -12,6 +12,7 @@ from reven.publishing.blog.publisher import (
     pull_request_body,
     release_branch,
     select_pull_request,
+    target_pages_build,
     verify_remote_branch,
 )
 
@@ -159,6 +160,16 @@ def test_pages_latest_never_accepts_historical_or_other_commit() -> None:
     assert pages_state({"commit": "merge", "status": "built"}, "merge") == "success"
     with pytest.raises(BlockedPublishError, match="Pages"):
         pages_state({"commit": "merge", "status": "errored"}, "merge")
+
+
+def test_target_pages_build_uses_latest_attempt_for_merge_sha() -> None:
+    builds = [
+        {"id": 9, "commit": "other", "status": "errored"},
+        {"id": 8, "commit": "merge", "status": "errored"},
+        {"id": 7, "commit": "merge", "status": "built"},
+    ]
+    assert target_pages_build(builds, "merge") == builds[1]
+    assert target_pages_build([{"id": 10, "commit": "other", "status": "built"}], "merge") is None
 
 
 @pytest.mark.anyio

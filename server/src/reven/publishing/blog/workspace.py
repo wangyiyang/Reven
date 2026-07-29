@@ -1,10 +1,12 @@
 """Isolated local Git/Jekyll workspace lifecycle."""
 
 import base64
+import hashlib
 import re
 import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from reven.publishing.commands import CommandResult, CommandRunner
 
@@ -28,6 +30,21 @@ class BlogWorkspace:
         )
         return path
 
+    def create_attempt(self, job_id: str) -> Path:
+        base = self.path(job_id)
+        attempt = base / str(uuid4())
+        attempt.mkdir(parents=True, mode=0o700)
+        return attempt
+
+    async def clone_at(self, path: Path, remote_url: str, token: str) -> Path:
+        self._assert_attempt_child(path)
+        await self.runner.run(
+            ["git", "-c", "submodule.recurse=false", "clone", "--no-recurse-submodules", remote_url, str(path)],
+            env=_git_auth_env(remote_url, token),
+            secrets=(token,),
+        )
+        return path
+
     async def prepare(self, path: Path, branch: str) -> None:
         self._assert_cwd(path)
         environment = _workspace_env(path)
@@ -43,6 +60,14 @@ class BlogWorkspace:
             raise ValueError("Ruby platform 输出无效")
         await self.runner.run(["bundle", "lock", "--add-platform", platform], cwd=path, env=environment)
         await self.runner.run(["bundle", "install"], cwd=path, env=environment)
+
+    async def switch(self, path: Path, branch: str) -> None:
+        self._assert_cwd(path)
+        await self.runner.run(
+            ["git", "switch", "-c", branch],
+            cwd=path,
+            env=_workspace_env(path),
+        )
 
     async def build(self, path: Path) -> None:
         self._assert_cwd(path)
@@ -65,11 +90,22 @@ class BlogWorkspace:
         return result.stdout.strip()
 
     async def push(self, path: Path, remote_url: str, branch: str, token: str) -> CommandResult:
-        self._assert_cwd(path)
+        self._assert_attempt_child(path)
         if not branch.startswith("reven/"):
             raise ValueError("只允许推送 Reven 发布分支")
         return await self.runner.run(
-            ["git", "push", "origin", f"HEAD:refs/heads/{branch}"],
+            [
+                "git",
+                "-c",
+                f"core.hooksPath={path / '.reven' / 'empty-hooks'}",
+                "-c",
+                "credential.helper=",
+                "-c",
+                "protocol.ext.allow=never",
+                "push",
+                remote_url,
+                f"HEAD:refs/heads/{branch}",
+            ],
             cwd=path,
             env={**_workspace_env(path), **_git_auth_env(remote_url, token)},
             secrets=(token,),
@@ -80,9 +116,30 @@ class BlogWorkspace:
             raise ValueError("job_id 无效")
         return self.root / job_id / "blog"
 
+    def stage_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
+        artifact = attempt / "artifact"
+        for relative in manifest:
+            source = repo / relative
+            destination = artifact / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            (destination.with_suffix(destination.suffix + ".sha256")).write_text(
+                hashlib.sha256(source.read_bytes()).hexdigest()
+            )
+
+    def restore_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
+        for relative in manifest:
+            source = attempt / "artifact" / relative
+            expected = source.with_suffix(source.suffix + ".sha256").read_text()
+            if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                raise ValueError("发布 artifact 哈希不匹配")
+            destination = repo / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+
     def _assert_cwd(self, path: Path) -> None:
         resolved = path.resolve()
-        if not resolved.is_relative_to(self.root) or resolved.name != "blog":
+        if not resolved.is_relative_to(self.root) or "blog" not in resolved.parts:
             raise ValueError("命令工作目录越界")
 
     def cleanup(self, job_id: str) -> None:
@@ -92,6 +149,17 @@ class BlogWorkspace:
         self._assert_cwd(path)
         if path.exists():
             shutil.rmtree(path)
+
+    def cleanup_attempt(self, attempt: Path) -> None:
+        self._assert_attempt_child(attempt)
+        if attempt.is_symlink():
+            raise ValueError("拒绝清理符号链接工作区")
+        shutil.rmtree(attempt, ignore_errors=True)
+
+    def _assert_attempt_child(self, path: Path) -> None:
+        resolved = path.resolve()
+        if not resolved.is_relative_to(self.root) or "blog" not in resolved.parts:
+            raise ValueError("attempt 工作目录越界")
 
 
 def _git_auth_env(remote_url: str, token: str) -> dict[str, str]:
