@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import type { RefObject } from "react"
 import { ArrowUpRight, Check, LoaderCircle, Radio, Save, Send, ShieldAlert, Trash2, Wrench } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -6,23 +7,24 @@ import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import type { Integration, ProviderDefinition } from "./types"
+import type { Integration, Provider, ProviderDefinition } from "./types"
 
 interface IntegrationCardProps {
   definition: ProviderDefinition
   integration?: Integration
   egressIp?: string | null
   busyAction?: string
-  onSave: (provider: string, publicConfig: Record<string, string>) => void
-  onReplace: (provider: string, publicConfig: Record<string, string>, secret: Record<string, string>) => void
-  onDelete: (provider: string) => void
-  onTest: (provider: string) => void
+  onSave: (provider: Provider, publicConfig: Record<string, string>) => void
+  onReplace: (provider: Provider, publicConfig: Record<string, string>, secret: Record<string, string>) => void
+  onDelete: (provider: Provider) => void
+  onTest: (provider: Provider) => void
   onBootstrap: () => void
 }
 
 export function IntegrationCard(props: IntegrationCardProps) {
   const form = useIntegrationForm(props.definition, props.integration)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const busy = props.busyAction?.startsWith(props.definition.provider)
   const deleteLabel = `删除${props.definition.title}密钥`
   return (
@@ -37,6 +39,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
         integration={props.integration}
         onBootstrap={props.onBootstrap}
         onDelete={() => setConfirmOpen(true)}
+        deleteButtonRef={deleteButtonRef}
         onReplace={props.onReplace}
         onSave={props.onSave}
         onTest={props.onTest}
@@ -48,6 +51,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
         onClose={() => setConfirmOpen(false)}
         onConfirm={() => { setConfirmOpen(false); props.onDelete(props.definition.provider) }}
         open={confirmOpen}
+        returnFocusRef={deleteButtonRef}
         title={`确认${deleteLabel}？`}
       />
     </article>
@@ -175,6 +179,7 @@ interface CardActionsProps {
   onTest: IntegrationCardProps["onTest"]
   onBootstrap: () => void
   onDelete: () => void
+  deleteButtonRef: RefObject<HTMLButtonElement | null>
 }
 
 function CardActions(props: CardActionsProps) {
@@ -195,7 +200,7 @@ function CardActions(props: CardActionsProps) {
       </Button>
       <TestButton busy={props.busy} definition={definition} onTest={props.onTest} />
       {definition.provider === "notion" && <Button disabled={props.busy} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
-      {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} onClick={props.onDelete} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
+      {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
       {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--blue)]" size={18} />}
     </footer>
   )
