@@ -1,9 +1,0 @@
-[project]
-name = "reven-bot"
-version = "0.1.0"
-description = "Reven feishu-bot — independent process, zero business logic"
-requires-python = ">=3.12"
-dependencies = []
-
-[tool.uv]
-package = true
