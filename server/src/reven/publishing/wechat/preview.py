@@ -60,7 +60,11 @@ class ConfiguredWechatPreview:
             raise PreviewConflictError("Notion 页面在预览生成期间发生变化")
         preview_markdown = _canonical_with_current_urls(markdown)
         executable, cli_path = _renderer_parts(self.renderer_command)
-        return await WechatRenderer(executable, Path(cli_path)).render(preview_markdown)
+        return await WechatRenderer(
+            executable,
+            Path(cli_path),
+            sandbox_executable=Path("/usr/bin/bwrap"),
+        ).render(preview_markdown)
 
 
 def _canonical_with_current_urls(markdown: str) -> str:

@@ -48,6 +48,7 @@ class ConfiguredWeChatPublisher:
         *,
         wechat_transport: httpx.AsyncBaseTransport | None = None,
         notion_transport: httpx.AsyncBaseTransport | None = None,
+        sandbox_executable: Path | None = Path("/usr/bin/bwrap"),
     ) -> None:
         self.session_factory = session_factory
         self.secret_box = secret_box
@@ -55,6 +56,7 @@ class ConfiguredWeChatPublisher:
         self.renderer_command = renderer_command
         self.wechat_transport = wechat_transport
         self.notion_transport = notion_transport
+        self.sandbox_executable = sandbox_executable
 
     async def publish(self, claim: JobClaim):  # type: ignore[no-untyped-def]
         config = await self._load_configuration()
@@ -97,7 +99,7 @@ class ConfiguredWeChatPublisher:
             executable, cli_path = _renderer_parts(self.renderer_command)
             publisher = WeChatPublisher(
                 WeChatClient(config.app_id, config.app_secret, wechat_http),
-                WechatRenderer(executable, cli_path),
+                WechatRenderer(executable, cli_path, sandbox_executable=self.sandbox_executable),
                 SqlAlchemyWeChatResultStore(
                     self.session_factory,
                     author=config.author,

@@ -40,6 +40,25 @@ async def test_workspace_commands_use_isolated_home_tmp_and_bundle(tmp_path: Pat
     assert all(env is not None and env["BUNDLE_PATH"].startswith(str(path)) for env in environments)
 
 
+@pytest.mark.anyio
+async def test_workspace_sandboxes_bundle_network_and_offline_build(tmp_path: Path) -> None:
+    runner = Recorder()
+    sandbox = tmp_path / "bwrap"
+    sandbox.touch()
+    workspace = BlogWorkspace(tmp_path, runner, sandbox_executable=sandbox)  # type: ignore[arg-type]
+    path = workspace.path("job-id")
+    path.mkdir(parents=True)
+
+    await workspace.prepare(path, "reven/11111111-aaaaaaaaaaaa")
+    await workspace.build(path)
+
+    bundle_commands = [argv for argv, _cwd, _env in runner.calls if "bundle" in argv]
+    assert "--share-net" in bundle_commands[0]
+    assert "--share-net" in bundle_commands[1]
+    assert "--share-net" not in bundle_commands[2]
+    assert all("--unshare-all" in command for command in bundle_commands)
+
+
 def test_workspace_cleanup_removes_only_safe_blog_path(tmp_path: Path) -> None:
     workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
     path = workspace.path("job-id")
