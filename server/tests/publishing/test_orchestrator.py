@@ -10,9 +10,9 @@ from reven.jobs.errors import (
     TransientPublishError,
 )
 from reven.jobs.repository import JobClaim
+from reven.publishing.notifications import Notification
 from reven.publishing.orchestrator import (
     DeliveryRecord,
-    Notification,
     PendingNotification,
     PublicationOrchestrator,
     cleanup_workspace,

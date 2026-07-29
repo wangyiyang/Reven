@@ -28,14 +28,22 @@ class FakeJobLoop:
 async def test_runner_stop_cancels_and_awaits_all_background_tasks() -> None:
     sync = FakeJobLoop()
     jobs = FakeJobLoop()
-    runner = BackgroundRunner(sync, jobs, sync_interval=3600, job_interval=3600)
+    notifications = FakeJobLoop()
+    runner = BackgroundRunner(
+        sync,
+        jobs,
+        notifications,
+        sync_interval=3600,
+        job_interval=3600,
+        notification_interval=3600,
+    )
 
     await runner.start()
     tasks = runner.tasks
     await asyncio.sleep(0)
     await runner.stop()
 
-    assert len(tasks) == 2
+    assert len(tasks) == 3
     assert all(task.done() and task.cancelled() for task in tasks)
     assert runner.tasks == ()
 
@@ -221,7 +229,7 @@ def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
         reven_master_key = type("Secret", (), {"get_secret_value": lambda self: "key"})()
 
     monkeypatch.setattr("reven.jobs.runner.get_settings", Settings)
-    executor = object()
+    executor = type("Executor", (), {"notifier": FakeJobLoop()})()
     monkeypatch.setattr(
         "reven.jobs.runner.build_configured_orchestrator",
         lambda factory, settings: executor,

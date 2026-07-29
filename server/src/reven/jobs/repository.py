@@ -15,7 +15,7 @@ from reven.domain import AutomationStatus, JobStatus
 from reven.jobs.errors import BlockedPublishError, PublishError
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
-from reven.jobs.notification_state import enqueue_preparation_terminal
+from reven.jobs.notification_outbox import enqueue_preparation_notification
 
 
 def compute_target_channels_hash(target_channels: list[str]) -> str:
@@ -208,7 +208,14 @@ class JobRepository:
         if delay_seconds is not None:
             current.scheduled_at = now + timedelta(seconds=delay_seconds)
         if preparation_event is not None and delay_seconds is None:
-            enqueue_preparation_terminal(current, article, status, str(error), preparation_event)
+            enqueue_preparation_notification(
+                self.session,
+                current,
+                article,
+                event=preparation_event,
+                stage="发布准备阻塞" if status == JobStatus.BLOCKED else "发布准备失败",
+                summary=str(error),
+            )
         if _notion_delivery_pending(current):
             self._update_article_after_notion_failure(article, status)
         return True
@@ -259,7 +266,9 @@ class JobRepository:
         ):
             return None
         revision = (current if isinstance(current, int) else 0) + 1
-        job.notification_state = {**job.notification_state, "_revision": revision}
+        state = {**job.notification_state, "_revision": revision}
+        state.pop("_preparation_terminal_marker", None)
+        job.notification_state = state
         if isinstance(finalization, dict) and finalization.get("notion_pending") is True:
             job.overall_status = JobStatus.WAITING
             job.scheduled_at = now

@@ -12,7 +12,8 @@ from reven.domain import JobStatus
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.repository import JobClaim
 from reven.publishing.assets import MaterializedAsset, MaterializedAssets
-from reven.publishing.orchestrator import DeliveryRecord, Notification
+from reven.publishing.notifications import Notification
+from reven.publishing.orchestrator import DeliveryRecord
 
 PAGE_ID = "11111111-1111-1111-1111-111111111111"
 

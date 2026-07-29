@@ -6,10 +6,12 @@ import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
+from reven.jobs.notification_outbox import PreparationNotificationOutbox
 from reven.jobs.preparation_models import PrepareResult
 from reven.jobs.repository import JobRepository
 from reven.jobs.runner import PublicationJobTick
 from reven.scheduling import utc_now
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
@@ -245,14 +247,10 @@ async def test_blocked_prepare_result_never_calls_executor(db_session) -> None: 
     assert executor.calls == 0
     assert job.attempt_count == 0
     assert job.overall_status == JobStatus.BLOCKED
-    assert job.snapshot_metadata["delivery_finalization"] == {
-        "final_status": JobStatus.BLOCKED,
-        "reason": "准备校验未通过",
-        "notion_pending": False,
-        "cleanup_pending": False,
-    }
-    events = job.snapshot_metadata["delivery_notification_events"]
-    assert isinstance(events, list) and len(events) == 1
+    assert "delivery_finalization" not in job.snapshot_metadata
+    async with factory() as session:
+        event = await session.scalar(select(PreparationNotificationOutbox))
+        assert event is not None and event.event == "preparation_blocked"
 
 
 @pytest.mark.anyio

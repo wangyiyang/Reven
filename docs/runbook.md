@@ -83,7 +83,33 @@ https://dev.wangyiyang.cc/api/system/egress-ip
 把响应中的固定公网 `ip` 加入微信公众号平台 IP 白名单。若云服务器出口 IP
 变化，必须先更新白名单，再恢复微信发布。
 
-## 6. 在服务器部署
+## 6. 配置服务器 GHCR 只读凭据
+
+本项目镜像包按私有 GHCR Package 管理。为服务器的专用部署用户 `kk` 创建独立、
+可撤销的只读凭据；不要复用个人日常 Token。优先使用仅授予该仓库 Package
+读取权限的 fine-grained 凭据（组织策略支持时），否则使用仅含 `read:packages`
+scope 的 classic PAT。两者都不得授予 `write:packages`、`delete:packages` 或仓库
+写权限。
+
+在服务器上建立该用户专用的 Docker 配置目录，然后交互式读取 Token。下面命令
+不会把 Token 放进命令参数或 shell history：
+
+```bash
+install -d -m 700 /opt/reven/.docker
+read -r -s -p 'GHCR read token: ' GHCR_TOKEN
+printf '\n'
+printf '%s' "$GHCR_TOKEN" | \
+  docker --config /opt/reven/.docker login ghcr.io \
+    --username '<GHCR_USERNAME>' --password-stdin
+unset GHCR_TOKEN
+chmod 600 /opt/reven/.docker/config.json
+```
+
+凭据应定期轮换；人员、服务器或仓库权限变化时立即撤销。撤销或更换前可执行
+`docker --config /opt/reven/.docker logout ghcr.io` 清除本地凭据。所有部署命令
+都显式使用此 `--config`，避免误用其他项目共享的 Docker 登录状态。
+
+## 7. 在服务器部署
 
 使用既有免密 SSH 用户登录，并在独立目录操作：
 
@@ -93,20 +119,28 @@ mkdir -p /opt/reven
 cd /opt/reven
 ```
 
-Git Tag 触发 `.github/workflows/release.yml` 后，先核对 CI 保存的 SBOM、漏洞扫描
-和 `image-digest.txt`。在 `/opt/reven/.env` 中把 `REVEN_IMAGE` 固定为已审核的
-GHCR 版本 Tag 或 digest，并填写 `.env.example` 列出的其余变量：
+Git Tag 触发 `.github/workflows/release.yml` 后，先核对完整质量门禁、SBOM、漏洞
+扫描和 `image-digest.txt`。Tag 只是便于识别的发布标签，不具备技术上的不可变
+保证；部署只接受证据中已审核的 digest：
 
 ```bash
+REVEN_IMAGE=ghcr.io/<OWNER>/<REPOSITORY>@sha256:<AUDITED_DIGEST>
+docker --config /opt/reven/.docker pull "$REVEN_IMAGE"
+test "$(docker image inspect "$REVEN_IMAGE" --format '{{index .RepoDigests 0}}')" = "$REVEN_IMAGE"
 chmod 600 .env
 docker compose --env-file .env -f infra/compose/docker-compose.yml config
-docker compose --env-file .env -f infra/compose/docker-compose.yml pull reven
+docker --config /opt/reven/.docker compose --env-file .env \
+  -f infra/compose/docker-compose.yml pull reven
 docker compose --env-file .env -f infra/compose/docker-compose.yml up -d
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 ```
 
+把同一个 `ghcr.io/...@sha256:...` 值写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、
+`latest` 或本地构建名称。
+
 服务器不构建生产镜像。发布 workflow 只构建并推送 GHCR 镜像，不执行 SSH 或自动
-部署；升级仍由用户审核 release 证据后手工执行。Tag 不得复用或覆盖。
+部署；升级仍由用户审核 release 证据后手工执行。workflow 会在推送前拒绝已存在
+的同名 Tag，但生产部署的身份依据始终是 digest。
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
 前端静态文件。迁移和静态切换共享排他锁；迁移失败时旧 `current` 保持不变。
@@ -117,7 +151,7 @@ Reven 容器上限为 2 CPU、2 GiB 内存和 128 PID。Jekyll 子进程另有�
 renderer 使用 384 MiB V8 old-space，并限制 CPU、进程、文件描述符和文件大小。
 不要通过提高容器权限绕过限制；确有正常文章超限时，应先复现和缩小资源需求。
 
-## 7. 确认 3000 端口未变化
+## 8. 确认 3000 端口未变化
 
 部署前后分别记录并比较：
 
@@ -129,7 +163,7 @@ ss -lntp | grep ':3000 '
 Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听地址发生变化，
 立即停止 Reven 部署并调查，不要覆盖或重启该服务。
 
-## 8. 验证 HTTPS、认证与健康状态
+## 9. 验证 HTTPS、认证与健康状态
 
 依次验证 HTTP 自动跳转 HTTPS、未认证请求被拒绝、认证后健康检查成功：
 
@@ -150,22 +184,22 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml logs --tail=2
 
 日志中不得出现数据库密码、主密钥、GitHub Token、微信 Secret 或 Notion Token。
 
-## 9. 按镜像 Tag 回滚
+## 10. 按镜像 digest 回滚
 
-生产环境只部署不可变镜像 Tag 或 digest。回滚时把 `.env` 中 `REVEN_IMAGE`
-改为上一已验证的 digest（优先）或版本 Tag，然后执行：
+回滚时把 `.env` 中 `REVEN_IMAGE` 改为上一已验证的完整 digest，然后执行：
 
 ```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yml pull reven
+docker --config /opt/reven/.docker compose --env-file .env \
+  -f infra/compose/docker-compose.yml pull reven
 docker compose --env-file .env -f infra/compose/docker-compose.yml up -d --no-deps reven
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 ```
 
 数据库迁移必须保持向后兼容：先扩展、再迁移数据、最后在后续版本收缩。应用回滚
-不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 8
+不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 9
 步，并确认所有时间展示仍为上海时间。
 
-## 10. 真实发布验收（执行前必须取得用户确认）
+## 11. 真实发布验收（执行前必须取得用户确认）
 
 以下步骤会写入真实 Notion、GitHub、微信草稿箱和飞书。默认状态为
 **未执行**；必须由用户指定专用测试稿并逐项确认后，才可开始。不得使用生产稿件，
@@ -184,7 +218,7 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 
 每一步都记录执行人、上海时间、稿件/任务 ID、脱敏截图或 URL、预期与实际结果。
 不得记录 Token、Secret、Cookie 或完整数据库连接串。出现跨稿件写入、重复发布、
-公开发布、3000 端口变化、认证绕过或敏感信息泄露时，立即停止验收，按第 9 节回滚，
+公开发布、3000 端口变化、认证绕过或敏感信息泄露时，立即停止验收，按第 10 节回滚，
 保留脱敏日志并将任务标记为阻塞。全部证据复核通过前，不得宣布 MVP 真实验收完成。
 
 ## 受控依赖更新与已知供应链风险

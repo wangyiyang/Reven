@@ -13,7 +13,7 @@ from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, 
 from reven.integrations.models import Integration
 from reven.integrations.notion.models import MappedNotionPage
 from reven.jobs.models import PublicationJob
-from reven.jobs.notification_state import enqueue_preparation_terminal
+from reven.jobs.notification_outbox import enqueue_preparation_notification
 from reven.jobs.preparation_models import PersistedPreparation, PrepareResult
 from reven.jobs.repository import compute_target_channels_hash
 from reven.publishing.assets import MaterializedAssets
@@ -124,6 +124,7 @@ async def existing_frozen(
 
 
 def persist_blocked(
+    session: AsyncSession,
     job: PublicationJob,
     article: Article,
     validation: ValidationResult,
@@ -137,12 +138,13 @@ def persist_blocked(
     job.lease_expires_at = None
     article.automation_status = AutomationStatus.BLOCKED
     article.last_error = reason
-    enqueue_preparation_terminal(
+    enqueue_preparation_notification(
+        session,
         job,
         article,
-        JobStatus.BLOCKED,
-        reason,
-        "preparation_blocked",
+        event="preparation_blocked",
+        stage="发布准备阻塞",
+        summary=reason,
     )
     result = PrepareResult(job.id, blocked=True, validation=validation)
     return PersistedPreparation(result, article.notion_page_id, AutomationStatus.BLOCKED, reason)

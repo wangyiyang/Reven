@@ -5,27 +5,73 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 concurrency:
   group: reven-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  image:
+  provenance:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Define immutable image tags
+        with:
+          fetch-depth: 0
+      - name: Verify tag commit belongs to origin/main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+
+  quality-gate:
+    needs: provenance
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: quality-gate
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Define release image tags
         run: |
           repository="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           echo "IMAGE=ghcr.io/${repository}" >>"${GITHUB_ENV}"
           echo "VERSION=${GITHUB_REF_NAME}" >>"${GITHUB_ENV}"
       - name: Authenticate to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-      - name: Build immutable image
+      - name: Refuse an existing release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          package="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          owner_type="$(gh api "/users/${owner}" --jq '.type')"
+          if [ "$owner_type" = "Organization" ]; then
+            endpoint="/orgs/${owner}/packages/container/${package}/versions"
+          else
+            endpoint="/users/${owner}/packages/container/${package}/versions"
+          fi
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
+          if versions="$(gh api --paginate --slurp "$endpoint" 2>"$error_file")"; then
+            if jq -e --arg tag "$VERSION" \
+              'add | any(.[].metadata.container.tags[]?; . == $tag)' \
+              <<<"$versions" >/dev/null; then
+              echo "Release tag already exists: ${IMAGE}:${VERSION}" >&2
+              exit 1
+            fi
+          elif ! grep -q 'HTTP 404' "$error_file"; then
+            sed 's/\\(token\\|authorization\\)[^ ]*/\\1=***/Ig' "$error_file" >&2
+            exit 1
+          fi
+      - name: Build release image
         run: |
           docker build --pull --no-cache \
             -f infra/docker/Dockerfile \
@@ -55,6 +101,11 @@ jobs:
           docker push "${IMAGE}:sha-${GITHUB_SHA}"
           docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
             --format '{{json .Manifest.Digest}}' | tr -d '"' | tee image-digest.txt
+          {
+            echo "### Published image"
+            echo
+            echo "\`${IMAGE}@$(cat image-digest.txt)\`"
+          } >>"${GITHUB_STEP_SUMMARY}"
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

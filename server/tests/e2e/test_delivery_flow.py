@@ -14,6 +14,7 @@ from reven.integrations.models import Integration
 from reven.integrations.notion.sync import NotionSyncService
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.models import PublicationJob
+from reven.jobs.notification_outbox import PreparationNotificationOutbox, PreparationNotificationTick
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.jobs.runner import PublicationJobTick
 from reven.jobs.service import PreparationConflictError, PublicationJobService
@@ -56,6 +57,7 @@ class E2ESystem:
             self.delivery_writer,
             self.feishu,
         )
+        self.notification_tick = PreparationNotificationTick(factory, self.feishu)
 
     async def sync_once(self) -> None:
         await self._ensure_integrations()
@@ -92,6 +94,14 @@ class E2ESystem:
         )
         for _ in range(count):
             await asyncio.wait_for(tick(), timeout=5)
+            await self.notification_tick()
+
+    async def make_notification_due(self) -> None:
+        async with self.factory.begin() as session:
+            outbox = await session.scalar(select(PreparationNotificationOutbox))
+            now = await session.scalar(select(func.clock_timestamp()))
+            assert outbox is not None and now is not None
+            outbox.next_attempt_at = now - timedelta(seconds=1)
 
     async def make_due(self) -> None:
         async with self.factory.begin() as session:
@@ -139,22 +149,14 @@ async def test_notion_to_blog_and_wechat_delivery(e2e_system: E2ESystem) -> None
 
 @pytest.mark.anyio
 async def test_production_publishers_consume_one_frozen_snapshot(e2e_system: E2ESystem, tmp_path: Path) -> None:
-    await e2e_system.sync_once()
-    _, initial = await e2e_system.article_and_job()
-    await e2e_system.preparation.prepare(initial.id)
-    async with e2e_system.factory.begin() as session:
-        claim = await JobRepository(session).claim_next(lease_seconds=30)
-    assert claim is not None
-    async with e2e_system.factory.begin() as session:
-        assert await JobRepository(session).begin_execution(claim) == 1
-
+    claim = await _prepared_claim(e2e_system)
     github = ContractGitHub()
     workspace = ContractBlogWorkspace(tmp_path / "contract", github)
     renderer = ContractRenderer()
     wechat = ContractWeChat()
     blog_publisher = BlogPublisher(
         github,
-        workspace,  # type: ignore[arg-type]
+        workspace,
         BlogConverter("https://blog.example"),
         SqlAlchemyBlogResultStore(e2e_system.factory),
         remote_url="https://github.com/example/blog.git",
@@ -193,6 +195,18 @@ async def test_production_publishers_consume_one_frozen_snapshot(e2e_system: E2E
     assert any("第一版正文".encode() in content for content in workspace.captured.values())
     assert github.pushed_branch is not None
     assert job.content_hash is not None and job.content_hash[:12] in github.pushed_branch
+
+
+async def _prepared_claim(e2e_system: E2ESystem) -> JobClaim:
+    await e2e_system.sync_once()
+    _, initial = await e2e_system.article_and_job()
+    await e2e_system.preparation.prepare(initial.id)
+    async with e2e_system.factory.begin() as session:
+        claim = await JobRepository(session).claim_next(lease_seconds=30)
+    assert claim is not None
+    async with e2e_system.factory.begin() as session:
+        assert await JobRepository(session).begin_execution(claim) == 1
+    return claim
 
 
 @pytest.mark.anyio
@@ -248,10 +262,38 @@ async def test_failed_block_notification_is_recoverable_without_state_change(e2e
     assert not e2e_system.blog.calls and not e2e_system.wechat.calls
     assert e2e_system.feishu.events == []
 
+    await e2e_system.make_notification_due()
     await e2e_system.run_once()
     _, still_blocked = await e2e_system.article_and_job()
     assert still_blocked.overall_status == JobStatus.BLOCKED
     assert e2e_system.feishu.events == ["preparation_blocked"]
+
+
+@pytest.mark.anyio
+async def test_persistent_feishu_failure_never_blocks_cover_recovery(e2e_system: E2ESystem) -> None:
+    e2e_system.feishu.failures = 10
+    e2e_system.notion.replace(edited_at=datetime(2026, 7, 29, 0, 1, tzinfo=UTC), has_cover=False)
+    await e2e_system.sync_once()
+    await e2e_system.run_turns(2)
+
+    e2e_system.notion.replace(edited_at=datetime(2026, 7, 29, 0, 2, tzinfo=UTC), has_cover=True)
+    await e2e_system.sync_once()
+    await e2e_system.make_due()
+    await e2e_system.run_once()
+    _, recovered = await e2e_system.article_and_job()
+
+    assert recovered.overall_status == JobStatus.COMPLETED
+    assert len(e2e_system.blog.calls) == len(e2e_system.wechat.calls) == 1
+    async with e2e_system.factory() as session:
+        outbox = await session.scalar(select(PreparationNotificationOutbox))
+        assert outbox is not None and outbox.status == "pending"
+        assert outbox.next_attempt_at > datetime.now(tz=UTC)
+
+    e2e_system.feishu.failures = 0
+    await e2e_system.make_notification_due()
+    await e2e_system.notification_tick()
+    await e2e_system.notification_tick()
+    assert e2e_system.feishu.events.count("preparation_blocked") == 1
 
 
 @pytest.mark.anyio

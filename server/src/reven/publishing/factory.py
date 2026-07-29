@@ -19,9 +19,9 @@ from reven.integrations.repository import IntegrationRepository
 from reven.jobs.errors import BlockedPublishError, TransientPublishError
 from reven.publishing.blog.factory import ConfiguredBlogPublisher
 from reven.publishing.delivery_store import SqlAlchemyDeliveryStore
+from reven.publishing.notifications import Notification
 from reven.publishing.orchestrator import (
     DeliveryRecord,
-    Notification,
     PublicationOrchestrator,
 )
 from reven.publishing.wechat.factory import ConfiguredWeChatPublisher
@@ -29,8 +29,14 @@ from reven.security.secrets import SecretBox, SecretBoxError
 
 
 class ConfiguredNotionDeliveryWriter:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self.session_factory = session_factory
+        self.transport = transport
 
     async def write(
         self,
@@ -44,6 +50,7 @@ class ConfiguredNotionDeliveryWriter:
                 base_url=NOTION_BASE_URL,
                 timeout=REQUEST_TIMEOUT,
                 trust_env=False,
+                transport=self.transport,
             ) as http:
                 await NotionClient(token, http).update_page(
                     record.notion_page_id,

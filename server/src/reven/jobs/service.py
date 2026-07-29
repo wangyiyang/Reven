@@ -249,11 +249,11 @@ class PublicationJobService:
             if job.content_hash is not None or job.overall_status == JobStatus.CANCELLED or article_changed:
                 raise PreparationConflictError("发布任务或稿件在准备期间发生变化，请重试")
             if work.mapped is None:
-                return _persist_blocked(job, article, work.validation)
+                return _persist_blocked(session, job, article, work.validation)
             mapped = work.mapped
             _refresh_article(article, mapped)
             if not work.validation.is_valid or work.assets is None:
-                return _persist_blocked(job, article, work.validation)
+                return _persist_blocked(session, job, article, work.validation)
             return await self._freeze_validated(
                 session,
                 job,
@@ -295,7 +295,7 @@ class PublicationJobService:
                 "正文图片无法安全转换，请检查 Markdown 图片语法",
                 "markdown",
             )
-            return _persist_blocked(job, article, ValidationResult((issue,)))
+            return _persist_blocked(session, job, article, ValidationResult((issue,)))
         existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels)
         if existing is not None:
             return _adopt_existing(job, existing, article)

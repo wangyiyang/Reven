@@ -10,7 +10,8 @@ from reven.jobs.errors import TransientPublishError
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim, JobRepository, compute_target_channels_hash
 from reven.publishing.delivery_store import SqlAlchemyDeliveryStore
-from reven.publishing.orchestrator import Notification, PublicationOrchestrator
+from reven.publishing.notifications import Notification
+from reven.publishing.orchestrator import PublicationOrchestrator
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
