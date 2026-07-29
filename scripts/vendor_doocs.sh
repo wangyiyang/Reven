@@ -5,15 +5,18 @@ readonly REPOSITORY="https://github.com/doocs/md.git"
 readonly COMMIT="c37c1d6cc0e0a259de20305b9e4c3b59c7029da7"
 readonly TARGET="vendor/doocs-md"
 readonly BACKUP="vendor/.doocs-md.backup"
+readonly LOCK="vendor/.doocs-md.lock"
 
 repository_root="$(git rev-parse --show-toplevel)"
 vendor_root="$repository_root/vendor"
 target_path="$repository_root/$TARGET"
 backup_path="$repository_root/$BACKUP"
+lock_path="$repository_root/$LOCK"
 staging_path=""
 temporary_directory=""
 backup_active=false
 completed=false
+lock_owned=false
 
 fail() {
   echo "$1" >&2
@@ -23,11 +26,46 @@ fail() {
 validate_environment() {
   [[ "$PWD" == "$repository_root" ]] || fail "run from the repository root"
   [[ "$TARGET" == "vendor/doocs-md" && "$BACKUP" == "vendor/.doocs-md.backup" ]] || fail "unsafe vendor paths"
+  [[ "$LOCK" == "vendor/.doocs-md.lock" ]] || fail "unsafe vendor lock path"
   [[ -d "$vendor_root" && ! -L "$vendor_root" ]] || fail "vendor root must be a real directory"
   case "${REVEN_VENDOR_FAULT:-}" in
     ""|after_copy|after_backup|after_install) ;;
     *) fail "invalid vendor fault point" ;;
   esac
+  case "${REVEN_VENDOR_TEST_HOOK:-}" in
+    "") ;;
+    hold_lock) [[ "${REVEN_VENDOR_TESTING:-}" == "1" ]] || fail "vendor test hook requires test mode" ;;
+    *) fail "invalid vendor test hook" ;;
+  esac
+}
+
+acquire_lock() {
+  if ! mkdir "$lock_path" 2>/dev/null; then
+    fail "vendor update lock exists; confirm no updater is running, then remove vendor/.doocs-md.lock"
+  fi
+  lock_owned=true
+  printf 'pid=%s\nstarted=%s\n' "$$" "$(date -u +%FT%TZ)" >"$lock_path/owner"
+}
+
+release_lock() {
+  [[ "$lock_owned" == true ]] || return 0
+  if [[ ! -d "$lock_path" || -L "$lock_path" ]]; then
+    echo "vendor lock changed; refusing to remove it" >&2
+    return 0
+  fi
+  owner_pid="$(sed -n 's/^pid=//p' "$lock_path/owner" 2>/dev/null || true)"
+  [[ "$owner_pid" == "$$" ]] || return 0
+  [[ ! -e "$lock_path/release" ]] || rm -- "$lock_path/release"
+  rm -- "$lock_path/owner"
+  rmdir "$lock_path"
+  lock_owned=false
+}
+
+run_test_hook() {
+  [[ "${REVEN_VENDOR_TEST_HOOK:-}" == "hold_lock" ]] || return 0
+  while [[ ! -f "$lock_path/release" ]]; do
+    sleep 0.05
+  done
 }
 
 restore_interrupted_backup() {
@@ -60,6 +98,7 @@ cleanup() {
   fi
   [[ -z "$staging_path" ]] || safe_remove_temporary "$staging_path"
   [[ -z "$temporary_directory" ]] || safe_remove_temporary "$temporary_directory"
+  release_lock
   exit "$status"
 }
 
@@ -97,9 +136,11 @@ validate_staging() {
 }
 
 validate_environment
-restore_interrupted_backup
 trap cleanup EXIT
 trap 'exit 130' INT TERM
+acquire_lock
+run_test_hook
+restore_interrupted_backup
 
 temporary_directory="$(mktemp -d "$vendor_root/.doocs-md.upstream.XXXXXX")"
 staging_path="$(mktemp -d "$vendor_root/.doocs-md.staging.XXXXXX")"
@@ -128,6 +169,7 @@ if [[ -e "$target_path" ]]; then
   backup_active=true
 fi
 trigger_fault after_backup
+[[ ! -e "$target_path" && ! -L "$target_path" ]] || fail "vendor target appeared during update"
 mv "$staging_path" "$target_path"
 staging_path=""
 trigger_fault after_install
