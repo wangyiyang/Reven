@@ -67,6 +67,11 @@ Reven 容器中的博客构建运行在无网络、受限文件系统的 OS 沙�
 `no-new-privileges`、只读根文件系统。bwrap 子进程使用独立 PID/网络命名空间，
 并把 `/proc` 覆盖为空目录。
 
+博客 Ruby 依赖来自镜像内 `/opt/reven-blog` 的受信 `Gemfile.lock`，运行时只
+执行 `bundle check`，不会解析博客仓库自己的 Gemfile，也不会联网安装
+Gem。博客依赖变化必须先更新 `infra/blog/runtime/Gemfile.lock`、重新构建并通过
+实际博客 fixture，再发布新镜像；禁止在生产容器内执行 `bundle update`。
+
 ## 5. 配置微信出口 IP 白名单
 
 完成 HTTPS 与 Basic Auth 后，访问：
@@ -100,7 +105,13 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 ```
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
-前端静态文件。API 的 8000 端口不映射到宿主机，只允许 Caddy 容器访问。
+前端静态文件。迁移和静态切换共享排他锁；迁移失败时旧 `current` 保持不变。
+API 的 8000 端口不映射到宿主机，只允许 Caddy 容器访问。
+
+Reven 容器上限为 2 CPU、2 GiB 内存和 128 PID。Jekyll 子进程另有限制：
+240 CPU 秒、1.5 GiB 地址空间、64 进程、256 文件描述符和 64 MiB 文件大小；
+renderer 使用 384 MiB V8 old-space，并限制 CPU、进程、文件描述符和文件大小。
+不要通过提高容器权限绕过限制；确有正常文章超限时，应先复现和缩小资源需求。
 
 ## 7. 确认 3000 端口未变化
 
@@ -149,3 +160,15 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 数据库迁移必须保持向后兼容：先扩展、再迁移数据、最后在后续版本收缩。应用回滚
 不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 8
 步，并确认所有时间展示仍为上海时间。
+
+## 受控依赖更新与已知供应链风险
+
+Dockerfile 三个基础镜像、Caddy、CI PostgreSQL 和安全扫描器都使用
+`tag@sha256`。更新时只允许在独立 PR 中同时修改可读 Tag 与 digest，并执行
+`docker build --pull --no-cache`、全量测试、实际沙箱 fixture、Trivy 门禁和
+Caddy 验证。CI 保存 CycloneDX SBOM 供审计，并阻止存在已有修复方案的
+Critical 漏洞。
+
+`apt` 软件包仍来自构建时 Debian 仓库快照状态，Ruby Gem 虽由 lockfile 固定，
+下载源本身也不由本仓库镜像保存，因此当前构建不是字节级完全可复现。不得宣称
+完全可复现；SBOM、digest、冻结 lockfile 和漏洞门禁是当前单人 MVP 的补偿控制。
