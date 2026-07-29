@@ -344,16 +344,24 @@ class PublicationJobTick:
         if isinstance(classified, TransientPublishError):
             attempt = await self._record_preparation_attempt(claim) or 1
             if retry_delay_seconds(classified, attempt) is not None:
-                await self._fail(claim, classified, attempt=attempt)
+                await self._fail(claim, classified, attempt=attempt, preparation_event=None)
                 return
         await self._clear_preparation_attempts(claim)
-        await self._fail(claim, classified, attempt=attempt)
+        event = "preparation_blocked" if isinstance(classified, BlockedPublishError) else "preparation_failed"
+        await self._fail(claim, classified, attempt=attempt, preparation_event=event)
 
     async def _release(self, claim: JobClaim) -> None:
         async with self._factory.begin() as session:
             await JobRepository(session).release_lease(claim)
 
-    async def _fail(self, claim: JobClaim, error: PublishError, *, attempt: int) -> None:
+    async def _fail(
+        self,
+        claim: JobClaim,
+        error: PublishError,
+        *,
+        attempt: int,
+        preparation_event: str | None = None,
+    ) -> None:
         delay = retry_delay_seconds(error, attempt)
         logger.warning(
             "发布任务失败（job_id=%s, category=%s, attempt=%s）",
@@ -362,7 +370,12 @@ class PublicationJobTick:
             attempt,
         )
         async with self._factory.begin() as session:
-            await JobRepository(session).mark_retry(claim, delay_seconds=delay, error=error)
+            await JobRepository(session).mark_retry(
+                claim,
+                delay_seconds=delay,
+                error=error,
+                preparation_event=preparation_event,
+            )
 
     @staticmethod
     def _publish_error(error: Exception) -> PublishError:

@@ -15,6 +15,7 @@ from reven.domain import AutomationStatus, JobStatus
 from reven.jobs.errors import BlockedPublishError, PublishError
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
+from reven.jobs.notification_state import enqueue_preparation_terminal
 
 
 def compute_target_channels_hash(target_channels: list[str]) -> str:
@@ -181,6 +182,7 @@ class JobRepository:
         *,
         delay_seconds: int | None,
         error: PublishError,
+        preparation_event: str | None = None,
     ) -> bool:
         locked = await self._lock_article_then_job(claim.job_id)
         if locked is None:
@@ -205,6 +207,8 @@ class JobRepository:
         current.lease_token = None
         if delay_seconds is not None:
             current.scheduled_at = now + timedelta(seconds=delay_seconds)
+        if preparation_event is not None and delay_seconds is None:
+            enqueue_preparation_terminal(current, article, status, str(error), preparation_event)
         if _notion_delivery_pending(current):
             self._update_article_after_notion_failure(article, status)
         return True

@@ -91,10 +91,10 @@ class FakeStore:
         del claim
         if sent:
             self.sent.add(fingerprint)
-        self.record = replace(
-            self.record,
-            notifications=tuple(event for event in self.record.notifications if event.fingerprint != fingerprint),
-        )
+            self.record = replace(
+                self.record,
+                notifications=tuple(event for event in self.record.notifications if event.fingerprint != fingerprint),
+            )
         return True
 
     async def finish_cleanup(self, claim: JobClaim) -> bool:
@@ -274,7 +274,7 @@ async def test_feishu_failure_does_not_change_delivery(tmp_path: Path) -> None:
     ).execute(JobClaim(current.job_id, uuid4()))
 
     assert store.record.final_status == JobStatus.COMPLETED
-    assert store.record.notifications == ()
+    assert len(store.record.notifications) == 3
 
 
 @pytest.mark.parametrize("symlink_level", ["root", "jobs", "target"])

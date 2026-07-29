@@ -245,6 +245,14 @@ async def test_blocked_prepare_result_never_calls_executor(db_session) -> None: 
     assert executor.calls == 0
     assert job.attempt_count == 0
     assert job.overall_status == JobStatus.BLOCKED
+    assert job.snapshot_metadata["delivery_finalization"] == {
+        "final_status": JobStatus.BLOCKED,
+        "reason": "准备校验未通过",
+        "notion_pending": False,
+        "cleanup_pending": False,
+    }
+    events = job.snapshot_metadata["delivery_notification_events"]
+    assert isinstance(events, list) and len(events) == 1
 
 
 @pytest.mark.anyio
