@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from fastapi import HTTPException
+from reven.integrations.notion.configuration import IntegrationConfigurationError
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.runner import (
     BackgroundRunner,
@@ -200,9 +200,9 @@ def test_asset_finalize_os_error_is_transient() -> None:
 async def test_configured_sync_tick_skips_missing_integration(monkeypatch) -> None:
     async def missing(factory):  # type: ignore[no-untyped-def]
         del factory
-        raise HTTPException(status_code=409, detail="not configured")
+        raise IntegrationConfigurationError("NOTION_SECRET_NOT_CONFIGURED")
 
-    monkeypatch.setattr("reven.jobs.runner._load_notion_config", missing)
+    monkeypatch.setattr("reven.jobs.runner.load_notion_config", missing)
 
     await ConfiguredNotionSyncTick(object())()  # type: ignore[arg-type]
 
