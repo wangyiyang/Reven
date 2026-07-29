@@ -13,6 +13,19 @@ def test_signed_image_query_does_not_change_content_hash() -> None:
     assert first_snapshot.content_hash == second_snapshot.content_hash
 
 
+def test_signature_normalization_requires_real_host_boundary() -> None:
+    real_one = "![图][asset]\n\n[asset]: https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=one\n"
+    real_two = "![图][asset]\n\n[asset]: https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=two\n"
+    fake_one = "![图][asset]\n\n[asset]: https://amazonaws.com.evil.example/a.png?Signature=one\n"
+    fake_two = "![图][asset]\n\n[asset]: https://amazonaws.com.evil.example/a.png?Signature=two\n"
+
+    def snapshot(markdown: str):  # type: ignore[no-untyped-def]
+        return build_snapshot(markdown, image_sha256=("a" * 64,), cover_sha256="b" * 64)
+
+    assert snapshot(real_one).content_hash == snapshot(real_two).content_hash
+    assert snapshot(fake_one).content_hash != snapshot(fake_two).content_hash
+
+
 def test_image_bytes_change_content_hash() -> None:
     markdown = "正文\n![图](https://files.notion.so/a.png)"
 

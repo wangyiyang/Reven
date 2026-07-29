@@ -18,6 +18,7 @@ from reven.publishing.assets import (
 )
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 20
+JOB_ID = "11111111-1111-1111-1111-111111111111"
 ResponseFactory = Callable[[str, str], httpx.Response]
 
 
@@ -51,14 +52,20 @@ def png_response(url: str, pinned_ip: str) -> httpx.Response:
 @pytest.mark.anyio
 async def test_materializer_uses_pinned_ip_sequential_names_and_hashes(tmp_path: Path) -> None:
     requester = FakeRequester(png_response)
-    result = await AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver).materialize(
-        "job-1", ["https://example.com/image"], "https://example.com/cover"
-    )
+    materializer = AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver)
+    result = await materializer.materialize(JOB_ID, ["https://example.com/image"], "https://example.com/cover")
 
     assert requester.calls[0] == ("https://example.com/image", "93.184.216.34")
     assert result.images[0].path.name == "image-1.png"
+    assert "staging" in result.images[0].path.parts
     assert result.cover.path.name == "cover.png"
     assert result.images[0].sha256 == hashlib.sha256(PNG).hexdigest()
+
+    final = await materializer.finalize(result)
+
+    assert final.images[0].path == tmp_path / "jobs" / JOB_ID / "snapshot" / "image-1.png"
+    assert final.images[0].path.is_file()
+    assert not (tmp_path / "jobs" / JOB_ID / "staging").exists()
 
 
 @pytest.mark.anyio
@@ -107,7 +114,7 @@ async def test_materializer_rejects_rebinding_before_second_connection(tmp_path:
     )
     with pytest.raises(AssetDownloadError, match="内部网络"):
         await AssetMaterializer(tmp_path, requester=requester, resolver=resolver).materialize(
-            "job-1", [], "https://example.com/cover"
+            JOB_ID, [], "https://example.com/cover"
         )
 
     assert requester.calls == [("https://example.com/cover", "93.184.216.34")]
@@ -122,7 +129,7 @@ async def test_materializer_rejects_private_dns_target(tmp_path: Path) -> None:
 
     with pytest.raises(AssetDownloadError, match="不安全"):
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=resolver).materialize(
-            "job-1", [], "https://localhost/cover"
+            JOB_ID, [], "https://localhost/cover"
         )
 
 
@@ -138,7 +145,7 @@ async def test_materializer_rejects_mime_magic_mismatch(tmp_path: Path) -> None:
     )
     with pytest.raises(AssetDownloadError, match="格式"):
         await AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver).materialize(
-            "job-1", [], "https://example.com/cover"
+            JOB_ID, [], "https://example.com/cover"
         )
 
 
@@ -151,7 +158,7 @@ async def test_redirect_hop_limit_closes_every_response(tmp_path: Path) -> None:
     )
     with pytest.raises(AssetDownloadError) as caught:
         await AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver).materialize(
-            "job-1", [], "https://example.com/cover"
+            JOB_ID, [], "https://example.com/cover"
         )
 
     assert caught.value.code == "redirect_limit"
@@ -166,10 +173,10 @@ async def test_materializer_streaming_limit_removes_partial_file(
     monkeypatch.setattr(assets_module, "MAX_FILE_BYTES", 10)
     with pytest.raises(AssetDownloadError, match="大小限制"):
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=public_resolver).materialize(
-            "job-1", [], "https://example.com/cover"
+            JOB_ID, [], "https://example.com/cover"
         )
 
-    assert list((tmp_path / "jobs" / "job-1" / "snapshot").glob("*")) == []
+    assert not (tmp_path / "jobs" / JOB_ID / "staging").exists()
 
 
 @pytest.mark.anyio
@@ -183,7 +190,7 @@ async def test_materializer_classifies_network_failure(tmp_path: Path) -> None:
 
     with pytest.raises(AssetDownloadError) as caught:
         await AssetMaterializer(tmp_path, requester=FailingRequester(), resolver=public_resolver).materialize(
-            "job-1", [], "https://example.com/cover?token=secret"
+            JOB_ID, [], "https://example.com/cover?token=secret"
         )
 
     assert caught.value.code == "download_failed"
@@ -195,10 +202,10 @@ async def test_materializer_enforces_cumulative_job_limit(tmp_path: Path, monkey
     monkeypatch.setattr(assets_module, "MAX_JOB_BYTES", len(PNG) + 5)
     with pytest.raises(AssetDownloadError, match="大小限制"):
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=public_resolver).materialize(
-            "job-1", ["https://example.com/image"], "https://example.com/cover"
+            JOB_ID, ["https://example.com/image"], "https://example.com/cover"
         )
 
-    assert list((tmp_path / "jobs" / "job-1" / "snapshot").glob("*")) == []
+    assert not (tmp_path / "jobs" / JOB_ID / "staging").exists()
 
 
 @pytest.mark.anyio
@@ -206,13 +213,14 @@ async def test_missing_cover_still_downloads_images_then_cleans_job_files(tmp_pa
     requester = FakeRequester(png_response)
 
     result = await AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver).materialize(
-        "job-1", ["https://example.com/image"], None
+        JOB_ID, ["https://example.com/image"], None
     )
 
     assert len(result.images) == 1
     assert result.cover is None
     assert requester.calls == [("https://example.com/image", "93.184.216.34")]
-    assert list((tmp_path / "jobs" / "job-1" / "snapshot").glob("*")) == []
+    await AssetMaterializer(tmp_path, requester=requester, resolver=public_resolver).discard(result)
+    assert not (tmp_path / "jobs" / JOB_ID / "staging").exists()
 
 
 @pytest.mark.anyio
@@ -225,7 +233,7 @@ async def test_resolver_and_filesystem_errors_are_structured_and_redacted(
 
     with pytest.raises(AssetDownloadError) as dns_error:
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=bad_resolver).materialize(
-            "job-1", [], "https://example.com/cover?token=secret"
+            JOB_ID, [], "https://example.com/cover?token=secret"
         )
     assert dns_error.value.code == "dns_failed"
     assert "sensitive" not in str(dns_error.value)
@@ -233,7 +241,7 @@ async def test_resolver_and_filesystem_errors_are_structured_and_redacted(
     monkeypatch.setattr(Path, "mkdir", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("private/path")))
     with pytest.raises(AssetDownloadError) as file_error:
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=public_resolver).materialize(
-            "job-1", [], "https://example.com/cover"
+            JOB_ID, [], "https://example.com/cover"
         )
     assert file_error.value.code == "filesystem_error"
     assert "private" not in str(file_error.value)

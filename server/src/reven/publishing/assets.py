@@ -3,6 +3,8 @@
 import hashlib
 import ipaddress
 import logging
+import os
+import shutil
 import socket
 import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -11,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 from urllib.parse import urljoin, urlsplit
+from uuid import UUID, uuid4
 
 import httpcore
 import httpx
@@ -49,6 +52,28 @@ class MaterializedAsset:
 class MaterializedAssets:
     images: tuple[MaterializedAsset, ...]
     cover: MaterializedAsset | None
+    staging_dir: Path | None = None
+    final_dir: Path | None = None
+
+    def final_view(self) -> "MaterializedAssets":
+        if self.staging_dir is None or self.final_dir is None:
+            return self
+        final_dir = self.final_dir
+
+        def project(asset: MaterializedAsset) -> MaterializedAsset:
+            return MaterializedAsset(
+                asset.original_url,
+                final_dir / asset.path.name,
+                asset.sha256,
+                asset.mime_type,
+                asset.size,
+            )
+
+        return MaterializedAssets(
+            tuple(project(asset) for asset in self.images),
+            project(self.cover) if self.cover else None,
+            final_dir=self.final_dir,
+        )
 
 
 class PinnedRequester(Protocol):
@@ -174,17 +199,66 @@ class AssetMaterializer:
         self.requester = requester or HttpcorePinnedRequester()
         self.resolver = resolver
 
-    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
-        directory = self.data_root / "jobs" / job_id / "snapshot"
+    async def materialize(self, job_id: UUID | str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            return await self._materialize(directory, image_urls, cover_url)
+            normalized_job_id = str(UUID(str(job_id)))
+        except ValueError as exc:
+            raise AssetDownloadError("filesystem_error", "发布任务标识无效", field="assets") from exc
+        root = self._safe_root()
+        job_root = root / "jobs" / normalized_job_id
+        directory = job_root / "staging" / str(uuid4())
+        final_dir = job_root / "snapshot"
+        try:
+            self._reject_symlink_components(directory, root)
+            directory.mkdir(parents=True, exist_ok=False)
+            result = await self._materialize(directory, image_urls, cover_url)
+            return MaterializedAssets(result.images, result.cover, directory, final_dir)
         except AssetDownloadError:
-            _cleanup(directory)
+            _discard_tree(directory)
+            _remove_empty_parents(directory.parent, root / "jobs")
             raise
         except OSError as exc:
-            _cleanup(directory)
+            _discard_tree(directory)
+            _remove_empty_parents(directory.parent, root / "jobs")
             raise AssetDownloadError("filesystem_error", "素材文件写入失败，请检查存储空间", field="assets") from exc
+
+    async def finalize(self, assets: MaterializedAssets) -> MaterializedAssets:
+        if assets.staging_dir is None or assets.final_dir is None:
+            return assets
+        root = self._safe_root()
+        self._reject_symlink_components(assets.staging_dir, root)
+        self._reject_symlink_components(assets.final_dir, root)
+        try:
+            assets.staging_dir.replace(assets.final_dir)
+            _remove_empty_parents(assets.staging_dir.parent, root / "jobs")
+        except OSError as exc:
+            raise AssetDownloadError("filesystem_error", "素材快照提交失败", field="assets") from exc
+        return assets.final_view()
+
+    async def discard(self, assets: MaterializedAssets) -> None:
+        if assets.staging_dir is None:
+            return
+        _discard_tree(assets.staging_dir)
+        _remove_empty_parents(assets.staging_dir.parent, self._safe_root() / "jobs")
+
+    def _safe_root(self) -> Path:
+        try:
+            if self.data_root.is_symlink():
+                raise AssetDownloadError("filesystem_error", "素材根目录不能是符号链接", field="assets")
+            self.data_root.mkdir(parents=True, exist_ok=True)
+            return self.data_root.resolve()
+        except OSError as exc:
+            raise AssetDownloadError("filesystem_error", "素材文件写入失败，请检查存储空间", field="assets") from exc
+
+    @staticmethod
+    def _reject_symlink_components(path: Path, root: Path) -> None:
+        if not path.resolve(strict=False).is_relative_to(root):
+            raise AssetDownloadError("filesystem_error", "素材路径越界", field="assets")
+        current = root
+        for part in path.relative_to(root).parts:
+            current /= part
+            if current.is_symlink():
+                raise AssetDownloadError("filesystem_error", "素材路径不能包含符号链接", field="assets")
 
     async def _materialize(self, directory: Path, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
         total = 0
@@ -194,8 +268,6 @@ class AssetMaterializer:
             total += asset.size
             images.append(asset)
         if cover_url is None:
-            if not _cleanup(directory):
-                raise AssetDownloadError("filesystem_error", "素材临时文件清理失败", field="assets")
             return MaterializedAssets(tuple(images), None)
         cover = await self._download(cover_url, directory, "cover", "cover", total)
         return MaterializedAssets(tuple(images), cover)
@@ -253,7 +325,9 @@ class AssetMaterializer:
         size = 0
         digest = hashlib.sha256()
         header = b""
-        with temporary.open("wb") as output:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(temporary, flags, 0o600)
+        with os.fdopen(descriptor, "wb") as output:
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
                 if size > MAX_FILE_BYTES or job_bytes + size > MAX_JOB_BYTES:
@@ -279,6 +353,23 @@ def _cleanup(directory: Path) -> bool:
         logger.warning("素材失败后的临时文件清理未完成")
         return False
     return True
+
+
+def _discard_tree(directory: Path) -> None:
+    try:
+        if directory.exists() and not directory.is_symlink():
+            shutil.rmtree(directory)
+    except OSError:
+        logger.warning("素材 staging 清理未完成")
+
+
+def _remove_empty_parents(directory: Path, stop: Path) -> None:
+    while directory != stop and directory.is_relative_to(stop):
+        try:
+            directory.rmdir()
+        except OSError:
+            return
+        directory = directory.parent
 
 
 def _is_unsafe_address(raw: str) -> bool:
