@@ -1,0 +1,1 @@
+"""Singleton system state storage."""
