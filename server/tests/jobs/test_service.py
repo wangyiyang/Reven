@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -356,6 +357,67 @@ async def test_prepare_does_not_hold_job_lock_during_materialization(db_session)
     assert job.overall_status == JobStatus.CANCELLED
     assert job.content_hash is None
     assert materializer.discarded is True
+
+
+@pytest.mark.anyio
+async def test_prepare_retries_persisted_asset_finalize_without_redownload(db_session, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    notion = FakeNotion(_page())
+
+    class RecoverableMaterializer(FakeMaterializer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.finalize_calls = 0
+            self.resume_calls = 0
+            self.staging = tmp_path / "jobs" / str(job.id) / "staging" / "22222222-2222-2222-2222-222222222222"
+            self.final = tmp_path / "jobs" / str(job.id) / "snapshot"
+
+        async def materialize(self, job_id: Any, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
+            del job_id, image_urls, cover_url
+            self.calls += 1
+            self.staging.mkdir(parents=True)
+            path = self.staging / "cover.png"
+            path.write_bytes(b"cover")
+            cover = MaterializedAsset(
+                "cover",
+                path,
+                hashlib.sha256(b"cover").hexdigest(),
+                "image/png",
+                5,
+            )
+            return MaterializedAssets((), cover, self.staging, self.final)
+
+        async def finalize(self, assets: MaterializedAssets) -> MaterializedAssets:
+            del assets
+            self.finalize_calls += 1
+            raise OSError("temporary failure")
+
+        async def resume_finalize(self, job_id: Any, staging_identity: str, expected_manifest: Any) -> None:
+            del job_id, expected_manifest
+            self.resume_calls += 1
+            assert staging_identity == self.staging.name
+            self.staging.replace(self.final)
+
+    materializer = RecoverableMaterializer()
+    with pytest.raises(OSError, match="temporary"):
+        await PublicationJobService(factory, notion, materializer).prepare(job.id)
+
+    assert materializer.staging.is_dir()
+    await db_session.refresh(job)
+    assert job.snapshot_metadata["asset_finalize_pending"] is True
+    assert job.overall_status == JobStatus.BLOCKED
+
+    result = await PublicationJobService(factory, notion, materializer).prepare(job.id)
+
+    assert result.job_id == job.id
+    assert materializer.calls == 1
+    assert materializer.resume_calls == 1
+    assert (materializer.final / "cover.png").read_bytes() == b"cover"
+    await db_session.refresh(job)
+    assert "asset_finalize_pending" not in job.snapshot_metadata
+    assert "notion_write_pending" not in job.snapshot_metadata
+    assert job.overall_status == JobStatus.PROCESSING
 
 
 @pytest.mark.anyio

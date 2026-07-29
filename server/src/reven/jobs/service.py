@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 from uuid import UUID
 
 from sqlalchemy import select
@@ -70,6 +70,13 @@ class Materializer(Protocol):
 
     async def discard(self, assets: MaterializedAssets) -> None: ...
 
+    async def resume_finalize(
+        self,
+        job_id: UUID,
+        staging_identity: str,
+        expected_manifest: list[dict[str, str]],
+    ) -> None: ...
+
 
 @dataclass(frozen=True)
 class PrepareResult:
@@ -85,6 +92,8 @@ class _PersistedPreparation:
     page_id: str | None = None
     status: AutomationStatus | None = None
     reason: str | None = None
+    staging_identity: str | None = None
+    asset_manifest: list[dict[str, str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +129,7 @@ class PublicationJobService:
     async def prepare(self, job_id: UUID) -> PrepareResult:
         preflight, already_persisted = await self._preflight(job_id)
         if already_persisted is not None:
-            return await self._complete_status_write(job_id, already_persisted)
+            return await self._resume_persisted(job_id, already_persisted)
         assert preflight is not None
         work = await self._prepare_external(preflight)
         try:
@@ -137,9 +146,22 @@ class PublicationJobService:
             try:
                 await self._finalize(work.assets)
             except BaseException:
-                await self._discard(work.assets)
+                await self._record_finalize_failure(job_id)
                 raise
+            if work.assets.staging_dir is not None:
+                await self._mark_assets_finalized(job_id)
         return await self._complete_status_write(persisted.result.job_id, persisted)
+
+    async def _resume_persisted(self, job_id: UUID, persisted: _PersistedPreparation) -> PrepareResult:
+        if persisted.staging_identity is not None and persisted.asset_manifest is not None:
+            try:
+                resume = getattr(self.materializer, "resume_finalize")
+                await resume(job_id, persisted.staging_identity, persisted.asset_manifest)
+                await self._mark_assets_finalized(job_id)
+            except BaseException:
+                await self._record_finalize_failure(job_id)
+                raise
+        return await self._complete_status_write(job_id, persisted)
 
     async def _complete_status_write(self, job_id: UUID, persisted: _PersistedPreparation) -> PrepareResult:
         if persisted.status is None or persisted.page_id is None:
@@ -162,6 +184,28 @@ class PublicationJobService:
             if article is None:
                 raise PublicationPreparationError("发布任务关联的稿件不存在")
             if job.content_hash is not None:
+                if job.snapshot_metadata.get("asset_finalize_pending") is True:
+                    identity = job.snapshot_metadata.get("asset_staging_identity")
+                    manifest = job.snapshot_metadata.get("asset_manifest")
+                    if not isinstance(identity, str) or not _valid_asset_manifest(manifest):
+                        issue = ValidationError(
+                            "asset_finalize_metadata_invalid",
+                            "冻结任务的素材恢复信息无效，禁止进入执行队列",
+                            "assets",
+                        )
+                        validation = ValidationResult((issue,))
+                        reason = _error_summary(validation)
+                        job.overall_status = JobStatus.BLOCKED
+                        article.automation_status = AutomationStatus.BLOCKED
+                        article.last_error = reason
+                        return None, _PersistedPreparation(PrepareResult(job.id, blocked=True, validation=validation))
+                    return None, _PersistedPreparation(
+                        PrepareResult(job.id),
+                        article.notion_page_id,
+                        AutomationStatus.PROCESSING,
+                        staging_identity=identity,
+                        asset_manifest=manifest,
+                    )
                 if (
                     job.overall_status != JobStatus.WAITING
                     or job.snapshot_metadata.get("notion_write_pending") is not True
@@ -273,7 +317,10 @@ class PublicationJobService:
         existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels)
         if existing is not None:
             return _adopt_existing(job, existing, article)
-        metadata = _snapshot_metadata(snapshot.metadata(), final_assets)
+        metadata = _asset_finalize_metadata(
+            _snapshot_metadata(snapshot.metadata(), final_assets),
+            assets,
+        )
         _freeze(job, snapshot.content_hash, snapshot.markdown, metadata, channels)
         article.automation_status = AutomationStatus.WAITING
         article.last_error = None
@@ -325,6 +372,35 @@ class PublicationJobService:
             article = await session.get(Article, job.article_id)
             if article is not None:
                 article.last_error = error
+
+    async def _record_finalize_failure(self, job_id: UUID) -> None:
+        reason = "素材快照最终化失败，任务保持阻塞，可安全重试"
+        async with self.session_factory.begin() as session:
+            job = await _locked_job(session, job_id)
+            if job is None:
+                return
+            job.overall_status = JobStatus.BLOCKED
+            job.lease_expires_at = None
+            article = await session.get(Article, job.article_id)
+            if article is not None:
+                article.automation_status = AutomationStatus.BLOCKED
+                article.last_error = reason
+
+    async def _mark_assets_finalized(self, job_id: UUID) -> None:
+        async with self.session_factory.begin() as session:
+            job = await _locked_job(session, job_id)
+            if job is None or job.snapshot_metadata.get("asset_finalize_pending") is not True:
+                return
+            metadata = dict(job.snapshot_metadata)
+            metadata.pop("asset_finalize_pending", None)
+            metadata.pop("asset_staging_identity", None)
+            metadata.pop("asset_manifest", None)
+            job.snapshot_metadata = metadata
+            job.overall_status = JobStatus.WAITING
+            article = await session.get(Article, job.article_id)
+            if article is not None:
+                article.automation_status = AutomationStatus.WAITING
+                article.last_error = None
 
     async def _mark_processing(self, job_id: UUID) -> None:
         async with self.session_factory.begin() as session:
@@ -453,6 +529,31 @@ def _snapshot_metadata(metadata: dict[str, object], assets: MaterializedAssets) 
         "size": assets.cover.size,
     }
     return metadata
+
+
+def _asset_finalize_metadata(
+    metadata: dict[str, object],
+    staged_assets: MaterializedAssets,
+) -> dict[str, object]:
+    if staged_assets.staging_dir is None:
+        return metadata
+    identity = staged_assets.staging_dir.name
+    try:
+        UUID(identity)
+    except ValueError as exc:
+        raise PublicationPreparationError("素材 staging 标识无效") from exc
+    assets = (*staged_assets.images, *((staged_assets.cover,) if staged_assets.cover else ()))
+    metadata["asset_finalize_pending"] = True
+    metadata["asset_staging_identity"] = identity
+    metadata["asset_manifest"] = [{"name": asset.path.name, "sha256": asset.sha256} for asset in assets]
+    return metadata
+
+
+def _valid_asset_manifest(value: object) -> TypeGuard[list[dict[str, str]]]:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and isinstance(item.get("name"), str) and isinstance(item.get("sha256"), str)
+        for item in value
+    )
 
 
 async def _existing_frozen(

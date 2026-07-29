@@ -235,6 +235,68 @@ class AssetMaterializer:
             raise AssetDownloadError("filesystem_error", "素材快照提交失败", field="assets") from exc
         return assets.final_view()
 
+    async def resume_finalize(
+        self,
+        job_id: UUID,
+        staging_identity: str,
+        expected_manifest: list[dict[str, str]],
+    ) -> None:
+        try:
+            normalized_job_id = str(UUID(str(job_id)))
+            normalized_identity = str(UUID(staging_identity))
+        except ValueError as exc:
+            raise AssetDownloadError("asset_finalize_failed", "素材恢复标识无效", field="assets") from exc
+        root = self._safe_root()
+        job_root = root / "jobs" / normalized_job_id
+        staging = job_root / "staging" / normalized_identity
+        final = job_root / "snapshot"
+        self._reject_symlink_components(staging, root)
+        self._reject_symlink_components(final, root)
+        try:
+            if final.exists():
+                self._verify_manifest(final, expected_manifest)
+            elif staging.exists():
+                staging.replace(final)
+                self._verify_manifest(final, expected_manifest)
+            else:
+                raise AssetDownloadError(
+                    "asset_finalize_missing",
+                    "素材 staging 与最终快照均不存在，无法恢复",
+                    field="assets",
+                )
+            self._cleanup_other_attempts(job_root / "staging")
+        except AssetDownloadError:
+            raise
+        except OSError as exc:
+            raise AssetDownloadError("asset_finalize_failed", "素材快照恢复失败", field="assets") from exc
+
+    @staticmethod
+    def _verify_manifest(directory: Path, manifest: list[dict[str, str]]) -> None:
+        expected_names: set[str] = set()
+        for item in manifest:
+            name = item.get("name", "")
+            expected_hash = item.get("sha256", "")
+            if Path(name).name != name or len(expected_hash) != 64:
+                raise AssetDownloadError("asset_finalize_failed", "素材清单无效", field="assets")
+            path = directory / name
+            if path.is_symlink() or not path.is_file():
+                raise AssetDownloadError("asset_finalize_missing", "素材快照文件缺失", field="assets")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != expected_hash:
+                raise AssetDownloadError("asset_finalize_mismatch", "素材快照校验失败", field="assets")
+            expected_names.add(name)
+        actual_names = {path.name for path in directory.iterdir() if path.is_file()}
+        if actual_names != expected_names:
+            raise AssetDownloadError("asset_finalize_mismatch", "素材快照清单不一致", field="assets")
+
+    @staticmethod
+    def _cleanup_other_attempts(staging_root: Path) -> None:
+        if not staging_root.exists() or staging_root.is_symlink():
+            return
+        for attempt in staging_root.iterdir():
+            _discard_tree(attempt)
+        _remove_empty_parents(staging_root, staging_root.parent.parent)
+
     async def discard(self, assets: MaterializedAssets) -> None:
         if assets.staging_dir is None:
             return
