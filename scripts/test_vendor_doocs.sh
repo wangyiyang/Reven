@@ -30,6 +30,49 @@ chmod +x "$project/scripts/vendor_doocs.sh"
 git -C "$project" init -q
 echo "original" >"$project/vendor/doocs-md/marker"
 
+mkdir "$project/vendor/.doocs-md.lock"
+if (cd -P "$project" && ./scripts/vendor_doocs.sh >/dev/null 2>"$test_root/lock.err"); then
+  echo "expected existing lock failure" >&2
+  exit 1
+fi
+grep -Fq "vendor update lock exists; confirm no updater is running, then remove vendor/.doocs-md.lock" "$test_root/lock.err"
+grep -qx "original" "$project/vendor/doocs-md/marker"
+rmdir "$project/vendor/.doocs-md.lock"
+
+ln -s "$test_root/lock-target" "$project/vendor/.doocs-md.lock"
+if (cd -P "$project" && ./scripts/vendor_doocs.sh >/dev/null 2>"$test_root/lock.err"); then
+  echo "expected symlink lock failure" >&2
+  exit 1
+fi
+[[ -L "$project/vendor/.doocs-md.lock" ]]
+grep -qx "original" "$project/vendor/doocs-md/marker"
+unlink "$project/vendor/.doocs-md.lock"
+
+(cd -P "$project" && REVEN_VENDOR_TESTING=1 REVEN_VENDOR_TEST_HOOK=hold_lock \
+  ./scripts/vendor_doocs.sh >"$test_root/first.out" 2>"$test_root/first.err") &
+first_pid=$!
+for _attempt in $(seq 1 100); do
+  [[ ! -d "$project/vendor/.doocs-md.lock" ]] || break
+  sleep 0.05
+done
+[[ -d "$project/vendor/.doocs-md.lock" ]]
+if (cd -P "$project" && ./scripts/vendor_doocs.sh >/dev/null 2>"$test_root/second.err"); then
+  echo "expected concurrent updater failure" >&2
+  exit 1
+fi
+grep -Fq "vendor update lock exists" "$test_root/second.err"
+grep -qx "original" "$project/vendor/doocs-md/marker"
+[[ ! -e "$project/vendor/.doocs-md.backup" ]]
+[[ -z "$(find "$project/vendor" -maxdepth 1 -name '.doocs-md.staging.*' -print -quit)" ]]
+touch "$project/vendor/.doocs-md.lock/release"
+wait "$first_pid"
+[[ ! -e "$project/vendor/.doocs-md.lock" ]]
+[[ ! -e "$project/vendor/.doocs-md.backup" ]]
+[[ -z "$(find "$project/vendor" -maxdepth 1 -name '.doocs-md.staging.*' -print -quit)" ]]
+rm -rf -- "$project/vendor/doocs-md"
+mkdir "$project/vendor/doocs-md"
+echo "original" >"$project/vendor/doocs-md/marker"
+
 for fault in after_copy after_backup after_install; do
   if (cd -P "$project" && REVEN_VENDOR_FAULT="$fault" ./scripts/vendor_doocs.sh >/dev/null 2>"$test_root/fault.err"); then
     echo "expected injected failure at $fault" >&2
