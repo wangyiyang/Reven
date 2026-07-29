@@ -6,8 +6,10 @@ import respx
 from reven.integrations.github.client import (
     GitHubBlockedError,
     GitHubClient,
+    GitHubError,
     GitHubPermanentError,
     GitHubTransientError,
+    _next_page,
     validate_site_url,
 )
 from reven.publishing.blog.publisher import RequiredCheck
@@ -84,7 +86,12 @@ async def test_pull_requests_follow_link_pagination_and_include_exact_base() -> 
         return httpx.Response(
             200,
             json=[{"number": index} for index in range(100)],
-            headers={"link": '<https://api.github.com/repos/acme/blog/pulls?page=2>; rel="next"'},
+            headers={
+                "link": (
+                    "<https://api.github.com/repos/acme/blog/pulls?"
+                    'page=2&per_page=100&head=acme%3Areven%2Fbranch&base=trunk&state=all>; rel="next"'
+                )
+            },
         )
 
     route = respx.get("https://api.github.com/repos/acme/blog/pulls").mock(side_effect=response)
@@ -96,6 +103,37 @@ async def test_pull_requests_follow_link_pagination_and_include_exact_base() -> 
     assert route.calls[1].request.url.params["head"] == "acme:reven/branch"
     assert route.calls[1].request.url.params["base"] == "trunk"
     assert route.calls[1].request.url.params["page"] == "2"
+
+
+def test_next_page_allows_omitted_original_filters() -> None:
+    params = {"per_page": "100", "head": "acme:reven/branch", "base": "trunk", "state": "all"}
+    assert (
+        _next_page(
+            '<https://api.github.com/repos/acme/blog/pulls?page=2>; rel="next"',
+            1,
+            "/repos/acme/blog/pulls",
+            params,
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        '<https://evil.example/repos/acme/blog/pulls?page=2>; rel="next"',
+        '<https://user@api.github.com/repos/acme/blog/pulls?page=2>; rel="next"',
+        '<https://api.github.com:444/repos/acme/blog/pulls?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/blog/pulls?page=2&base=other>; rel="next"',
+        '<https://api.github.com/repos/acme/blog/pulls?page=2&secret=x>; rel="next"',
+        '<https://api.github.com/repos/acme/blog/pulls?page=2&page=3>; rel="next"',
+        '<https://api.github.com/repos/acme/blog/pulls?page=2&base=trunk&base=trunk>; rel="next"',
+    ],
+)
+def test_next_page_rejects_filter_and_query_confusion(link: str) -> None:
+    params = {"per_page": "100", "head": "acme:reven/branch", "base": "trunk", "state": "all"}
+    with pytest.raises(GitHubError, match="分页"):
+        _next_page(link, 1, "/repos/acme/blog/pulls", params)
 
 
 @pytest.mark.anyio
