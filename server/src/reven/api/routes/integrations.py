@@ -18,15 +18,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from reven.api.schemas.integrations import (
     PROVIDERS,
     PUT_MODELS,
+    BootstrapSchemaResponse,
     IntegrationPut,
     IntegrationResponse,
     to_response,
 )
 from reven.config import get_settings
+from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
+
+# 显式注册 Notion 连接测试适配器，使 POST /api/integrations/notion/test 可用
+register_notion_adapter()
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
@@ -119,6 +124,16 @@ async def delete_secret(provider: str, session: SessionDep) -> IntegrationRespon
         return _error_response(exc)
     await session.commit()
     return to_response(integration)
+
+
+@router.post("/notion/bootstrap-schema", response_model=BootstrapSchemaResponse)
+async def bootstrap_schema(session: SessionDep) -> BootstrapSchemaResponse | JSONResponse:
+    """初始化 Notion 稿件库字段（只增不删、幂等），是有副作用的显式操作。"""
+    try:
+        patch = await bootstrap_notion_schema(IntegrationService(session, _secret_box()))
+    except IntegrationError as exc:
+        return _error_response(exc)
+    return BootstrapSchemaResponse(patched=patch is not None, properties=sorted(patch) if patch else [])
 
 
 @router.post("/{provider}/test", response_model=IntegrationResponse)

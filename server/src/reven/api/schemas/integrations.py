@@ -102,6 +102,13 @@ class IntegrationResponse(BaseModel):
     last_error: str | None
 
 
+class BootstrapSchemaResponse(BaseModel):
+    """Notion 字段初始化结果：本次是否发送了 PATCH 以及补齐了哪些字段。"""
+
+    patched: bool
+    properties: list[str]
+
+
 def to_response(integration: Integration) -> IntegrationResponse:
     return IntegrationResponse(
         provider=integration.provider,

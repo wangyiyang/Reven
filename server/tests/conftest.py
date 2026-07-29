@@ -1,14 +1,29 @@
+import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
 
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture
+def load_fixture() -> Callable[[str], Any]:
+    """读取 server/tests/fixtures 下的 JSON 固定样例并返回解析结果。"""
+
+    def _load(relative_path: str) -> Any:
+        return json.loads((FIXTURES_DIR / relative_path).read_text(encoding="utf-8"))
+
+    return _load
 
 
 @pytest.fixture
