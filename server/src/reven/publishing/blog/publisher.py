@@ -19,14 +19,14 @@ from reven.publishing.wechat.publisher import LeaseLost, load_snapshot_assets
 class GitHubApi(Protocol):
     async def default_branch(self) -> str: ...
     async def branch(self, name: str) -> dict[str, Any] | None: ...
-    async def pull_requests(self, head: str, *, state: str = "all") -> list[dict[str, Any]]: ...
+    async def pull_requests(self, head: str, *, base: str, state: str = "all") -> list[dict[str, Any]]: ...
     async def pull_request_template(self, default_branch: str) -> str | None: ...
     async def create_pull_request(self, *, title: str, head: str, base: str, body: str) -> dict[str, Any]: ...
-    async def required_contexts(self, branch: str) -> tuple[str, ...]: ...
+    async def required_contexts(self, branch: str) -> tuple["RequiredCheck", ...]: ...
     async def check_runs(self, sha: str) -> list[dict[str, Any]]: ...
     async def status_contexts(self, sha: str) -> list[dict[str, Any]]: ...
     async def merge(self, number: int, sha: str) -> dict[str, Any]: ...
-    async def pages_builds(self) -> list[dict[str, Any]]: ...
+    async def latest_pages_build(self) -> dict[str, Any]: ...
     async def verify_article(self, path: str, title: str) -> str: ...
 
 
@@ -42,6 +42,12 @@ class BlogPublishResult:
     article_url: str
     pull_request_number: int
     merge_sha: str
+
+
+@dataclass(frozen=True)
+class RequiredCheck:
+    context: str
+    app_id: int | None = None
 
 
 class BlogPublisher:
@@ -76,7 +82,7 @@ class BlogPublisher:
         pr = await self._ensure_pull_request(claim, result, context.title, post_path, branch, default)
         pr_number = _integer(pr.get("number"), "PR number")
         await self._wait_checks(default, commit_sha)
-        merge_sha = await self._ensure_merge(claim, result, pr_number, commit_sha, branch)
+        merge_sha = await self._ensure_merge(claim, result, pr_number, commit_sha, branch, default)
         await self._wait_pages(claim, result, merge_sha)
         article_url = await self.client.verify_article(article_path, context.title)
         await self._save(claim, result, {"article_url": article_url})
@@ -91,13 +97,18 @@ class BlogPublisher:
     ) -> tuple[str, str, str]:
         remote = await self.client.branch(branch)
         persisted_path = result.get("article_path")
+        persisted_sha = result.get("commit_sha")
         if remote is not None:
-            commit = _dict(remote.get("commit"))
-            sha = _string(commit.get("sha"), "远程分支 SHA")
+            if not isinstance(persisted_sha, str):
+                raise BlockedPublishError("远程发布分支存在但本地 commit SHA 未持久化")
+            sha = verify_remote_branch(persisted_sha, remote)
             if not isinstance(persisted_path, str):
                 raise BlockedPublishError("远程发布分支存在但文章路径未持久化，请人工核验")
             await self._recover_operation(claim, result, "push")
             return sha, persisted_path, str(result.get("post_path", ""))
+        marker = result.get("operation")
+        if isinstance(marker, dict) and marker.get("phase") == "push":
+            raise BlockedPublishError("Git push 结果无法确认且远程分支不存在，请人工核验")
         await self._assert_lease(claim)
         path = await self.workspace.clone(str(claim.job_id), self.remote_url, self.token)
         await self.workspace.prepare(path, branch)
@@ -117,6 +128,7 @@ class BlogPublisher:
             recovered = await self.client.branch(branch)
             if recovered is None:
                 raise BlockedPublishError("Git push 结果不确定，请人工核验") from exc
+            verify_remote_branch(sha, recovered)
         await self._clear_operation(claim, result)
         return sha, converted.article_path, converted.manifest[0].as_posix()
 
@@ -129,9 +141,10 @@ class BlogPublisher:
         branch: str,
         default: str,
     ) -> dict[str, Any]:
-        pulls = await self.client.pull_requests(branch)
-        if pulls:
-            pr = pulls[0]
+        pulls = await self.client.pull_requests(branch, base=default)
+        existing = select_pull_request(pulls)
+        if existing is not None:
+            pr = existing
             await self._recover_operation(claim, result, "create_pr")
         else:
             template = await self.client.pull_request_template(default)
@@ -144,10 +157,11 @@ class BlogPublisher:
                     body=pull_request_body(template, post_path),
                 )
             except Exception as exc:
-                recovered = await self.client.pull_requests(branch)
-                if not recovered:
+                recovered = await self.client.pull_requests(branch, base=default)
+                selected = select_pull_request(recovered)
+                if selected is None:
                     raise BlockedPublishError("PR 创建结果不确定，请人工核验") from exc
-                pr = recovered[0]
+                pr = selected
             await self._clear_operation(claim, result)
         await self._save(claim, result, {"pull_request_number": _integer(pr.get("number"), "PR number")})
         return pr
@@ -170,11 +184,12 @@ class BlogPublisher:
         number: int,
         sha: str,
         branch: str,
+        default: str,
     ) -> str:
         existing = result.get("merge_sha")
         if isinstance(existing, str) and existing:
             return existing
-        pulls = await self.client.pull_requests(branch)
+        pulls = await self.client.pull_requests(branch, base=default)
         merged_pr = next((item for item in pulls if item.get("merged_at")), None)
         if merged_pr is not None:
             merge_sha = _string(merged_pr.get("merge_commit_sha"), "merge SHA")
@@ -186,7 +201,7 @@ class BlogPublisher:
             merged = await self.client.merge(number, sha)
             merge_sha = _string(merged.get("sha"), "merge SHA")
         except Exception as exc:
-            pulls = await self.client.pull_requests(branch)
+            pulls = await self.client.pull_requests(branch, base=default)
             merged_pr = next((item for item in pulls if item.get("merged_at")), None)
             if merged_pr is None:
                 raise BlockedPublishError("PR 合并结果不确定，请人工核验") from exc
@@ -197,13 +212,11 @@ class BlogPublisher:
 
     async def _wait_pages(self, claim: JobClaim, result: dict[str, object], merge_sha: str) -> None:
         for _ in range(self.max_polls):
-            builds = await self.client.pages_builds()
-            build = next((item for item in builds if item.get("commit") == merge_sha), None)
-            if build is not None and build.get("status") == "built":
+            build = await self.client.latest_pages_build()
+            state = pages_state(build, merge_sha)
+            if state == "success":
                 await self._save(claim, result, {"pages_build_id": build.get("id")})
                 return
-            if build is not None and build.get("status") in {"errored", "cancelled"}:
-                raise BlockedPublishError("GitHub Pages 构建失败")
             await self.sleep(self.poll_interval)
         raise BlockedPublishError("GitHub Pages 未部署本次 merge SHA")
 
@@ -260,27 +273,77 @@ def release_branch(page_id: str, content_hash: str, default_branch: str) -> str:
 
 
 def checks_state(
-    required: tuple[str, ...],
+    required: tuple[RequiredCheck, ...],
     check_runs: list[dict[str, Any]],
     statuses: list[dict[str, Any]],
 ) -> str:
     if not required:
         raise BlockedPublishError("默认分支未配置 required check，禁止自动合并")
-    values: dict[str, str] = {}
-    for run in check_runs:
+    values: dict[RequiredCheck, tuple[tuple[str, int, int], str]] = {}
+    for index, run in enumerate(check_runs):
         name = run.get("name")
         if isinstance(name, str):
             status = run.get("status")
-            values[name] = str(run.get("conclusion")) if status == "completed" else "pending"
-    for status in statuses:
+            app = _dict(run.get("app"))
+            app_id = app.get("id") if isinstance(app.get("id"), int) else None
+            value = str(run.get("conclusion")) if status == "completed" else "pending"
+            order = _event_order(run, index)
+            _latest(values, RequiredCheck(name, app_id), order, value)
+            _latest(values, RequiredCheck(name), order, value)
+    for index, status in enumerate(statuses):
         context = status.get("context")
         if isinstance(context, str):
-            values[context] = str(status.get("state"))
-    relevant = {name: values.get(name, "pending") for name in required}
+            order = _event_order(status, index)
+            _latest(values, RequiredCheck(context), order, str(status.get("state")))
+    relevant = {identity: values.get(identity, (("", 0, 0), "pending"))[1] for identity in required}
     failed = {"failure", "failed", "cancelled", "timed_out", "action_required", "error"}
     if any(value in failed for value in relevant.values()):
         raise BlockedPublishError("required check 失败，禁止自动合并")
     return "success" if all(value == "success" for value in relevant.values()) else "pending"
+
+
+def _latest(
+    values: dict[RequiredCheck, tuple[tuple[str, int, int], str]],
+    identity: RequiredCheck,
+    order: tuple[str, int, int],
+    value: str,
+) -> None:
+    if order >= values.get(identity, (("", -1, -1), ""))[0]:
+        values[identity] = (order, value)
+
+
+def _event_order(event: dict[str, Any], index: int) -> tuple[str, int, int]:
+    timestamp = next(
+        (
+            value
+            for key in ("completed_at", "created_at", "started_at", "updated_at")
+            if isinstance(value := event.get(key), str)
+        ),
+        "",
+    )
+    event_id = event.get("id")
+    return timestamp, event_id if isinstance(event_id, int) else 0, index
+
+
+def select_pull_request(pulls: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return next((item for item in pulls if item.get("state") == "open"), None) or next(
+        (item for item in pulls if item.get("merged_at")), None
+    )
+
+
+def verify_remote_branch(local_sha: str, branch: dict[str, Any]) -> str:
+    remote_sha = _string(_dict(branch.get("commit")).get("sha"), "远程分支 SHA")
+    if remote_sha != local_sha:
+        raise BlockedPublishError("同名远程分支 commit SHA 冲突，请人工核验")
+    return remote_sha
+
+
+def pages_state(build: dict[str, Any], merge_sha: str) -> str:
+    if build.get("status") in {"errored", "cancelled"}:
+        raise BlockedPublishError("GitHub Pages 最新构建失败")
+    if build.get("commit") == merge_sha and build.get("status") == "built":
+        return "success"
+    return "pending"
 
 
 def pull_request_body(template: str | None, post_path: str) -> str:

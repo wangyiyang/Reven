@@ -1,6 +1,15 @@
 import pytest
 from reven.jobs.errors import BlockedPublishError
-from reven.publishing.blog.publisher import BlogPublisher, checks_state, pull_request_body, release_branch
+from reven.publishing.blog.publisher import (
+    BlogPublisher,
+    RequiredCheck,
+    checks_state,
+    pages_state,
+    pull_request_body,
+    release_branch,
+    select_pull_request,
+    verify_remote_branch,
+)
 
 
 def test_release_branch_never_targets_default_branch() -> None:
@@ -15,7 +24,7 @@ def test_no_required_checks_is_blocked() -> None:
 def test_required_check_run_and_status_contexts_must_all_succeed() -> None:
     assert (
         checks_state(
-            ("Jekyll build", "security"),
+            (RequiredCheck("Jekyll build"), RequiredCheck("security")),
             [{"name": "Jekyll build", "status": "completed", "conclusion": "success"}],
             [{"context": "security", "state": "success"}],
         )
@@ -23,10 +32,128 @@ def test_required_check_run_and_status_contexts_must_all_succeed() -> None:
     )
     with pytest.raises(BlockedPublishError, match="失败"):
         checks_state(
-            ("Jekyll build",),
+            (RequiredCheck("Jekyll build"),),
             [{"name": "Jekyll build", "status": "completed", "conclusion": "failure"}],
             [],
         )
+
+
+def test_required_app_check_rejects_status_and_other_app_with_same_name() -> None:
+    required = (RequiredCheck("Jekyll build", 42),)
+    assert (
+        checks_state(
+            required,
+            [
+                {
+                    "id": 2,
+                    "name": "Jekyll build",
+                    "app": {"id": 7},
+                    "status": "completed",
+                    "conclusion": "failure",
+                }
+            ],
+            [{"id": 99, "context": "Jekyll build", "state": "success"}],
+        )
+        == "pending"
+    )
+
+
+def test_latest_rerun_wins_for_same_required_identity() -> None:
+    required = (RequiredCheck("Jekyll build", 42),)
+    assert (
+        checks_state(
+            required,
+            [
+                {
+                    "id": 1,
+                    "name": "Jekyll build",
+                    "app": {"id": 42},
+                    "status": "completed",
+                    "conclusion": "failure",
+                },
+                {
+                    "id": 2,
+                    "name": "Jekyll build",
+                    "app": {"id": 42},
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            ],
+            [],
+        )
+        == "success"
+    )
+    with pytest.raises(BlockedPublishError, match="失败"):
+        checks_state(
+            required,
+            [
+                {
+                    "id": 3,
+                    "name": "Jekyll build",
+                    "app": {"id": 42},
+                    "status": "completed",
+                    "conclusion": "failure",
+                },
+                {
+                    "id": 2,
+                    "name": "Jekyll build",
+                    "app": {"id": 42},
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            ],
+            [],
+        )
+
+
+def test_legacy_context_uses_timestamp_across_status_and_check_run_ids() -> None:
+    assert (
+        checks_state(
+            (RequiredCheck("Jekyll build"),),
+            [
+                {
+                    "id": 1,
+                    "name": "Jekyll build",
+                    "app": {"id": 42},
+                    "completed_at": "2026-07-30T01:00:00Z",
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+            ],
+            [
+                {
+                    "id": 999,
+                    "context": "Jekyll build",
+                    "created_at": "2026-07-29T01:00:00Z",
+                    "state": "failure",
+                }
+            ],
+        )
+        == "success"
+    )
+
+
+def test_select_pr_never_reuses_closed_unmerged() -> None:
+    assert select_pull_request([{"number": 1, "state": "closed", "merged_at": None}]) is None
+    assert select_pull_request(
+        [
+            {"number": 2, "state": "closed", "merged_at": "today"},
+            {"number": 3, "state": "open", "merged_at": None},
+        ]
+    ) == {"number": 3, "state": "open", "merged_at": None}
+
+
+def test_remote_branch_must_equal_fenced_local_commit() -> None:
+    assert verify_remote_branch("abc", {"commit": {"sha": "abc"}}) == "abc"
+    with pytest.raises(BlockedPublishError, match="冲突"):
+        verify_remote_branch("abc", {"commit": {"sha": "old"}})
+
+
+def test_pages_latest_never_accepts_historical_or_other_commit() -> None:
+    assert pages_state({"commit": "other", "status": "built"}, "merge") == "pending"
+    assert pages_state({"commit": "merge", "status": "built"}, "merge") == "success"
+    with pytest.raises(BlockedPublishError, match="Pages"):
+        pages_state({"commit": "other", "status": "errored"}, "merge")
 
 
 def test_pull_request_fallback_has_pyramid_sections() -> None:

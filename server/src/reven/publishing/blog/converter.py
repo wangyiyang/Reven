@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from reven.publishing.assets import MaterializedAssets
-from reven.publishing.snapshot import ContentSnapshot
+from reven.publishing.snapshot import ContentSnapshot, image_urls
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ASCII_WORD = re.compile(r"[A-Za-z0-9]+")
@@ -65,21 +65,24 @@ class BlogConverter:
         )
         body = body.replace("<empty-block/>", "")
         paths: list[Path] = []
+        public_urls: list[str] = []
+        copies: list[tuple[Path, Path]] = []
         for ordinal, (snapshot_asset, asset) in enumerate(
             zip(article.snapshot.images, article.assets.images, strict=True), 1
         ):
-            placeholder = f"reven-asset://image/{ordinal}"
-            if body.count(placeholder) != 1 or snapshot_asset.ordinal != ordinal:
+            if snapshot_asset.ordinal != ordinal:
                 raise ValueError("正文素材 URI 必须严格一一映射")
             source = _safe_frozen_file(asset.path)
             suffix = source.suffix.lower()
             relative = image_dir / f"{ordinal:02d}{suffix}"
             destination = _new_path(root, relative)
+            paths.append(relative)
+            public_urls.append(f"{self.site_url}/{relative.as_posix()}")
+            copies.append((source, destination))
+        body = replace_image_sources(body, tuple(public_urls))
+        for source, destination in copies:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
-            paths.append(relative)
-            public_url = f"{self.site_url}/{relative.as_posix()}"
-            body = body.replace(placeholder, public_url, 1)
         return body.strip() + "\n", tuple(paths)
 
 
@@ -131,3 +134,19 @@ def _safe_frozen_file(path: Path) -> Path:
     if path.is_symlink() or not path.is_file():
         raise ValueError("冻结素材必须是普通文件")
     return path.resolve()
+
+
+def replace_image_sources(markdown: str, public_urls: tuple[str, ...]) -> str:
+    expected = tuple(f"reven-asset://image/{ordinal}" for ordinal in range(1, len(public_urls) + 1))
+    if image_urls(markdown) != expected:
+        raise ValueError("正文图片素材 URI 未严格一一映射")
+    output = markdown
+    for placeholder, public_url in zip(expected, public_urls, strict=True):
+        source = f"({placeholder})"
+        if output.count(source) != 1:
+            raise ValueError("正文图片素材 URI 结构无效")
+        output = output.replace(source, f"({public_url})", 1)
+    final = image_urls(output)
+    if final != public_urls or any(url.startswith("reven-asset:") for url in final):
+        raise ValueError("正文图片素材替换失败")
+    return output
