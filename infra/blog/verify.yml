@@ -1,0 +1,30 @@
+# Install this file as .github/workflows/reven-jekyll.yml in the blog repository
+# through a reviewed PR, then configure the "Jekyll build" check as required.
+name: Jekyll build
+
+on:
+  pull_request:
+    paths:
+      - "_posts/**"
+      - "images/posts/**"
+      - "Gemfile"
+      - "Gemfile.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reven-jekyll-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - name: Jekyll build
+        run: bundle exec jekyll build --trace
