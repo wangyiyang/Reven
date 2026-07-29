@@ -119,17 +119,20 @@ async def run_until_heartbeat_stops(
 ) -> None:
     execution_task: asyncio.Future[None] = asyncio.ensure_future(execution)
     heartbeat_task: asyncio.Future[None] = asyncio.ensure_future(heartbeat)
-    done, _ = await asyncio.wait(
-        (execution_task, heartbeat_task),
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    if heartbeat_task in done:
-        execution_task.cancel()
-        await asyncio.gather(execution_task, return_exceptions=True)
+    tasks = (execution_task, heartbeat_task)
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        if execution_task in done:
+            await execution_task
+            if heartbeat_task in done:
+                await heartbeat_task
+            return
         await heartbeat_task
-    heartbeat_task.cancel()
-    await asyncio.gather(heartbeat_task, return_exceptions=True)
-    await execution_task
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class BackgroundRunner:
