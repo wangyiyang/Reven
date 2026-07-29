@@ -5,8 +5,8 @@ import pytest
 from reven.articles.models import Article
 from reven.jobs.models import PublicationJob
 from reven.jobs.notification_outbox import (
-    PreparationNotificationOutbox,
-    PreparationNotificationTick,
+    NotificationOutbox,
+    NotificationOutboxTick,
     enqueue_preparation_notification,
 )
 from reven.jobs.repository import JobRepository
@@ -55,13 +55,13 @@ async def test_failure_is_sanitized_and_backed_off_without_hot_loop(db_session) 
         enqueue_preparation_notification(session, job, article, event="blocked", stage="阻塞", summary="缺封面")
         await session.merge(job)
     notifier = Notifier(failures=1)
-    tick = PreparationNotificationTick(factory, notifier)
+    tick = NotificationOutboxTick(factory, notifier)
 
     await tick()
     await tick()
 
     async with factory() as session:
-        row = await session.scalar(select(PreparationNotificationOutbox))
+        row = await session.scalar(select(NotificationOutbox))
         now = await session.scalar(select(func.clock_timestamp()))
         assert row is not None and now is not None
         assert row.attempts == 1 and row.next_attempt_at > now
@@ -78,8 +78,8 @@ async def test_concurrent_ticks_send_once(db_session) -> None:  # type: ignore[n
     notifier = Notifier()
 
     await asyncio.gather(
-        PreparationNotificationTick(factory, notifier)(),
-        PreparationNotificationTick(factory, notifier)(),
+        NotificationOutboxTick(factory, notifier)(),
+        NotificationOutboxTick(factory, notifier)(),
     )
 
     assert notifier.calls == 1
@@ -92,20 +92,20 @@ async def test_lost_lease_cannot_mark_new_claim_sent(db_session) -> None:  # typ
     async with factory.begin() as session:
         enqueue_preparation_notification(session, job, article, event="blocked", stage="阻塞", summary="缺封面")
         await session.merge(job)
-    first_tick = PreparationNotificationTick(factory, Notifier(), lease_seconds=30)
+    first_tick = NotificationOutboxTick(factory, Notifier(), lease_seconds=30)
     first = await first_tick._claim()
     assert first is not None
     async with factory.begin() as session:
-        row = await session.get(PreparationNotificationOutbox, first.id)
+        row = await session.get(NotificationOutbox, first.id)
         assert row is not None
         row.lease_expires_at = datetime.now(tz=UTC) - timedelta(seconds=1)
-    second = await PreparationNotificationTick(factory, Notifier())._claim()
+    second = await NotificationOutboxTick(factory, Notifier())._claim()
     assert second is not None and second.lease_token != first.lease_token
 
     await first_tick._sent(first)
 
     async with factory() as session:
-        row = await session.get(PreparationNotificationOutbox, first.id)
+        row = await session.get(NotificationOutbox, first.id)
         assert row is not None and row.status == "pending" and row.lease_token == second.lease_token
 
 
@@ -129,7 +129,7 @@ async def test_manual_retry_versions_same_error_but_automatic_repeat_deduplicate
         )
 
     async with factory() as session:
-        rows = list((await session.scalars(select(PreparationNotificationOutbox))).all())
+        rows = list((await session.scalars(select(NotificationOutbox))).all())
         assert len(rows) == 2
         assert {row.revision for row in rows} == {1, 3}
         assert len({row.fingerprint for row in rows}) == 2

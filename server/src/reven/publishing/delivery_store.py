@@ -12,15 +12,11 @@ from reven.domain import AutomationStatus, JobStatus, TargetChannel
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
+from reven.jobs.notification_outbox import enqueue_notification
 from reven.jobs.repository import JobClaim
-from reven.publishing.orchestrator import (
-    DeliveryRecord,
-    PendingNotification,
-    notification_fingerprint,
-)
+from reven.publishing.orchestrator import DeliveryRecord
 
 _DELIVERY_KEY = "delivery_finalization"
-_EVENTS_KEY = "delivery_notification_events"
 _REVISION_KEY = "_revision"
 
 
@@ -46,7 +42,16 @@ class SqlAlchemyDeliveryStore:
             job, article = await _locked_pair(session, claim)
             if _used_default(job) and not job.notification_state.get("_default_event_created"):
                 revision = _next_revision(job)
-                _enqueue(job, "default_channels", "默认双渠道", "未选择目标渠道，已采用博客和微信公众号。", revision)
+                _enqueue(
+                    session,
+                    job,
+                    article,
+                    "default_channels",
+                    "默认双渠道",
+                    "未选择目标渠道，已采用博客和微信公众号。",
+                    revision,
+                    reven_url=f"{self.public_base_url}/articles/{article.id}",
+                )
                 job.notification_state = {**job.notification_state, "_default_event_created": True}
             return self._record(job, article)
 
@@ -62,11 +67,31 @@ class SqlAlchemyDeliveryStore:
             if channel == TargetChannel.BLOG:
                 job.blog_status = "已上线"
                 job.blog_result = {**job.blog_result, **result}
-                _enqueue(job, "blog_online", "博客已上线", "博客文章已经上线。", revision, channel=channel)
+                _enqueue(
+                    session,
+                    job,
+                    article,
+                    "blog_online",
+                    "博客已上线",
+                    "博客文章已经上线。",
+                    revision,
+                    channel=channel,
+                    reven_url=f"{self.public_base_url}/articles/{article.id}",
+                )
             else:
                 job.wechat_status = "草稿已生成"
                 job.wechat_result = {**job.wechat_result, **result}
-                _enqueue(job, "wechat_draft", "微信草稿已生成", "微信公众号草稿已生成。", revision, channel=channel)
+                _enqueue(
+                    session,
+                    job,
+                    article,
+                    "wechat_draft",
+                    "微信草稿已生成",
+                    "微信公众号草稿已生成。",
+                    revision,
+                    channel=channel,
+                    reven_url=f"{self.public_base_url}/articles/{article.id}",
+                )
             await session.flush()
             return self._record(job, article)
 
@@ -88,7 +113,19 @@ class SqlAlchemyDeliveryStore:
             else:
                 job.wechat_status, job.wechat_error = "失败", reason
                 job.wechat_result = {**job.wechat_result, "delivery_failure": failure}
-            _enqueue(job, "channel_failed", "渠道发布失败", "该渠道需要人工处理。", revision, error_code, channel)
+            event = "channel_blocked" if status == JobStatus.BLOCKED else "channel_permanent_failed"
+            _enqueue(
+                session,
+                job,
+                article,
+                event,
+                "渠道发布失败",
+                "该渠道需要人工处理。",
+                revision,
+                error_code,
+                channel,
+                reven_url=f"{self.public_base_url}/articles/{article.id}",
+            )
             await session.flush()
             return self._record(job, article)
 
@@ -126,22 +163,19 @@ class SqlAlchemyDeliveryStore:
             summary = (
                 "所有目标渠道已经交付。" if status == JobStatus.COMPLETED else "渠道交付结束，需要人工处理失败项。"
             )
-            _enqueue(job, event, stage, summary, revision, str(status))
+            _enqueue(
+                session,
+                job,
+                article,
+                event,
+                stage,
+                summary,
+                revision,
+                str(status),
+                reven_url=f"{self.public_base_url}/articles/{article.id}",
+            )
             await session.flush()
             return self._record(job, article)
-
-    async def resolve_notification(self, claim: JobClaim, fingerprint: str, *, sent: bool) -> bool:
-        async with self.session_factory.begin() as session:
-            job, _article = await _locked_pair(session, claim)
-            if sent:
-                events = [item for item in _events(job) if item.get("fingerprint") != fingerprint]
-                _set_events(job, events)
-                job.notification_state = {
-                    **job.notification_state,
-                    fingerprint: {"sent": True},
-                }
-            _clear_finalization_if_done(job)
-            return True
 
     async def finish_cleanup(self, claim: JobClaim) -> bool:
         async with self.session_factory.begin() as session:
@@ -151,11 +185,6 @@ class SqlAlchemyDeliveryStore:
             _set_delivery(job, state)
             _clear_finalization_if_done(job)
             return True
-
-    async def bump_notification_revision(self, claim: JobClaim) -> int:
-        async with self.session_factory.begin() as session:
-            job, _article = await _locked_pair(session, claim)
-            return _next_revision(job)
 
     def _record(self, job: PublicationJob, article: Article) -> DeliveryRecord:
         state = _delivery(job)
@@ -176,7 +205,6 @@ class SqlAlchemyDeliveryStore:
             str(state.get("reason", "")),
             state.get("notion_pending") is True,
             state.get("cleanup_pending") is True,
-            tuple(_notification(item) for item in _events(job)),
             self.workspace_root / "jobs",
             self.workspace_root / "jobs" / str(job.id),
         )
@@ -222,50 +250,38 @@ def _next_revision(job: PublicationJob) -> int:
 
 
 def _enqueue(
+    session: AsyncSession,
     job: PublicationJob,
+    article: Article,
     event: str,
     stage: str,
     summary: str,
     revision: int,
     error_code: str | None = None,
     channel: TargetChannel | None = None,
+    reven_url: str = "",
 ) -> None:
-    name = f"{event}:r{revision}"
-    fingerprint = notification_fingerprint(job.id, name, error_code, channel)
-    events = _events(job)
-    events.append(
-        {
-            "fingerprint": fingerprint,
-            "event": name,
-            "stage": stage,
-            "summary": summary,
-            "error_code": error_code,
-            "channel": channel,
-        }
+    enqueue_notification(
+        session,
+        job,
+        article,
+        event=event,
+        stage=stage,
+        summary=summary,
+        revision=revision,
+        error_code=error_code,
+        channel=channel.value if channel else None,
+        links=_links(job, article, reven_url),
     )
-    _set_events(job, events)
 
 
-def _events(job: PublicationJob) -> list[dict[str, Any]]:
-    value = job.snapshot_metadata.get(_EVENTS_KEY, [])
-    return [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
-
-
-def _set_events(job: PublicationJob, events: list[dict[str, Any]]) -> None:
-    job.snapshot_metadata = {**job.snapshot_metadata, _EVENTS_KEY: events}
-
-
-def _notification(item: dict[str, Any]) -> PendingNotification:
-    raw_channel = item.get("channel")
-    channel = TargetChannel(str(raw_channel)) if raw_channel else None
-    return PendingNotification(
-        str(item["fingerprint"]),
-        str(item["event"]),
-        str(item["stage"]),
-        str(item["summary"]),
-        str(item["error_code"]) if item.get("error_code") else None,
-        channel,
-    )
+def _links(job: PublicationJob, article: Article, reven_url: str) -> dict[str, str]:
+    links = {"Notion": article.notion_url, "Reven": reven_url}
+    for label, key in (("博客", "article_url"), ("PR", "pull_request_url")):
+        value = job.blog_result.get(key)
+        if isinstance(value, str):
+            links[label] = value
+    return links
 
 
 def _delivery(job: PublicationJob) -> dict[str, Any]:
@@ -279,11 +295,9 @@ def _set_delivery(job: PublicationJob, state: dict[str, Any]) -> None:
 
 def _clear_finalization_if_done(job: PublicationJob) -> None:
     state = _delivery(job)
-    if _events(job) or state.get("cleanup_pending") is True:
+    if state.get("cleanup_pending") is True:
         return
-    job.snapshot_metadata = {
-        key: value for key, value in job.snapshot_metadata.items() if key not in {_DELIVERY_KEY, _EVENTS_KEY}
-    }
+    job.snapshot_metadata = {key: value for key, value in job.snapshot_metadata.items() if key != _DELIVERY_KEY}
 
 
 def _used_default(job: PublicationJob) -> bool:

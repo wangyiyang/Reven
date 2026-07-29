@@ -229,15 +229,21 @@ def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
         reven_master_key = type("Secret", (), {"get_secret_value": lambda self: "key"})()
 
     monkeypatch.setattr("reven.jobs.runner.get_settings", Settings)
-    executor = type("Executor", (), {"notifier": FakeJobLoop()})()
+    executor = object()
+    notifier = FakeJobLoop()
     monkeypatch.setattr(
         "reven.jobs.runner.build_configured_orchestrator",
         lambda factory, settings: executor,
+    )
+    monkeypatch.setattr(
+        "reven.jobs.runner.build_configured_notifier",
+        lambda factory, settings: notifier,
     )
     runner = build_background_runner(object())  # type: ignore[arg-type]
 
     assert isinstance(runner._job_tick, PublicationJobTick)
     assert runner._job_tick._executor is executor
+    assert runner._notification_tick.notifier is notifier
 
 
 @pytest.mark.parametrize(

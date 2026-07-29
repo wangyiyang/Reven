@@ -25,7 +25,7 @@ from reven.jobs.errors import (
     PublishError,
     TransientPublishError,
 )
-from reven.jobs.notification_outbox import PreparationNotificationTick
+from reven.jobs.notification_outbox import NotificationOutboxTick
 from reven.jobs.preparation_models import PrepareResult
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.jobs.retry import retry_delay_seconds
@@ -35,7 +35,7 @@ from reven.jobs.service import (
     PublicationJobService,
 )
 from reven.publishing.assets import AssetDownloadError, AssetMaterializer
-from reven.publishing.factory import build_configured_orchestrator
+from reven.publishing.factory import build_configured_notifier, build_configured_orchestrator
 from reven.scheduling import utc_now
 from reven.system.models import SystemState
 
@@ -103,6 +103,7 @@ def build_background_runner(
     """Build the background runner with the production delivery executor."""
     settings = get_settings()
     orchestrator = build_configured_orchestrator(session_factory, settings)
+    notifier = build_configured_notifier(session_factory, settings)
     jobs = PublicationJobTick(
         session_factory,
         ConfiguredPreparationService(session_factory),
@@ -113,9 +114,9 @@ def build_background_runner(
     return BackgroundRunner(
         ConfiguredNotionSyncTick(session_factory),
         jobs,
-        PreparationNotificationTick(
+        NotificationOutboxTick(
             session_factory,
-            orchestrator.notifier,
+            notifier,
         ),
         sync_interval=settings.sync_interval_seconds,
         job_interval=settings.scheduler_interval_seconds,

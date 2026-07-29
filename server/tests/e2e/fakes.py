@@ -25,6 +25,7 @@ def notion_page(
     channels: tuple[str, ...] = (),
     planned_at: str | None = None,
     has_cover: bool = True,
+    page_id: str = PAGE_ID,
 ) -> dict[str, Any]:
     cover = (
         [{"type": "external", "name": "cover.png", "external": {"url": "https://assets.example/cover.png"}}]
@@ -32,8 +33,8 @@ def notion_page(
         else []
     )
     return {
-        "id": PAGE_ID,
-        "url": f"https://www.notion.so/{PAGE_ID.replace('-', '')}",
+        "id": page_id,
+        "url": f"https://www.notion.so/{page_id.replace('-', '')}",
         "last_edited_time": edited_at.astimezone(UTC).isoformat(),
         "properties": {
             "标题": {"type": "title", "title": [{"plain_text": title}]},
@@ -63,15 +64,15 @@ class FakeNotion:
         return {"results": [deepcopy(self.page)], "has_more": False, "next_cursor": None}
 
     async def retrieve_page(self, page_id: str) -> dict[str, Any]:
-        assert page_id == PAGE_ID
+        assert page_id == self.page["id"]
         return deepcopy(self.page)
 
     async def retrieve_page_markdown(self, page_id: str) -> str:
-        assert page_id == PAGE_ID
+        assert page_id == self.page["id"]
         return self.markdown
 
     async def update_page(self, page_id: str, *, properties: dict[str, Any]) -> dict[str, Any]:
-        assert page_id == PAGE_ID
+        assert page_id == self.page["id"]
         self.updates.append(deepcopy(properties))
         return {}
 
