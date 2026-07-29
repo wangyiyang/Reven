@@ -47,6 +47,7 @@ class PublicationJob(Base):
     blog_attempt_count: Mapped[int] = mapped_column(default=0)
     wechat_attempt_count: Mapped[int] = mapped_column(default=0)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[UUID | None] = mapped_column(nullable=True)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     blog_error: Mapped[str | None] = mapped_column(Text)
     wechat_error: Mapped[str | None] = mapped_column(Text)

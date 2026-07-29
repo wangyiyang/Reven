@@ -5,8 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
-from reven.jobs.models import PublicationJob
-from reven.jobs.repository import JobRepository
+from reven.jobs.repository import JobClaim, JobRepository
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
@@ -40,9 +39,11 @@ async def test_claim_due_job_sets_processing_lease(db_session) -> None:  # type:
     claimed = await repository.claim_next(lease_seconds=120)
 
     assert claimed is not None
-    assert claimed.id == job.id
-    assert claimed.overall_status == JobStatus.PROCESSING
-    assert claimed.lease_expires_at is not None
+    assert claimed.job_id == job.id
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.PROCESSING
+    assert job.lease_expires_at is not None
+    assert job.lease_token == claimed.lease_token
 
 
 @pytest.mark.anyio
@@ -61,7 +62,7 @@ async def test_concurrent_claimants_cannot_take_same_job(db_session) -> None:  #
 
     database_url = os.environ["TEST_DATABASE_URL"]
 
-    async def claim() -> PublicationJob | None:
+    async def claim() -> JobClaim | None:
         engine = create_async_engine(database_url)
         try:
             session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -74,7 +75,7 @@ async def test_concurrent_claimants_cannot_take_same_job(db_session) -> None:  #
 
     first, second = await asyncio.gather(claim(), claim())
 
-    winners = [claimed.id for claimed in (first, second) if claimed is not None]
+    winners = [claimed.job_id for claimed in (first, second) if claimed is not None]
     assert winners == [job.id]
 
 
@@ -95,13 +96,39 @@ async def test_pending_preparation_uses_recovery_queue_not_execution_queue(db_se
     await db_session.commit()
 
     assert await repository.claim_next(lease_seconds=120) is None
-    preparation = await repository.claim_next_preparation_pending()
+    preparation = await repository.claim_next_preparation_pending(lease_seconds=120)
     assert preparation is not None
-    assert preparation.id == job.id
-    assert preparation.overall_status == JobStatus.WAITING
+    assert preparation.job_id == job.id
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.WAITING
 
-    preparation.snapshot_metadata = {}
+    job.snapshot_metadata = {}
+    assert await repository.release_lease(preparation) is True
     await db_session.commit()
     executable = await repository.claim_next(lease_seconds=120)
     assert executable is not None
-    assert executable.id == job.id
+    assert executable.job_id == job.id
+
+
+@pytest.mark.anyio
+async def test_old_lease_token_cannot_renew_or_release_new_lease(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    await repository.create_waiting(
+        article_id=article.id,
+        content_hash="b" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    await db_session.commit()
+    first = await repository.claim_next(lease_seconds=-1)
+    await db_session.commit()
+    second = await repository.claim_next(lease_seconds=120)
+    await db_session.commit()
+    assert first is not None and second is not None
+
+    assert await repository.renew_lease(first, lease_seconds=120) is False
+    assert await repository.release_lease(first) is False
+    assert await repository.renew_lease(second, lease_seconds=120) is True
