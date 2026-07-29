@@ -133,6 +133,10 @@ def persist_blocked(
     validation: ValidationResult,
 ) -> PersistedPreparation:
     reason = error_summary(validation)
+    job.snapshot_metadata = {
+        **job.snapshot_metadata,
+        "validation": validation_metadata(validation),
+    }
     job.overall_status = JobStatus.BLOCKED
     job.lease_expires_at = None
     article.automation_status = AutomationStatus.BLOCKED
@@ -193,6 +197,19 @@ def _apply_existing_status(
 
 def error_summary(validation: ValidationResult) -> str:
     return "；".join(f"{error.field}：{error.message}" for error in validation.errors)[:1000]
+
+
+def validation_metadata(validation: ValidationResult) -> dict[str, object]:
+    return {
+        "errors": [
+            {"code": item.code, "message": item.message, "field": item.field}
+            for item in validation.errors
+        ],
+        "warnings": [
+            {"code": item.code, "message": item.message, "field": item.field}
+            for item in validation.warnings
+        ],
+    }
 
 
 def valid_asset_manifest(value: object) -> TypeGuard[list[dict[str, str]]]:

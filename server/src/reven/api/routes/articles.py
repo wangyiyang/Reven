@@ -1,0 +1,234 @@
+"""Editorial workbench read and action endpoints."""
+
+import re
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
+
+from reven.api.dependencies import PreviewServiceDep, SessionDep, SessionFactoryDep
+from reven.api.schemas.articles import (
+    ActionResult,
+    ArticleDetail,
+    ArticleList,
+    ArticleSummary,
+    ChannelResult,
+    JobDetail,
+    JobSummary,
+    PreviewResponse,
+    RetryRequest,
+)
+from reven.articles.actions import ActionConflictError, ArticleActionService
+from reven.articles.models import Article
+from reven.articles.query import ArticleQuery
+from reven.domain import TargetChannel
+from reven.integrations.notion.configuration import IntegrationConfigurationError
+from reven.jobs.models import PublicationJob
+from reven.publishing.wechat.preview import PreviewConflictError
+
+router = APIRouter(prefix="/api/articles", tags=["articles"])
+_SAFE_RESULT_KEYS = frozenset(
+    {"article_url", "pull_request_url", "pull_request_number", "commit_sha", "merge_sha", "media_id"}
+)
+
+
+@router.get("", response_model=ArticleList)
+async def list_articles(
+    session: SessionDep,
+    page: int = Query(default=1, ge=1, le=100_000),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None, min_length=1, max_length=32),
+    channel: TargetChannel | None = None,
+    query: str | None = Query(default=None, min_length=1, max_length=200),
+) -> ArticleList:
+    items, total = await ArticleQuery(session).list_articles(
+        page=page,
+        page_size=page_size,
+        status=status,
+        channel=channel.value if channel else None,
+        query=query,
+    )
+    return ArticleList(
+        items=[_article_summary(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{article_id}", response_model=ArticleDetail)
+async def get_article(article_id: UUID, session: SessionDep) -> ArticleDetail | JSONResponse:
+    query = ArticleQuery(session)
+    article = await query.get(article_id)
+    if article is None:
+        return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
+    jobs = await query.jobs(article_id)
+    latest = jobs[0] if jobs else None
+    return _article_detail(article, jobs, latest)
+
+
+@router.get("/{article_id}/jobs/{job_id}", response_model=JobDetail)
+async def get_job(article_id: UUID, job_id: UUID, session: SessionDep) -> JobDetail | JSONResponse:
+    job = await ArticleQuery(session).job(article_id, job_id)
+    if job is None:
+        return _error(404, "JOB_NOT_FOUND", "发布任务不存在")
+    return _job_detail(job)
+
+
+@router.post("/{article_id}/preview/wechat", response_model=PreviewResponse)
+async def preview_wechat(
+    article_id: UUID,
+    session: SessionDep,
+    service: PreviewServiceDep,
+) -> PreviewResponse | JSONResponse:
+    article = await ArticleQuery(session).get(article_id)
+    if article is None:
+        return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
+    try:
+        html = await service.render_latest(article.notion_page_id)
+    except IntegrationConfigurationError:
+        return _error(409, "NOTION_NOT_CONFIGURED", "Notion 集成尚未正确配置")
+    except PreviewConflictError:
+        return _error(409, "PREVIEW_SOURCE_CHANGED", "Notion 内容在生成预览期间发生变化，请重试")
+    except Exception:
+        return _error(502, "PREVIEW_FAILED", "微信预览生成失败，请检查集成和渲染器")
+    return PreviewResponse(html=html)
+
+
+@router.post("/{article_id}/jobs/{job_id}/retry", response_model=ActionResult)
+async def retry_job(
+    article_id: UUID,
+    job_id: UUID,
+    body: RetryRequest,
+    factory: SessionFactoryDep,
+) -> ActionResult | JSONResponse:
+    try:
+        channels = _parse_channels(body.channels)
+        await ArticleActionService(factory).retry(article_id, job_id, channels)
+    except ActionConflictError as exc:
+        return _error(409 if exc.code != "JOB_NOT_FOUND" else 404, exc.code, exc.message)
+    return ActionResult(job_id=job_id)
+
+
+@router.post("/{article_id}/jobs/{job_id}/cancel", response_model=ActionResult)
+async def cancel_job(
+    article_id: UUID,
+    job_id: UUID,
+    factory: SessionFactoryDep,
+) -> ActionResult | JSONResponse:
+    try:
+        await ArticleActionService(factory).cancel(article_id, job_id)
+    except ActionConflictError as exc:
+        return _error(409 if exc.code != "JOB_NOT_FOUND" else 404, exc.code, exc.message)
+    return ActionResult(job_id=job_id)
+
+
+def _parse_channels(raw: list[str]) -> list[TargetChannel]:
+    if len(set(raw)) != len(raw):
+        raise ActionConflictError("CHANNEL_DUPLICATED", "重试渠道不能重复")
+    try:
+        return [TargetChannel(value) for value in raw]
+    except ValueError as exc:
+        raise ActionConflictError("CHANNEL_UNSUPPORTED", "包含不支持的目标渠道") from exc
+
+
+def _article_summary(article: Article) -> ArticleSummary:
+    return ArticleSummary.model_validate(
+        {
+            "id": article.id,
+            "title": article.title,
+            "notion_status": article.notion_status,
+            "automation_status": article.automation_status,
+            "target_channels": article.target_channels,
+            "planned_at": article.planned_at,
+            "notion_last_edited_at": article.notion_last_edited_at,
+        }
+    )
+
+
+def _article_detail(
+    article: Article,
+    jobs: list[PublicationJob],
+    latest: PublicationJob | None,
+) -> ArticleDetail:
+    summary = _article_summary(article).model_dump()
+    errors = _validation_items(latest, "errors")
+    if article.last_error and not errors:
+        errors = [{"code": "publication_blocked", "message": _safe_error(article.last_error), "field": "job"}]
+    return ArticleDetail(
+        **summary,
+        notion_url=article.notion_url,
+        notion_metadata=article.notion_metadata,
+        cover_metadata=_safe_cover(article.cover_metadata),
+        last_error=_safe_error(article.last_error),
+        content_hash=latest.content_hash if latest else None,
+        validation_errors=errors,
+        validation_warnings=_validation_items(latest, "warnings"),
+        blog=_channel_result(latest, "blog") if latest else None,
+        wechat=_channel_result(latest, "wechat") if latest else None,
+        jobs=[_job_summary(job) for job in jobs],
+    )
+
+
+def _job_summary(job: PublicationJob) -> JobSummary:
+    return JobSummary(
+        id=job.id,
+        overall_status=job.overall_status,
+        target_channels=job.target_channels,
+        scheduled_at=job.scheduled_at,
+        content_hash=job.content_hash,
+        blog_status=job.blog_status,
+        wechat_status=job.wechat_status,
+    )
+
+
+def _job_detail(job: PublicationJob) -> JobDetail:
+    return JobDetail(
+        **_job_summary(job).model_dump(),
+        article_id=job.article_id,
+        snapshot_metadata={
+            "title": job.snapshot_metadata.get("title"),
+            "categories": job.snapshot_metadata.get("categories"),
+        },
+        blog=_channel_result(job, "blog"),
+        wechat=_channel_result(job, "wechat"),
+        wechat_html=job.wechat_html,
+        attempt_count=job.attempt_count,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+    )
+
+
+def _channel_result(job: PublicationJob, name: str) -> ChannelResult:
+    status = job.blog_status if name == "blog" else job.wechat_status
+    error = job.blog_error if name == "blog" else job.wechat_error
+    result = job.blog_result if name == "blog" else job.wechat_result
+    return ChannelResult(
+        status=status,
+        error=_safe_error(error),
+        result={key: value for key, value in result.items() if key in _SAFE_RESULT_KEYS},
+    )
+
+
+def _validation_items(job: PublicationJob | None, key: str) -> list[dict[str, Any]]:
+    if job is None:
+        return []
+    validation = job.snapshot_metadata.get("validation")
+    items = validation.get(key) if isinstance(validation, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def _safe_cover(value: dict[str, object]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if key in {"name", "expiry_time"}}
+
+
+def _safe_error(value: str | None) -> str | None:
+    if value is None:
+        return None
+    without_urls = re.sub(r"https?://\S+", "[已脱敏地址]", value)
+    return re.sub(r"(?i)(bearer|token|secret|password)\s*[:=]?\s*\S+", r"\1=***", without_urls)[:1000]
+
+
+def _error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status, content={"code": code, "message": message})

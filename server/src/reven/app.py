@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from reven.api.routes.articles import router as articles_router
+from reven.api.routes.integrations import router as integrations_router
 from reven.api.routes.sync import router as sync_router
+from reven.api.routes.system import router as system_router
 from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.jobs.runner import build_background_runner
@@ -71,7 +74,10 @@ def create_app(
                 raise cleanup_error
 
     app = FastAPI(title="Reven", lifespan=lifespan)
+    app.include_router(articles_router)
+    app.include_router(integrations_router)
     app.include_router(sync_router)
+    app.include_router(system_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

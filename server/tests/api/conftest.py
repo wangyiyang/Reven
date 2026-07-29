@@ -8,13 +8,20 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from reven.api.routes.integrations import router as integrations_router
+from reven.app import create_app
 from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.integrations.notion.service import register_notion_adapter
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
+
+
+class _FakePreview:
+    async def render_latest(self, notion_page_id: str) -> str:
+        return f"<p>{notion_page_id}</p>"
 
 
 @pytest.fixture(autouse=True)
@@ -54,10 +61,29 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(integrations_router)
-
     asyncio.run(_reset_integrations(database_url))
-
     with TestClient(app, raise_server_exceptions=True) as test_client:
         yield test_client
-
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("TEST_DATABASE_URL is not set")
+    engine = create_async_engine(database_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def reset() -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("TRUNCATE publication_jobs, articles, integrations, system_state RESTART IDENTITY CASCADE")
+            )
+
+    asyncio.run(reset())
+    app = create_app(start_background_tasks=False, session_factory=factory)
+    app.state.wechat_preview_service = _FakePreview()
+    with TestClient(app) as test_client:
+        yield test_client, factory
+    asyncio.run(engine.dispose())

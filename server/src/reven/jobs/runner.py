@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import UUID
 
 import httpx
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import get_settings
@@ -34,6 +35,8 @@ from reven.jobs.service import (
 )
 from reven.publishing.assets import AssetDownloadError, AssetMaterializer
 from reven.publishing.factory import build_configured_orchestrator
+from reven.scheduling import utc_now
+from reven.system.models import SystemState
 
 logger = logging.getLogger(__name__)
 Tick = Callable[[], Awaitable[None]]
@@ -103,6 +106,7 @@ def build_background_runner(
         ConfiguredPreparationService(session_factory),
         executor=build_configured_orchestrator(session_factory, settings),
         lease_seconds=settings.job_lease_seconds,
+        record_heartbeat=True,
     )
     return BackgroundRunner(
         ConfiguredNotionSyncTick(session_factory),
@@ -204,6 +208,7 @@ class PublicationJobTick:
         *,
         lease_seconds: int = 120,
         heartbeat_seconds: float | None = None,
+        record_heartbeat: bool = False,
     ) -> None:
         self._factory = session_factory
         self._preparation = preparation
@@ -212,6 +217,7 @@ class PublicationJobTick:
         self._heartbeat_seconds = (
             heartbeat_interval_seconds(lease_seconds) if heartbeat_seconds is None else heartbeat_seconds
         )
+        self._record_heartbeat = record_heartbeat
 
     async def __call__(self) -> None:
         preparation_claim = await self._claim(preparation=True)
@@ -222,6 +228,25 @@ class PublicationJobTick:
         claim = await self._claim(preparation=False)
         if claim is not None:
             await self._run_execution(claim)
+        if self._record_heartbeat:
+            await self._save_heartbeat()
+
+    async def _save_heartbeat(self) -> None:
+        async with self._factory.begin() as session:
+            now = utc_now()
+            statement = (
+                insert(SystemState)
+                .values(
+                    key="scheduler",
+                    value={"last_heartbeat_at": now.isoformat()},
+                    updated_at=now,
+                )
+                .on_conflict_do_update(
+                    index_elements=[SystemState.key],
+                    set_={"value": {"last_heartbeat_at": now.isoformat()}, "updated_at": now},
+                )
+            )
+            await session.execute(statement)
 
     async def _claim(self, *, preparation: bool) -> JobClaim | None:
         async with self._factory.begin() as session:
