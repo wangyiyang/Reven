@@ -43,9 +43,7 @@ class ArticleActionService:
             article, job = await _locked_pair(session, article_id, job_id)
             now = await _database_now(session)
             active_lease = (
-                job.lease_token is not None
-                and job.lease_expires_at is not None
-                and job.lease_expires_at >= now
+                job.lease_token is not None and job.lease_expires_at is not None and job.lease_expires_at >= now
             )
             if (
                 job.overall_status != JobStatus.WAITING

@@ -196,14 +196,8 @@ def error_summary(validation: ValidationResult) -> str:
 
 def validation_metadata(validation: ValidationResult) -> dict[str, object]:
     return {
-        "errors": [
-            {"code": item.code, "message": item.message, "field": item.field}
-            for item in validation.errors
-        ],
-        "warnings": [
-            {"code": item.code, "message": item.message, "field": item.field}
-            for item in validation.warnings
-        ],
+        "errors": [{"code": item.code, "message": item.message, "field": item.field} for item in validation.errors],
+        "warnings": [{"code": item.code, "message": item.message, "field": item.field} for item in validation.warnings],
     }
 
 
