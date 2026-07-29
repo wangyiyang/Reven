@@ -10,7 +10,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from reven.domain import JobStatus
+from reven.articles.models import Article
+from reven.domain import AutomationStatus, JobStatus
 from reven.jobs.errors import BlockedPublishError, PublishError
 from reven.jobs.models import PublicationJob
 
@@ -210,7 +211,13 @@ class JobRepository:
             )
             .values(**values)
         )
-        return bool(cast(Any, result).rowcount)
+        updated = bool(cast(Any, result).rowcount)
+        if updated and current is not None and _notion_delivery_pending(current):
+            await self._update_article_after_notion_failure(
+                current,
+                status,
+            )
+        return updated
 
     async def begin_execution(self, claim: "JobClaim") -> int | None:
         now = await self._database_now()
@@ -260,7 +267,26 @@ class JobRepository:
         if isinstance(finalization, dict) and finalization.get("notion_pending") is True:
             job.overall_status = JobStatus.WAITING
             job.scheduled_at = now
+            article = await self.session.get(Article, job.article_id)
+            if article is not None:
+                article.automation_status = AutomationStatus.WAITING
+                article.last_error = None
         return revision
+
+    async def _update_article_after_notion_failure(
+        self,
+        job: PublicationJob,
+        status: JobStatus,
+    ) -> None:
+        article = await self.session.get(Article, job.article_id)
+        if article is None:
+            return
+        if status == JobStatus.BLOCKED:
+            article.automation_status = AutomationStatus.BLOCKED
+            article.last_error = "Notion 终态回写阻塞，请检查集成配置后人工重试"
+        elif status == JobStatus.FAILED:
+            article.automation_status = AutomationStatus.FAILED
+            article.last_error = "Notion 终态回写重试已耗尽，请人工重试"
 
     async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:
         now = await self._database_now()
@@ -299,3 +325,10 @@ class JobRepository:
 class JobClaim:
     job_id: UUID
     lease_token: UUID
+
+
+def _notion_delivery_pending(job: PublicationJob | None) -> bool:
+    if job is None:
+        return False
+    finalization = job.snapshot_metadata.get("delivery_finalization")
+    return isinstance(finalization, dict) and finalization.get("notion_pending") is True
