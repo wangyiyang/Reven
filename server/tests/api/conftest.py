@@ -10,10 +10,19 @@ from fastapi.testclient import TestClient
 from reven.api.routes.integrations import router as integrations_router
 from reven.config import get_settings
 from reven.db import create_session_factory
+from reven.integrations.notion.service import register_notion_adapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
+
+
+@pytest.fixture(autouse=True)
+def _restore_notion_adapter() -> Iterator[None]:
+    # 其它用例会临时注册/注销 notion 适配器，这里保证每个 API 用例前后都是真实适配器
+    register_notion_adapter()
+    yield
+    register_notion_adapter()
 
 
 async def _reset_integrations(database_url: str) -> None:

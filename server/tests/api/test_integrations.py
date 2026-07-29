@@ -239,9 +239,13 @@ def test_invalid_public_config_is_rejected(client: TestClient) -> None:
 
 
 def test_connection_test_without_adapter_returns_503(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+    # notion 已接入真实适配器；wechat 尚未接入，用于验证无适配器时的行为
+    client.put(
+        "/api/integrations/wechat",
+        json={"public_config": {"app_id": "wx0000abcd"}, "secret": {"app_secret": "wechat-secret"}},
+    )
 
-    response = client.post("/api/integrations/notion/test")
+    response = client.post("/api/integrations/wechat/test")
 
     assert response.status_code == 503
     assert response.json()["code"] == "CONNECTION_TEST_UNAVAILABLE"
