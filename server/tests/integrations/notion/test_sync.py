@@ -1,9 +1,11 @@
+import asyncio
 from typing import Any
 
 import pytest
 from reven.articles.models import Article
 from reven.articles.repository import ArticleRepository
 from reven.domain import JobStatus
+from reven.integrations.notion.models import NotionSchemaError, NotionTransientError
 from reven.integrations.notion.sync import NotionSyncService
 from reven.jobs.models import PublicationJob
 from reven.system.models import SystemState
@@ -71,6 +73,46 @@ class InvalidPlannedDateNotionPages(FakeNotionPages):
         invalid["properties"]["计划发布日"]["date"] = {"start": "ntn_secret"}
         valid = _raw_page("待发布", suffix="2")
         return {"results": [invalid, valid], "has_more": False, "next_cursor": None}
+
+
+class SinglePageNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "results": [_raw_page("待发布", suffix="1")],
+            "has_more": False,
+            "next_cursor": None,
+        }
+
+
+class FailingSecondPageNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        if start_cursor is not None:
+            raise NotionTransientError("upstream unavailable")
+        return {
+            "results": [_raw_page("待发布", suffix="1")],
+            "has_more": True,
+            "next_cursor": "page-2",
+        }
+
+
+class InvalidResultItemNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        return {"results": ["not-a-page"], "has_more": False, "next_cursor": None}
 
 
 def _raw_page(status: str, *, suffix: str) -> dict[str, Any]:
@@ -292,3 +334,63 @@ async def test_sync_propagates_database_error_without_marking_success(
     assert notion_pages.cursors == [None]
     state = await db_session.get(SystemState, "notion_sync")
     assert state is None or "last_success_at" not in state.value
+
+
+@pytest.mark.anyio
+async def test_concurrent_syncs_create_one_article_and_one_active_job(
+    db_session: AsyncSession,
+) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    first = NotionSyncService(factory, SinglePageNotionPages(), "data-source")
+    second = NotionSyncService(factory, SinglePageNotionPages(), "data-source")
+
+    results = await asyncio.gather(first.sync_once(), second.sync_once())
+
+    assert sum(result.created for result in results) == 1
+    assert sum(result.updated for result in results) == 1
+    assert await _count(db_session, Article) == 1
+    assert (
+        await _count(
+            db_session,
+            PublicationJob,
+            PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING, JobStatus.BLOCKED]),
+        )
+        == 1
+    )
+
+
+@pytest.mark.anyio
+async def test_incomplete_sync_preserves_previous_success_time(
+    db_session: AsyncSession,
+) -> None:
+    old_success = "2026-07-01T00:00:00+00:00"
+    db_session.add(
+        SystemState(
+            key="notion_sync",
+            value={"cursor": "", "last_success_at": old_success},
+        )
+    )
+    await db_session.commit()
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, FailingSecondPageNotionPages(), "data-source")
+
+    with pytest.raises(NotionTransientError):
+        await service.sync_once()
+
+    state = await db_session.get(SystemState, "notion_sync")
+    assert state is not None
+    await db_session.refresh(state)
+    assert state.value == {"cursor": "page-2", "last_success_at": old_success}
+
+
+@pytest.mark.anyio
+async def test_sync_rejects_non_object_result_items(
+    db_session: AsyncSession,
+) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, InvalidResultItemNotionPages(), "data-source")
+
+    with pytest.raises(NotionSchemaError):
+        await service.sync_once()
+
+    assert await db_session.get(SystemState, "notion_sync") is None
