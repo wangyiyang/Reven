@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
+from reven.jobs.errors import TransientPublishError
 from reven.jobs.repository import JobClaim, JobRepository
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -210,3 +211,86 @@ async def test_blocked_preparation_is_not_hot_loop_claimed(db_session) -> None: 
     await db_session.commit()
 
     assert await repository.claim_next_preparation_pending(lease_seconds=120) is None
+
+
+@pytest.mark.anyio
+async def test_terminal_finalization_is_reclaimable_without_changing_terminal_status(
+    db_session,
+) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="f" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    job.overall_status = JobStatus.COMPLETED
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": False,
+            "cleanup_pending": True,
+        }
+    }
+    await db_session.commit()
+
+    claim = await repository.claim_next(lease_seconds=120)
+    await db_session.commit()
+
+    assert claim is not None
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.COMPLETED
+    assert await repository.is_finalization_pending(claim)
+    assert await repository.begin_execution(claim) == 1
+    assert (
+        await repository.mark_retry(
+            claim,
+            delay_seconds=30,
+            error=TransientPublishError("cleanup"),
+        )
+        is False
+    )
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="1" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC),
+    )
+    await db_session.commit()
+    claim = await repository.claim_next(lease_seconds=120)
+    await db_session.commit()
+    assert claim is not None
+
+    assert await repository.bump_notification_revision_for_retry(job.id) is None
+    await db_session.execute(
+        text(
+            "UPDATE publication_jobs SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE id = :job_id"
+        ),
+        {"job_id": job.id},
+    )
+    await db_session.commit()
+
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    async def bump() -> int | None:
+        async with factory.begin() as session:
+            return await JobRepository(session).bump_notification_revision_for_retry(job.id)
+
+    revisions = await asyncio.gather(bump(), bump())
+
+    assert sorted(value for value in revisions if value is not None) == [1, 2]
+    await db_session.refresh(job)
+    assert job.notification_state["_revision"] == 2

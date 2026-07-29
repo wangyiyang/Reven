@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -7,7 +8,7 @@ from reven.articles.models import Article
 from reven.domain import JobStatus, TargetChannel
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.models import PublicationJob
-from reven.jobs.repository import JobClaim, compute_target_channels_hash
+from reven.jobs.repository import JobClaim, JobRepository, compute_target_channels_hash
 from reven.publishing.delivery_store import SqlAlchemyDeliveryStore
 from reven.publishing.orchestrator import Notification, PublicationOrchestrator
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -60,8 +61,9 @@ async def test_store_fences_channel_completion_and_notification(db_session) -> N
         {"article_url": "https://www.wangyiyang.cc/post"},
     )
     assert record.channel_statuses[TargetChannel.BLOG] == "已上线"
-    assert await store.record_notification(claim, "fingerprint")
-    assert await store.has_notification(claim, "fingerprint")
+    assert record.notifications
+    event = record.notifications[0]
+    assert await store.resolve_notification(claim, event.fingerprint, sent=True)
 
     with pytest.raises(TransientPublishError, match="租约"):
         await store.channel_succeeded(
@@ -85,9 +87,9 @@ async def test_completion_updates_article_and_preserves_pending_until_finish(db_
     )
     await store.channel_succeeded(claim, TargetChannel.WECHAT, {"media_id": "draft"})
 
-    pending = await store.begin_completion(claim)
-    assert pending.pending_status == JobStatus.COMPLETED
-    await store.finish_completion(claim)
+    pending = await store.begin_delivery(claim, JobStatus.COMPLETED, "")
+    assert pending.notion_pending
+    await store.finish_delivery(claim)
 
     await db_session.refresh(job)
     article = await db_session.get(Article, job.article_id)
@@ -112,9 +114,11 @@ class _Publisher:
 class _Notion:
     def __init__(self) -> None:
         self.fail = True
+        self.calls = 0
 
     async def write(self, record, status, reason) -> None:  # type: ignore[no-untyped-def]
         del record, status, reason
+        self.calls += 1
         if self.fail:
             raise TransientPublishError("Notion unavailable")
 
@@ -157,3 +161,76 @@ async def test_real_store_notion_retry_only_backfills_and_cleans_after_commit(
         persisted = await session.get(PublicationJob, job.id)
         assert persisted is not None
         assert persisted.overall_status == JobStatus.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_revision_changes_are_fenced_and_monotonic(db_session) -> None:  # type: ignore[no-untyped-def]
+    job, claim = await create_job(db_session)
+    store = SqlAlchemyDeliveryStore(
+        async_sessionmaker(db_session.bind, expire_on_commit=False),
+        Path("/tmp/jobs"),
+    )
+
+    assert await store.bump_notification_revision(claim) == 1
+    assert await store.bump_notification_revision(claim) == 2
+    with pytest.raises(TransientPublishError, match="租约"):
+        await store.bump_notification_revision(JobClaim(job.id, uuid4()))
+
+    await db_session.refresh(job)
+    assert job.notification_state["_revision"] == 2
+
+
+@pytest.mark.anyio
+async def test_concurrent_revision_updates_are_serialized(db_session) -> None:  # type: ignore[no-untyped-def]
+    job, claim = await create_job(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    first = SqlAlchemyDeliveryStore(factory, Path("/tmp/jobs"))
+    second = SqlAlchemyDeliveryStore(factory, Path("/tmp/jobs"))
+
+    revisions = await asyncio.gather(
+        first.bump_notification_revision(claim),
+        second.bump_notification_revision(claim),
+    )
+
+    assert sorted(revisions) == [1, 2]
+    await db_session.refresh(job)
+    assert job.notification_state["_revision"] == 2
+
+
+@pytest.mark.anyio
+async def test_terminal_notification_and_cleanup_resume_without_republishing(
+    db_session,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    job, claim = await create_job(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    store = SqlAlchemyDeliveryStore(factory, tmp_path)
+    await store.channel_succeeded(claim, TargetChannel.BLOG, {"article_url": "https://blog.example/post"})
+    await store.channel_succeeded(claim, TargetChannel.WECHAT, {"media_id": "draft"})
+    await store.begin_delivery(claim, JobStatus.COMPLETED, "")
+    await store.finish_delivery(claim)
+    workspace = tmp_path / "jobs" / str(job.id)
+    workspace.mkdir(parents=True)
+    original_cleanup = __import__("reven.publishing.orchestrator", fromlist=["cleanup_workspace"]).cleanup_workspace
+    monkeypatch.setattr(
+        "reven.publishing.orchestrator.cleanup_workspace",
+        lambda path: (_ for _ in ()).throw(OSError("busy")),
+    )
+    blog, wechat, notion = _Publisher({}), _Publisher({}), _Notion()
+    notion.fail = False
+    orchestrator = PublicationOrchestrator(store, blog, wechat, notion, _Notifier())
+
+    await orchestrator.execute(claim)
+    assert workspace.exists()
+    async with factory.begin() as session:
+        assert await JobRepository(session).release_lease(claim)
+    async with factory.begin() as session:
+        resumed = await JobRepository(session).claim_next(lease_seconds=120)
+    assert resumed is not None
+    monkeypatch.setattr("reven.publishing.orchestrator.cleanup_workspace", original_cleanup)
+
+    await orchestrator.execute(resumed)
+
+    assert (blog.calls, wechat.calls, notion.calls) == (0, 0, 0)
+    assert not workspace.exists()

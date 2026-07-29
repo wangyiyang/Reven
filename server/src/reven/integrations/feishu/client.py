@@ -1,12 +1,13 @@
 """最小化的飞书自定义机器人 Webhook 客户端。"""
 
+import json
 from dataclasses import dataclass
-from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 _WEBHOOK_HOSTS = frozenset({"open.feishu.cn", "open.larksuite.com"})
+_MAX_RESPONSE_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -24,15 +25,27 @@ class FeishuWebhookClient:
         self.http = http
 
     async def send(self, card: NotificationCard) -> None:
-        response = await self.http.post(self.webhook_url, json=_payload(card))
+        async with self.http.stream("POST", self.webhook_url, json=_payload(card)) as response:
+            body = await _bounded_body(response)
         try:
-            decoded: Any = response.json()
-        except ValueError as exc:
+            decoded = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeError("飞书 Webhook 响应格式无效") from exc
         if not isinstance(decoded, dict):
             raise RuntimeError("飞书 Webhook 响应格式无效")
         if not response.is_success or decoded.get("code") != 0:
             raise RuntimeError(f"飞书 Webhook 发送失败（HTTP {response.status_code}）")
+
+
+async def _bounded_body(response: httpx.Response) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes():
+        size += len(chunk)
+        if size > _MAX_RESPONSE_BYTES:
+            raise RuntimeError("飞书 Webhook 响应超过大小限制")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _validate_webhook(url: str) -> None:

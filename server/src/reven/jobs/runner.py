@@ -267,15 +267,16 @@ class PublicationJobTick:
             await self._release(claim)
 
     async def _execute_claim(self, claim: JobClaim) -> None:
-        try:
-            result = await self._preparation.prepare(claim.job_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            raise _PreparationError(exc) from exc
-        if isinstance(result, PrepareResult) and result.blocked:
-            raise _PreparationError(BlockedPublishError("准备校验未通过"))
-        await self._clear_preparation_attempts(claim)
+        if not await self._finalization_pending(claim):
+            try:
+                result = await self._preparation.prepare(claim.job_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                raise _PreparationError(exc) from exc
+            if isinstance(result, PrepareResult) and result.blocked:
+                raise _PreparationError(BlockedPublishError("准备校验未通过"))
+            await self._clear_preparation_attempts(claim)
         attempt = await self._begin_execution(claim)
         if attempt is None or self._executor is None:
             return
@@ -283,6 +284,10 @@ class PublicationJobTick:
             await self._executor.execute(claim)
         except Exception as exc:
             raise _ExecutionError(exc, attempt) from exc
+
+    async def _finalization_pending(self, claim: JobClaim) -> bool:
+        async with self._factory() as session:
+            return await JobRepository(session).is_finalization_pending(claim)
 
     async def _heartbeat(self, claim: JobClaim) -> None:
         while True:

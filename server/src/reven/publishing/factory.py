@@ -98,7 +98,11 @@ def build_configured_orchestrator(
     data_root = Path(settings.job_data_dir)
     secret_box = SecretBox.from_base64(settings.reven_master_key.get_secret_value())
     return PublicationOrchestrator(
-        SqlAlchemyDeliveryStore(session_factory, data_root),
+        SqlAlchemyDeliveryStore(
+            session_factory,
+            data_root,
+            settings.public_base_url,
+        ),
         ConfiguredBlogPublisher(session_factory, secret_box, data_root),
         ConfiguredWeChatPublisher(
             session_factory,

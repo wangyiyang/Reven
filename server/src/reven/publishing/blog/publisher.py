@@ -185,7 +185,15 @@ class BlogPublisher:
                     raise BlockedPublishError("PR 创建结果不确定，请人工核验") from exc
                 pr = selected
             await self._clear_operation(claim, result)
-        await self._save(claim, result, {"pull_request_number": _integer(pr.get("number"), "PR number")})
+        number = _integer(pr.get("number"), "PR number")
+        await self._save(
+            claim,
+            result,
+            {
+                "pull_request_number": number,
+                "pull_request_url": _pull_request_url(pr, self.remote_url, number),
+            },
+        )
         return pr
 
     async def _wait_checks(self, default: str, sha: str) -> None:
@@ -483,6 +491,16 @@ def _merged_pull_sha(pull: dict[str, Any], number: int) -> str | None:
     if not pull.get("merged_at"):
         return None
     return _git_sha(pull.get("merge_commit_sha"), "merge SHA")
+
+
+def _pull_request_url(pr: dict[str, Any], remote_url: str, number: int) -> str:
+    value = pr.get("html_url")
+    if isinstance(value, str) and re.fullmatch(r"https://github\.com/[^/]+/[^/]+/pull/\d+", value):
+        return value
+    match = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+)\.git", remote_url)
+    if match is None:
+        raise BlockedPublishError("GitHub remote URL 无效")
+    return f"https://github.com/{match.group(1)}/{match.group(2)}/pull/{number}"
 
 
 def _result(result: dict[str, object]) -> BlogPublishResult:

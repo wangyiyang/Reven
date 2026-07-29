@@ -268,6 +268,9 @@ async def test_sync_retries_blocked_job_validation_only_once(
     assert job is not None
     job.overall_status = JobStatus.BLOCKED
     job.notification_state = {"fingerprint": "missing-cover"}
+    job.blog_status = "失败"
+    job.blog_error = "missing cover"
+    job.blog_result = {"delivery_failure": {"status": JobStatus.BLOCKED}}
     await db_session.commit()
 
     await sync_service.sync_once()
@@ -275,6 +278,9 @@ async def test_sync_retries_blocked_job_validation_only_once(
 
     assert job.overall_status == JobStatus.WAITING
     assert job.notification_state["fingerprint"] == "missing-cover"
+    assert job.notification_state["_revision"] == 1
+    assert job.blog_status == "待处理"
+    assert "delivery_failure" not in job.blog_result
 
     job.overall_status = JobStatus.BLOCKED
     await db_session.commit()
@@ -297,6 +303,7 @@ async def test_sync_uses_default_channels_when_notion_selection_is_empty(
     job = await db_session.scalar(select(PublicationJob).limit(1))
     assert job is not None
     assert set(job.target_channels) == {"个人博客", "微信公众号"}
+    assert job.snapshot_metadata["target_channels_used_default"] is True
 
 
 @pytest.mark.anyio

@@ -148,6 +148,7 @@ async def _reconcile_job(session: AsyncSession, article: Article) -> None:
             content_hash=None,
             target_channels=channels,
             scheduled_at=article.planned_at or utc_now(),
+            used_default=article.notion_metadata.get("target_channels_used_default") is True,
         )
         article.automation_status = AutomationStatus.WAITING
         return
@@ -175,6 +176,10 @@ def _update_waiting_job(job: PublicationJob, article: Article) -> None:
     channels = _scheduled_channels(article.target_channels)
     job.target_channels = channels
     job.target_channels_hash = compute_target_channels_hash(channels)
+    job.snapshot_metadata = {
+        **job.snapshot_metadata,
+        "target_channels_used_default": article.notion_metadata.get("target_channels_used_default") is True,
+    }
     if article.planned_at is not None:
         job.scheduled_at = article.planned_at
     article.automation_status = AutomationStatus.WAITING
@@ -194,9 +199,31 @@ def _retry_blocked_job(job: PublicationJob, article: Article) -> None:
     job.notification_state = {
         **job.notification_state,
         "_sync_revalidation_edited_at": edited_at,
+        "_revision": _next_revision(job.notification_state),
     }
+    _reset_failed_channels(job)
     job.overall_status = JobStatus.WAITING
     article.automation_status = AutomationStatus.WAITING
+
+
+def _next_revision(state: dict[str, object]) -> int:
+    current = state.get("_revision", 0)
+    return (current if isinstance(current, int) else 0) + 1
+
+
+def _reset_failed_channels(job: PublicationJob) -> None:
+    if job.blog_status == "失败":
+        job.blog_status = "待处理"
+        job.blog_error = None
+        job.blog_result = _without_delivery_failure(job.blog_result)
+    if job.wechat_status == "失败":
+        job.wechat_status = "待处理"
+        job.wechat_error = None
+        job.wechat_result = _without_delivery_failure(job.wechat_result)
+
+
+def _without_delivery_failure(result: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in result.items() if key != "delivery_failure"}
 
 
 def _page_results(response: dict[str, Any]) -> list[dict[str, Any]]:
