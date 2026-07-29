@@ -142,7 +142,9 @@ describe("IntegrationsPage", () => {
     renderPage()
 
     await userEvent.click(await screen.findByRole("button", { name: "测试微信连接" }))
-    await userEvent.click(screen.getByRole("button", { name: "发送飞书测试消息" }))
+    const feishuButton = screen.getByRole("button", { name: "发送飞书测试消息" })
+    await waitFor(() => expect(feishuButton).toBeEnabled())
+    await userEvent.click(feishuButton)
     await waitFor(() => expect(tests).toEqual(["wechat", "feishu"]))
     expect(screen.getByText("测试飞书会主动发送一条消息。")).toBeInTheDocument()
   })
@@ -171,6 +173,34 @@ describe("IntegrationsPage", () => {
     await userEvent.dblClick(await screen.findByRole("button", { name: "发送飞书测试消息" }))
 
     await waitFor(() => expect(calls).toBe(1))
+  })
+
+  it("disables every card action while a cross-card action is running", async () => {
+    const feishu = {
+      provider: "feishu",
+      public_config: { name: "发布通知" },
+      secret_configured: true,
+      secret_hint: "已配置 · ****-123",
+      connection_status: "未测试",
+      last_tested_at: null,
+      last_error: null,
+    }
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredWechat, feishu])),
+      http.post("/api/integrations/wechat/test", async () => {
+        await delay(100)
+        return HttpResponse.json(configuredWechat)
+      }),
+    )
+    renderPage()
+    const wechatButton = await screen.findByRole("button", { name: "测试微信连接" })
+    const feishuButton = screen.getByRole("button", { name: "发送飞书测试消息" })
+
+    await userEvent.click(wechatButton)
+
+    expect(feishuButton).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent("其他操作暂时不可用")
+    await waitFor(() => expect(feishuButton).toBeEnabled())
   })
 
   it("releases the action lock after a failed request", async () => {
@@ -219,6 +249,30 @@ describe("IntegrationsPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: "初始化字段" }))
 
     await waitFor(() => expect(calls).toBe(1))
+  })
+
+  it("moves focus to the stable save action after successful secret deletion", async () => {
+    let secretConfigured = true
+    const currentWechat = () => ({
+      ...configuredWechat,
+      secret_configured: secretConfigured,
+      secret_hint: secretConfigured ? configuredWechat.secret_hint : null,
+    })
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([currentWechat()])),
+      http.delete("/api/integrations/wechat/secret", () => {
+        secretConfigured = false
+        return HttpResponse.json(currentWechat())
+      }),
+    )
+    renderPage()
+
+    await userEvent.click(await screen.findByRole("button", { name: "删除微信密钥" }))
+    await userEvent.click(screen.getByRole("button", { name: "确认删除微信密钥" }))
+
+    const stableTarget = await screen.findByRole("button", { name: "保存微信配置" })
+    await waitFor(() => expect(stableTarget).toHaveFocus())
+    expect(screen.queryByRole("button", { name: "删除微信密钥" })).not.toBeInTheDocument()
   })
 
   it.each([

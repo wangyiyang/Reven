@@ -19,9 +19,13 @@ export function IntegrationsPage() {
         </div>
       )}
       {controller.integrations.isSuccess && (
-        <section aria-label="集成配置">
+        <section aria-busy={controller.isActionLocked} aria-label="集成配置">
+          <p aria-live="polite" className="sr-only" role="status">
+            {controller.isActionLocked ? "正在处理集成操作，其他操作暂时不可用" : "集成操作可用"}
+          </p>
           {PROVIDERS.map((definition) => (
             <IntegrationCard
+              actionsDisabled={controller.isActionLocked}
               busyAction={controller.busyAction}
               definition={definition}
               egressIp={controller.egress.data?.ip}
