@@ -17,6 +17,7 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(current_app: FastAPI) -> AsyncIterator[None]:
+        owns_factory = session_factory is None
         factory = session_factory
         if factory is None:
             try:
@@ -29,7 +30,7 @@ def create_app(
         try:
             yield
         finally:
-            if factory is not None:
+            if owns_factory and factory is not None:
                 engine = factory.kw.get("bind")
                 if isinstance(engine, AsyncEngine):
                     await engine.dispose()

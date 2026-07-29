@@ -126,6 +126,7 @@ class NotionSyncService:
     async def _record_page_error(self, page_id: str, error: str) -> None:
         async with self.session_factory.begin() as session:
             key = f"notion_sync_error:{page_id}"[:128]
+            await _lock_transaction_key(session, f"reven:system_state:{key}")
             state = await session.get(SystemState, key)
             if state is None:
                 state = SystemState(key=key)
