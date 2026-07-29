@@ -22,7 +22,7 @@ def _validate(image: str) -> subprocess.CompletedProcess[str]:
 def test_accepts_immutable_ghcr_digest() -> None:
     valid_images = [
         f"ghcr.io/owner-name/repo_name.v2@sha256:{VALID_DIGEST}",
-        f"ghcr.io/owner/.github@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/repo__name---v2@sha256:{VALID_DIGEST}",
     ]
 
     assert all(_validate(image).returncode == 0 for image in valid_images)
@@ -43,6 +43,13 @@ def test_accepts_immutable_ghcr_digest() -> None:
         f"ghcr.io/owner/repo@@sha256:{VALID_DIGEST}",
         f"ghcr.io/owner/../repo@sha256:{VALID_DIGEST}",
         f"ghcr.io/owner/..@sha256:{VALID_DIGEST}",
+        f"ghcr.io/Owner/repo@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/Repo@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/.github@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/repo-@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/repo..name@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/repo___name@sha256:{VALID_DIGEST}",
+        f"ghcr.io/owner/repo.-name@sha256:{VALID_DIGEST}",
     ],
 )
 def test_rejects_mutable_or_malformed_image_references(image: str) -> None:
