@@ -6,6 +6,7 @@ import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
 from reven.jobs.repository import JobClaim, JobRepository
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
@@ -155,12 +156,41 @@ async def test_stale_claim_cannot_persist_terminal_status(db_session) -> None:  
     await db_session.commit()
     assert stale is not None and current is not None
 
-    assert await repository.set_status_if_leased(stale, JobStatus.COMPLETED) is False
-    assert await repository.set_status_if_leased(current, JobStatus.COMPLETED) is True
+    assert await repository.mark_completed_if_leased(stale) is False
+    assert await repository.mark_completed_if_leased(current) is True
     await db_session.commit()
     await db_session.refresh(job)
 
     assert job.overall_status == JobStatus.COMPLETED
+    assert job.finished_at is not None
+    assert job.lease_token is None
+    assert job.lease_expires_at is None
+
+
+@pytest.mark.anyio
+async def test_renew_lease_uses_database_clock(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="e" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    await db_session.commit()
+    claim = await repository.claim_next(lease_seconds=120)
+    assert claim is not None
+    await db_session.execute(
+        text(
+            "UPDATE publication_jobs SET lease_expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE id = :job_id"
+        ),
+        {"job_id": job.id},
+    )
+    await db_session.commit()
+
+    assert await repository.renew_lease(claim, lease_seconds=120) is False
 
 
 @pytest.mark.anyio

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     public_base_url: str = "https://dev.wangyiyang.cc"
     sync_interval_seconds: int = 60
     scheduler_interval_seconds: int = 5
-    job_lease_seconds: int = 120
+    job_lease_seconds: int = Field(default=120, ge=3)
     job_data_dir: str = "/data/jobs"
     renderer_command: str = "node /app/renderer/dist/cli.mjs"
 
