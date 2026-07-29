@@ -81,6 +81,12 @@ class ConfiguredPreparationService:
 def build_background_runner(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> "BackgroundRunner":
+    """Build the Task 8 runner.
+
+    Task 12 injects the channel executor. Until then ``executor=None`` is an
+    intentional fail-closed gate: sync and pending recovery run, ordinary
+    publication jobs are not claimed.
+    """
     settings = get_settings()
     jobs = PublicationJobTick(
         session_factory,
@@ -100,6 +106,11 @@ class _ExecutionError(Exception):
     def __init__(self, error: Exception, attempt: int) -> None:
         self.error = error
         self.attempt = attempt
+
+
+class _PreparationError(Exception):
+    def __init__(self, error: Exception) -> None:
+        self.error = error
 
 
 async def run_until_heartbeat_stops(
@@ -160,8 +171,12 @@ class BackgroundRunner:
                 await tick()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("后台任务本轮执行失败（%s）", tick.__class__.__name__)
+            except Exception as exc:
+                logger.error(
+                    "后台任务本轮执行失败（tick=%s, error_type=%s）",
+                    tick.__class__.__name__,
+                    type(exc).__name__,
+                )
             await asyncio.sleep(interval)
 
 
@@ -204,18 +219,13 @@ class PublicationJobTick:
         try:
             result = await self._preparation.prepare(claim.job_id)
             if isinstance(result, PrepareResult) and result.blocked:
-                await self._fail(
-                    claim,
-                    BlockedPublishError("准备校验未通过"),
-                    attempt=1,
-                )
+                await self._handle_preparation_failure(claim, BlockedPublishError("准备校验未通过"))
             else:
                 await self._clear_preparation_attempts(claim)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            attempt = await self._record_preparation_attempt(claim)
-            await self._fail(claim, self._publish_error(exc), attempt=attempt or 1)
+            await self._handle_preparation_failure(claim, exc)
         finally:
             await self._release(claim)
 
@@ -227,6 +237,8 @@ class PublicationJobTick:
             )
         except asyncio.CancelledError:
             raise
+        except _PreparationError as exc:
+            await self._handle_preparation_failure(claim, exc.error)
         except _ExecutionError as exc:
             await self._fail(claim, self._publish_error(exc.error), attempt=exc.attempt)
         except Exception as exc:
@@ -235,9 +247,15 @@ class PublicationJobTick:
             await self._release(claim)
 
     async def _execute_claim(self, claim: JobClaim) -> None:
-        result = await self._preparation.prepare(claim.job_id)
+        try:
+            result = await self._preparation.prepare(claim.job_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise _PreparationError(exc) from exc
         if isinstance(result, PrepareResult) and result.blocked:
-            raise BlockedPublishError("准备校验未通过")
+            raise _PreparationError(BlockedPublishError("准备校验未通过"))
+        await self._clear_preparation_attempts(claim)
         attempt = await self._begin_execution(claim)
         if attempt is None or self._executor is None:
             return
@@ -265,6 +283,21 @@ class PublicationJobTick:
     async def _clear_preparation_attempts(self, claim: JobClaim) -> None:
         async with self._factory.begin() as session:
             await JobRepository(session).clear_preparation_attempts(claim)
+
+    async def _handle_preparation_failure(
+        self,
+        claim: JobClaim,
+        error: Exception,
+    ) -> None:
+        classified = self._publish_error(error)
+        attempt = 1
+        if isinstance(classified, TransientPublishError):
+            attempt = await self._record_preparation_attempt(claim) or 1
+            if retry_delay_seconds(classified, attempt) is not None:
+                await self._fail(claim, classified, attempt=attempt)
+                return
+        await self._clear_preparation_attempts(claim)
+        await self._fail(claim, classified, attempt=attempt)
 
     async def _release(self, claim: JobClaim) -> None:
         async with self._factory.begin() as session:

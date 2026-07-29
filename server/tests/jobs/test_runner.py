@@ -7,6 +7,7 @@ from reven.jobs.runner import (
     BackgroundRunner,
     ConfiguredNotionSyncTick,
     PublicationJobTick,
+    build_background_runner,
     run_until_heartbeat_stops,
 )
 from reven.publishing.assets import AssetDownloadError
@@ -54,6 +55,29 @@ async def test_loop_isolates_tick_failures_and_keeps_running() -> None:
     await runner.stop()
 
     assert calls >= 2
+
+
+@pytest.mark.anyio
+async def test_loop_log_does_not_include_exception_secret(caplog) -> None:
+    completed = asyncio.Event()
+    calls = 0
+
+    async def leaking_tick() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("token=super-secret https://cdn.example/a?X-Amz-Signature=signed-secret")
+        completed.set()
+
+    runner = BackgroundRunner(leaking_tick, FakeJobLoop(), sync_interval=0, job_interval=3600)
+    await runner.start()
+    await asyncio.wait_for(completed.wait(), timeout=1)
+    await runner.stop()
+
+    logs = caplog.text
+    assert "super-secret" not in logs
+    assert "signed-secret" not in logs
+    assert "RuntimeError" in logs
 
 
 @pytest.mark.anyio
@@ -121,3 +145,16 @@ async def test_configured_sync_tick_skips_missing_integration(monkeypatch) -> No
     monkeypatch.setattr("reven.jobs.runner._load_notion_config", missing)
 
     await ConfiguredNotionSyncTick(object())()  # type: ignore[arg-type]
+
+
+def test_default_runner_is_fail_closed_until_executor_is_injected(monkeypatch) -> None:
+    class Settings:
+        job_lease_seconds = 120
+        sync_interval_seconds = 60
+        scheduler_interval_seconds = 5
+
+    monkeypatch.setattr("reven.jobs.runner.get_settings", Settings)
+    runner = build_background_runner(object())  # type: ignore[arg-type]
+
+    assert isinstance(runner._job_tick, PublicationJobTick)
+    assert runner._job_tick._executor is None

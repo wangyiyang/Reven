@@ -1,10 +1,11 @@
 import asyncio
-import os
 
 import pytest
 from fastapi.testclient import TestClient
 from reven.app import create_app
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+
+DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
 
 
 class FakeRunner:
@@ -40,7 +41,7 @@ def test_default_background_runner_is_built_started_and_stopped(
     monkeypatch,  # type: ignore[no-untyped-def]
 ) -> None:
     runner = FakeRunner()
-    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    engine = create_async_engine(DUMMY_DATABASE_URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     built_with = None
 
@@ -64,7 +65,7 @@ def test_runner_start_failure_does_not_dispose_injected_engine(monkeypatch) -> N
             raise RuntimeError("start failed")
 
     disposed = False
-    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    engine = create_async_engine(DUMMY_DATABASE_URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
     original_dispose = AsyncEngine.dispose
@@ -88,7 +89,7 @@ def test_runner_stop_failure_propagates_after_disposing_internal_engine(monkeypa
         async def stop(self) -> None:
             raise RuntimeError("stop failed")
 
-    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    engine = create_async_engine(DUMMY_DATABASE_URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     disposed = False
     original_dispose = AsyncEngine.dispose
@@ -108,3 +109,45 @@ def test_runner_stop_failure_propagates_after_disposing_internal_engine(monkeypa
             pass
 
     assert disposed is True
+
+
+def test_runner_build_failure_disposes_internal_engine(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    engine = create_async_engine(DUMMY_DATABASE_URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    disposed = False
+    original_dispose = AsyncEngine.dispose
+
+    async def track_dispose(target: AsyncEngine) -> None:
+        nonlocal disposed
+        if target is engine:
+            disposed = True
+        await original_dispose(target)
+
+    monkeypatch.setattr("reven.app.get_settings", lambda: object())
+    monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
+    monkeypatch.setattr(
+        "reven.app.build_background_runner",
+        lambda candidate: (_ for _ in ()).throw(RuntimeError("build failed")),
+    )
+    monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
+
+    with pytest.raises(RuntimeError, match="build failed"):
+        with TestClient(create_app()):
+            pass
+
+    assert disposed is True
+
+
+def test_runner_build_failure_does_not_dispose_external_engine(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    engine = create_async_engine(DUMMY_DATABASE_URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(
+        "reven.app.build_background_runner",
+        lambda candidate: (_ for _ in ()).throw(RuntimeError("build failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="build failed"):
+        with TestClient(create_app(session_factory=factory)):
+            pass
+
+    asyncio.run(engine.dispose())

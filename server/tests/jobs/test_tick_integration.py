@@ -150,7 +150,8 @@ async def test_transient_preparation_retries_without_execution_attempt(db_sessio
             await db_session.commit()
 
     assert preparation.calls == 3
-    assert job.snapshot_metadata["preparation_attempt_count"] == 3
+    assert "preparation_attempt_count" not in job.snapshot_metadata
+    assert job.snapshot_metadata["asset_finalize_pending"] is True
 
 
 @pytest.mark.anyio
@@ -212,3 +213,79 @@ async def test_pending_preparation_runs_first_and_is_never_executed(db_session) 
         ("prepare", executable.id),
         ("execute", executable.id),
     ]
+
+
+@pytest.mark.anyio
+async def test_regular_prepare_transient_uses_preparation_attempts_not_execution_attempt(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.snapshot_metadata = {"manifest": {"keep": True}}
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    preparation = RaisingPreparation(TransientPublishError("network"))
+    executor = RaisingExecutor(AssertionError("must not execute"))
+    tick = PublicationJobTick(factory, preparation, executor)
+
+    for status in (JobStatus.WAITING, JobStatus.WAITING, JobStatus.FAILED):
+        await tick()
+        await db_session.refresh(job)
+        assert job.overall_status == status
+        assert job.attempt_count == 0
+        assert job.snapshot_metadata["manifest"] == {"keep": True}
+        if status == JobStatus.WAITING:
+            job.scheduled_at = utc_now() - timedelta(seconds=1)
+            await db_session.commit()
+
+    assert preparation.calls == 3
+    assert executor.calls == 0
+    assert "preparation_attempt_count" not in job.snapshot_metadata
+
+
+@pytest.mark.anyio
+async def test_blocked_after_transient_preparation_clears_retry_cycle(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.snapshot_metadata = {
+        "asset_finalize_pending": True,
+        "asset_manifest": [{"name": "cover.png", "sha256": "a" * 64}],
+    }
+    await db_session.commit()
+    outcomes = [
+        TransientPublishError("network"),
+        TransientPublishError("network"),
+        PrepareResult(job.id, blocked=True),
+    ]
+
+    class SequencedPreparation:
+        async def prepare(self, job_id):  # type: ignore[no-untyped-def]
+            del job_id
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    tick = PublicationJobTick(factory, SequencedPreparation(), executor=None)
+    for _ in range(3):
+        await tick()
+        await db_session.refresh(job)
+        if job.overall_status == JobStatus.WAITING:
+            job.scheduled_at = utc_now() - timedelta(seconds=1)
+            await db_session.commit()
+
+    assert job.overall_status == JobStatus.BLOCKED
+    assert "preparation_attempt_count" not in job.snapshot_metadata
+    assert job.snapshot_metadata["asset_finalize_pending"] is True
+    assert job.snapshot_metadata["asset_manifest"][0]["name"] == "cover.png"
+
+    job.overall_status = JobStatus.WAITING
+    job.scheduled_at = utc_now() - timedelta(seconds=1)
+    await db_session.commit()
+    repaired_tick = PublicationJobTick(
+        factory,
+        RaisingPreparation(TransientPublishError("new network failure")),
+        executor=None,
+    )
+    await repaired_tick()
+    await db_session.refresh(job)
+
+    assert job.overall_status == JobStatus.WAITING
+    assert job.snapshot_metadata["preparation_attempt_count"] == 1

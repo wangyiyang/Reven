@@ -37,9 +37,9 @@ def create_app(
         if factory is not None:
             current_app.state.session_factory = factory
         active_runner = runner
-        if start_background_tasks and active_runner is None and factory is not None:
-            active_runner = cast(RunnerProtocol, build_background_runner(factory))
         try:
+            if start_background_tasks and active_runner is None and factory is not None:
+                active_runner = cast(RunnerProtocol, build_background_runner(factory))
             if start_background_tasks and active_runner is not None:
                 await active_runner.start()
             yield
