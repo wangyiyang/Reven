@@ -11,7 +11,11 @@ from reven.domain import JobStatus
 from reven.integrations.models import Integration
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import compute_target_channels_hash
-from reven.jobs.service import NotionStatusWriteError, PublicationJobService
+from reven.jobs.service import (
+    NotionStatusWriteError,
+    PreparationConflictError,
+    PublicationJobService,
+)
 from reven.publishing.assets import AssetDownloadError, MaterializedAsset, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -318,6 +322,40 @@ async def test_prepare_reuses_existing_frozen_job(db_session) -> None:  # type: 
     assert result.reused is True
     await db_session.refresh(current)
     assert current.overall_status == JobStatus.CANCELLED
+
+
+@pytest.mark.anyio
+async def test_prepare_does_not_hold_job_lock_during_materialization(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    class CancellingMaterializer(FakeMaterializer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.discarded = False
+
+        async def materialize(self, job_id: Any, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
+            async with factory.begin() as session:
+                current = await session.get(PublicationJob, job_id)
+                assert current is not None
+                current.overall_status = JobStatus.CANCELLED
+            return await super().materialize(job_id, image_urls, cover_url)
+
+        async def discard(self, assets: MaterializedAssets) -> None:
+            del assets
+            self.discarded = True
+
+    materializer = CancellingMaterializer()
+    with pytest.raises(PreparationConflictError):
+        await asyncio.wait_for(
+            PublicationJobService(factory, FakeNotion(_page()), materializer).prepare(job.id),
+            timeout=2,
+        )
+
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.CANCELLED
+    assert job.content_hash is None
+    assert materializer.discarded is True
 
 
 @pytest.mark.anyio

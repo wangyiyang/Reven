@@ -285,16 +285,13 @@ def _stable_reference_href(href: str) -> str:
 
 def _is_signature_query(key: str, hostname: str | None) -> bool:
     normalized = key.casefold()
-    if normalized.startswith(("x-amz-", "x-goog-")):
-        return True
-    signed_host = hostname is not None and hostname.casefold().endswith(
-        ("notion.so", "amazonaws.com", "cloudfront.net")
+    signed_host = hostname is not None and any(
+        hostname.casefold() == suffix or hostname.casefold().endswith(f".{suffix}")
+        for suffix in ("notion.so", "amazonaws.com", "cloudfront.net", "googleapis.com")
     )
-    return signed_host and normalized in {
-        "signature",
-        "policy",
-        "key-pair-id",
-    }
+    return signed_host and (
+        normalized.startswith(("x-amz-", "x-goog-")) or normalized in {"signature", "policy", "key-pair-id"}
+    )
 
 
 def _reference_image(token: Token, ordinal: int) -> str:
