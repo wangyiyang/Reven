@@ -67,7 +67,7 @@ class JobRepository:
                     PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
                     and_(
                         PublicationJob.overall_status.in_([JobStatus.BLOCKED, JobStatus.FAILED, JobStatus.COMPLETED]),
-                        PublicationJob.snapshot_metadata.has_key("delivery_finalization"),  # noqa: W601
+                        PublicationJob.snapshot_metadata["delivery_finalization"]["notion_pending"].astext == "false",
                     ),
                 ),
                 func.coalesce(PublicationJob.snapshot_metadata["notion_write_pending"].astext, "false") != "true",
@@ -256,6 +256,10 @@ class JobRepository:
         current = job.notification_state.get("_revision", 0)
         revision = (current if isinstance(current, int) else 0) + 1
         job.notification_state = {**job.notification_state, "_revision": revision}
+        finalization = job.snapshot_metadata.get("delivery_finalization")
+        if isinstance(finalization, dict) and finalization.get("notion_pending") is True:
+            job.overall_status = JobStatus.WAITING
+            job.scheduled_at = now
         return revision
 
     async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:

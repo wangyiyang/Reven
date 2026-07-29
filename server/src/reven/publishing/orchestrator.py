@@ -42,6 +42,7 @@ class DeliveryRecord:
     notion_pending: bool
     cleanup_pending: bool
     notifications: tuple[PendingNotification, ...]
+    workspace_anchor: Path
     workspace: Path
 
 
@@ -163,7 +164,7 @@ class PublicationOrchestrator:
         if not record.cleanup_pending:
             return
         try:
-            cleanup_workspace(record.workspace)
+            cleanup_workspace(record.workspace, record.workspace_anchor)
         except OSError as exc:
             logger.warning("发布工作目录清理失败（error_type=%s）", type(exc).__name__)
             return
@@ -188,14 +189,40 @@ def error_fingerprint(error: Exception) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def cleanup_workspace(workspace: Path) -> None:
-    UUID(workspace.name)
-    if workspace.parent.name != "jobs":
+def cleanup_workspace(workspace: Path, anchor: Path) -> None:
+    _validate_cleanup_path(workspace, anchor)
+    if not workspace.exists():
+        return
+    _validate_cleanup_path(workspace, anchor)
+    shutil.rmtree(workspace)
+
+
+def _validate_cleanup_path(workspace: Path, anchor: Path) -> None:
+    try:
+        UUID(workspace.name)
+    except ValueError as exc:
+        raise OSError("工作目录名称不是 Job UUID") from exc
+    lexical_anchor = anchor.absolute()
+    lexical_workspace = workspace.absolute()
+    if lexical_workspace.parent != lexical_anchor:
         raise OSError("工作目录不在受控 jobs 目录下")
-    if workspace.is_symlink():
-        workspace.unlink()
-    elif workspace.exists():
-        shutil.rmtree(workspace)
+    _reject_symlink_components(lexical_anchor)
+    if lexical_workspace.is_symlink():
+        raise OSError("工作目录不能是符号链接")
+    try:
+        relative = lexical_workspace.resolve(strict=False).relative_to(lexical_anchor.resolve(strict=False))
+    except ValueError as exc:
+        raise OSError("工作目录规范路径越界") from exc
+    if relative.parts != (workspace.name,):
+        raise OSError("工作目录规范路径无效")
+
+
+def _reject_symlink_components(path: Path) -> None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise OSError("工作目录锚点包含符号链接")
 
 
 def _is_finalized(record: DeliveryRecord) -> bool:

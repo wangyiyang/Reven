@@ -176,6 +176,7 @@ class SqlAlchemyDeliveryStore:
             state.get("notion_pending") is True,
             state.get("cleanup_pending") is True,
             tuple(_notification(item) for item in _events(job)),
+            self.workspace_root / "jobs",
             self.workspace_root / "jobs" / str(job.id),
         )
 
