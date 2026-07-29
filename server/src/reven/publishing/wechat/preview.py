@@ -1,7 +1,7 @@
 """Side-effect-free rendering of the latest Notion article."""
 
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,11 +25,14 @@ class PreviewValidationError(RuntimeError):
 
 MAX_PREVIEW_MARKDOWN_BYTES = 1024 * 1024
 MAX_PREVIEW_IMAGES = 100
-_MEDIA_HOST_SUFFIXES = (
-    "notion.so",
-    "notion-static.com",
-    "amazonaws.com",
-    "cloudfront.net",
+_MEDIA_HOSTS = frozenset(
+    {
+        "file.notion.so",
+        "files.notion.so",
+        "secure.notion-static.com",
+        "prod-files-secure.s3.amazonaws.com",
+        "prod-files-secure.s3.us-west-2.amazonaws.com",
+    }
 )
 
 
@@ -92,6 +95,14 @@ def _validate_media_url(url: str) -> None:
         or parsed.password is not None
         or port not in (None, 443)
         or parsed.fragment
-        or not any(host == suffix or host.endswith(f".{suffix}") for suffix in _MEDIA_HOST_SUFFIXES)
+        or host not in _MEDIA_HOSTS
+        or not _safe_media_path(parsed.path)
     ):
         raise PreviewValidationError("Notion 正文包含不安全的图片地址")
+
+
+def _safe_media_path(path: str) -> bool:
+    if not path.startswith("/") or path in {"", "/"} or path.startswith("//"):
+        return False
+    decoded = unquote(path)
+    return "\\" not in decoded and all(segment not in {".", ".."} for segment in decoded.split("/"))

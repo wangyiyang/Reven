@@ -143,9 +143,7 @@ async def test_invalid_json_success_body_raises_transient_error() -> None:
 async def test_oversized_decompressed_response_is_rejected() -> None:
     oversized = b'{"markdown":"' + b"a" * MAX_NOTION_RESPONSE_BYTES + b'"}'
     with respx.mock(base_url=BASE_URL) as router:
-        router.get(f"/v1/pages/{PAGE_ID}/markdown").mock(
-            return_value=httpx.Response(200, content=oversized)
-        )
+        router.get(f"/v1/pages/{PAGE_ID}/markdown").mock(return_value=httpx.Response(200, content=oversized))
         async with httpx.AsyncClient(base_url=BASE_URL) as http:
             with pytest.raises(NotionTransientError, match="大小限制"):
                 await NotionClient(token=TOKEN, http=http).retrieve_page_markdown(PAGE_ID)

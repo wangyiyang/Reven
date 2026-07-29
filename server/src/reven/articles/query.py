@@ -37,9 +37,7 @@ class ArticleQuery:
     def _filters(self, *, status: str | None, channel: str | None, query: str | None) -> Select[tuple[Article]]:
         statement = select(Article)
         if status:
-            statement = statement.where(
-                (Article.notion_status == status) | (Article.automation_status == status)
-            )
+            statement = statement.where((Article.notion_status == status) | (Article.automation_status == status))
         if channel:
             statement = statement.where(Article.target_channels.contains([channel]))
         if query:

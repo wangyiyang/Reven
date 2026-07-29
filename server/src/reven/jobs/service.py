@@ -243,18 +243,10 @@ class PublicationJobService:
             if pair is None:
                 raise PreparationConflictError("发布任务在准备期间被删除")
             article, job = pair
-            article_changed = (
-                article.updated_at != work.preflight.article_updated_at
-                and (
-                    work.mapped is None
-                    or article.notion_last_edited_at != work.mapped.last_edited_at
-                )
+            article_changed = article.updated_at != work.preflight.article_updated_at and (
+                work.mapped is None or article.notion_last_edited_at != work.mapped.last_edited_at
             )
-            if (
-                job.content_hash is not None
-                or job.overall_status == JobStatus.CANCELLED
-                or article_changed
-            ):
+            if job.content_hash is not None or job.overall_status == JobStatus.CANCELLED or article_changed:
                 raise PreparationConflictError("发布任务或稿件在准备期间发生变化，请重试")
             if work.mapped is None:
                 return _persist_blocked(job, article, work.validation)
