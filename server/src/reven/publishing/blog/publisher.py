@@ -127,13 +127,13 @@ class BlogPublisher:
         build_path = await self.workspace.clone_at(attempt / "build", self.remote_url, self.token)
         await self.workspace.prepare(build_path, branch)
         converted = self.converter.write(build_path, BlogArticle(context.page_id, context.snapshot, context.assets))
-        self.workspace.stage_artifacts(build_path, converted.manifest, attempt)
+        trusted = self.workspace.capture_artifacts(build_path, converted.manifest)
         await self.workspace.build(build_path)
-        self.workspace.verify_artifacts(build_path, converted.manifest, attempt)
+        self.workspace.verify_artifacts(build_path, trusted)
         shutil.rmtree(build_path)
         path = await self.workspace.clone_at(attempt / "push", self.remote_url, self.token)
         await self.workspace.switch(path, branch)
-        self.workspace.restore_artifacts(path, converted.manifest, attempt)
+        self.workspace.restore_artifacts(path, trusted)
         sha = await self.workspace.commit(path, converted.manifest, context.title)
         patch: dict[str, object] = {
             "commit_sha": sha,

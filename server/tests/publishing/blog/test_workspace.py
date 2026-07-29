@@ -82,7 +82,7 @@ async def test_push_uses_official_url_and_disables_hooks_and_helpers(tmp_path: P
     assert "credential.helper=" in argv
 
 
-def test_build_mutation_is_rejected_against_prebuild_trusted_artifact(tmp_path: Path) -> None:
+def test_build_cannot_forge_in_memory_trusted_artifacts(tmp_path: Path) -> None:
     workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
     attempt = workspace.create_attempt("job-id")
     repo = attempt / "build"
@@ -90,7 +90,14 @@ def test_build_mutation_is_rejected_against_prebuild_trusted_artifact(tmp_path: 
     post.parent.mkdir(parents=True)
     post.write_text("trusted")
     manifest = (Path("_posts/post.md"),)
-    workspace.stage_artifacts(repo, manifest, attempt)
+    trusted = workspace.capture_artifacts(repo, manifest)
     post.write_text("malicious build mutation")
+    forged = attempt / "artifact/_posts/post.md"
+    forged.parent.mkdir(parents=True)
+    forged.write_text("malicious build mutation")
+    forged.with_suffix(".md.sha256").write_text("6f1b0ec36ae1e0a366c75ef3379fcfae7fdf38290e8d29f03cddbc4141984b03")
     with pytest.raises(ValueError, match="构建篡改"):
-        workspace.verify_artifacts(repo, manifest, attempt)
+        workspace.verify_artifacts(repo, trusted)
+    push_repo = attempt / "push"
+    workspace.restore_artifacts(push_repo, trusted)
+    assert (push_repo / "_posts/post.md").read_text() == "trusted"
