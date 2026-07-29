@@ -289,7 +289,12 @@ class GitHubClient:
                 raise GitHubError("GitHub 分页链接循环或超过页数上限")
             seen.add(page)
             request_params = {**params, "page": str(page)}
-            payload, next_page = await self._json_with_next(path, params=request_params, current_page=page)
+            payload, next_page = await self._json_with_next(
+                path,
+                params=request_params,
+                current_page=page,
+                original_params=params,
+            )
             page_items = payload.get(container, []) if container and isinstance(payload, dict) else payload
             if not isinstance(page_items, list) or any(not isinstance(item, dict) for item in page_items):
                 raise GitHubError("GitHub 分页响应格式无效")
@@ -305,11 +310,12 @@ class GitHubClient:
         *,
         params: dict[str, str],
         current_page: int,
+        original_params: dict[str, str],
     ) -> tuple[Any, int | None]:
         response, body = await self._request("GET", path, params=params)
         _raise_for_status(response, "GET")
         payload = _decode_json(body)
-        return payload, _next_page(response.headers.get("link"), path, current_page)
+        return payload, _next_page(response.headers.get("link"), current_page, path, original_params)
 
     async def _json(self, method: str, path: str, *, allow_not_found: bool = False, **kwargs: Any) -> Any:
         response, body = await self._request(method, path, **kwargs)
@@ -367,20 +373,34 @@ def _decode_json(body: bytes) -> Any:
     return json.loads(body)
 
 
-def _next_page(header: str | None, endpoint_path: str, current_page: int) -> int | None:
-    if not header:
+def _next_page(
+    link_header: str | None,
+    current_page: int,
+    original_path: str,
+    original_params: dict[str, str],
+) -> int | None:
+    if not link_header:
         return None
-    match = re.search(r'<([^>]+)>;\s*rel="next"', header)
+    match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
     if match is None:
         return None
     url = match.group(1)
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != "api.github.com" or parsed.path != endpoint_path:
+    if parsed.scheme != "https" or parsed.netloc != "api.github.com" or parsed.path != original_path:
         raise GitHubError("GitHub 分页链接越界")
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if set(query) - {"page", "per_page"} or not query.get("page", "").isdigit():
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    keys = [key for key, _value in pairs]
+    if len(keys) != len(set(keys)):
+        raise GitHubError("GitHub 分页参数重复")
+    query = dict(pairs)
+    if set(query) - ({"page"} | set(original_params)):
         raise GitHubError("GitHub 分页参数无效")
-    page = int(query["page"])
+    if any(key != "page" and value != original_params[key] for key, value in query.items()):
+        raise GitHubError("GitHub 分页筛选条件改变")
+    raw_page = query.get("page", "")
+    if not raw_page.isdigit() or int(raw_page) <= 0:
+        raise GitHubError("GitHub 分页页码无效")
+    page = int(raw_page)
     if page <= current_page:
         raise GitHubError("GitHub 分页页码重复或倒退")
     return page
