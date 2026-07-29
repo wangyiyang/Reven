@@ -6,8 +6,8 @@
     "node": ">=22.22.2"
   },
   "scripts": {
-    "build": "pnpm --filter @reven/renderer build",
-    "test": "pnpm --filter @reven/renderer test"
+    "build": "pnpm --filter @reven/renderer build && pnpm --filter @reven/web build",
+    "test": "pnpm --filter @reven/renderer test && pnpm --filter @reven/web test --run"
   },
   "pnpm": {
     "patchedDependencies": {
