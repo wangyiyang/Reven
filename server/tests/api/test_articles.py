@@ -30,6 +30,8 @@ def test_list_articles_supports_filters_sorting_and_pagination(workbench) -> Non
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["title"] == "测试稿件"
+    assert response.json()["items"][0]["cover_valid"] is True
+    assert response.json()["items"][0]["last_synced_at"] is not None
 
 
 def test_detail_exposes_only_safe_results_and_wechat_html_only_on_job(workbench) -> None:  # type: ignore[no-untyped-def]
@@ -50,6 +52,17 @@ def test_detail_exposes_only_safe_results_and_wechat_html_only_on_job(workbench)
     assert "operation" not in article_response.json()["blog"]["result"]
     assert job_response.json()["wechat_html"] == "<p>wechat</p>"
     assert "source_markdown" not in job_response.json()
+
+
+def test_list_exposes_latest_channel_statuses(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    article, _job = asyncio.run(_seed_pair(factory, status="处理中", blog_status="构建中"))
+
+    payload = client.get("/api/articles").json()
+    item = next(value for value in payload["items"] if value["id"] == str(article.id))
+
+    assert item["blog_status"] == "构建中"
+    assert item["wechat_status"] == "草稿已生成"
 
 
 def test_preview_uses_injected_latest_source_service_without_state_write(workbench) -> None:  # type: ignore[no-untyped-def]

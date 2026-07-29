@@ -50,8 +50,9 @@ async def list_articles(
         channel=channel.value if channel else None,
         query=query,
     )
+    latest_jobs = await ArticleQuery(session).latest_jobs([item.id for item in items])
     return ArticleList(
-        items=[_article_summary(item) for item in items],
+        items=[_article_summary(item, latest_jobs.get(item.id)) for item in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -138,16 +139,21 @@ def _parse_channels(raw: list[str]) -> list[TargetChannel]:
         raise ActionConflictError("CHANNEL_UNSUPPORTED", "包含不支持的目标渠道") from exc
 
 
-def _article_summary(article: Article) -> ArticleSummary:
+def _article_summary(article: Article, latest: PublicationJob | None = None) -> ArticleSummary:
     return ArticleSummary.model_validate(
         {
             "id": article.id,
             "title": article.title,
+            "notion_url": article.notion_url,
             "notion_status": article.notion_status,
             "automation_status": article.automation_status,
             "target_channels": article.target_channels,
             "planned_at": article.planned_at,
             "notion_last_edited_at": article.notion_last_edited_at,
+            "last_synced_at": article.last_synced_at,
+            "cover_valid": bool(article.cover_metadata.get("name")),
+            "blog_status": latest.blog_status if latest else None,
+            "wechat_status": latest.wechat_status if latest else None,
         }
     )
 
@@ -158,13 +164,12 @@ def _article_detail(
     jobs_total: int,
     latest: PublicationJob | None,
 ) -> ArticleDetail:
-    summary = _article_summary(article).model_dump()
+    summary = _article_summary(article, latest).model_dump()
     errors = _validation_items(latest, "errors")
     if article.last_error and not errors:
         errors = [{"code": "publication_blocked", "message": _safe_error(article.last_error), "field": "job"}]
     return ArticleDetail(
         **summary,
-        notion_url=article.notion_url,
         notion_metadata=article.notion_metadata,
         cover_metadata=_safe_cover(article.cover_metadata),
         last_error=_safe_error(article.last_error),
