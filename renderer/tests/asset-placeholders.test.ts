@@ -38,3 +38,25 @@ test("does not derive tokens when markdown has no assets", () => {
   expect(result).toEqual({ markdown: "正文", assets: new Map() });
   expect(deriveNonce).not.toHaveBeenCalled();
 });
+
+test("handles a near-limit document with five thousand distinct assets", () => {
+  const images = Array.from(
+    { length: 5000 },
+    (_value, index) => `![图](reven-asset://image/${index + 1})`,
+  ).join("\n");
+  const markdown = `${"正文".repeat(400000)}\n${images}`;
+
+  const result = protectAssetSources(markdown);
+
+  expect(result.assets.size).toBe(5000);
+  expect(result.markdown).not.toContain("reven-asset://");
+});
+
+test("rejects more than five thousand distinct assets", () => {
+  const markdown = Array.from(
+    { length: 5001 },
+    (_value, index) => `![图](reven-asset://image/${index + 1})`,
+  ).join("\n");
+
+  expect(() => protectAssetSources(markdown)).toThrow("asset_placeholder_limit");
+});
