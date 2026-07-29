@@ -125,6 +125,8 @@ async def test_old_lease_token_cannot_renew_or_release_new_lease(db_session) -> 
     await db_session.commit()
     first = await repository.claim_next(lease_seconds=-1)
     await db_session.commit()
+    assert first is not None
+    assert await repository.renew_lease(first, lease_seconds=120) is False
     second = await repository.claim_next(lease_seconds=120)
     await db_session.commit()
     assert first is not None and second is not None
@@ -132,6 +134,33 @@ async def test_old_lease_token_cannot_renew_or_release_new_lease(db_session) -> 
     assert await repository.renew_lease(first, lease_seconds=120) is False
     assert await repository.release_lease(first) is False
     assert await repository.renew_lease(second, lease_seconds=120) is True
+
+
+@pytest.mark.anyio
+async def test_stale_claim_cannot_persist_terminal_status(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="d" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    await db_session.commit()
+    stale = await repository.claim_next(lease_seconds=-1)
+    await db_session.commit()
+    current = await repository.claim_next(lease_seconds=120)
+    await db_session.commit()
+    assert stale is not None and current is not None
+
+    assert await repository.set_status_if_leased(stale, JobStatus.COMPLETED) is False
+    assert await repository.set_status_if_leased(current, JobStatus.COMPLETED) is True
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    assert job.overall_status == JobStatus.COMPLETED
 
 
 @pytest.mark.anyio

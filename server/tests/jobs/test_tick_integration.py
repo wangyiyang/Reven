@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from reven.articles.models import Article
@@ -22,8 +23,8 @@ class RaisingExecutor:
         self.error = error
         self.calls = 0
 
-    async def execute(self, job_id):  # type: ignore[no-untyped-def]
-        del job_id
+    async def execute(self, claim):  # type: ignore[no-untyped-def]
+        del claim
         self.calls += 1
         raise self.error
 
@@ -132,6 +133,80 @@ async def test_cancelled_preparation_releases_lease_immediately(db_session) -> N
 
 
 @pytest.mark.anyio
+async def test_preparation_heartbeat_prevents_second_claim_after_original_expiry(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.snapshot_metadata = {"notion_write_pending": True}
+    await db_session.commit()
+    started = asyncio.Event()
+
+    class BlockingPreparation:
+        async def prepare(self, job_id):  # type: ignore[no-untyped-def]
+            del job_id
+            started.set()
+            await asyncio.Future()
+
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    tick = PublicationJobTick(
+        factory,
+        BlockingPreparation(),
+        executor=None,
+        lease_seconds=1,
+        heartbeat_seconds=0.05,
+    )
+    task = asyncio.create_task(tick())
+    await started.wait()
+    await asyncio.sleep(1.1)
+    async with factory.begin() as session:
+        second = await JobRepository(session).claim_next_preparation_pending(lease_seconds=1)
+
+    assert second is None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.anyio
+async def test_lost_preparation_lease_cancels_worker_without_state_update(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.snapshot_metadata = {"notion_write_pending": True}
+    original_schedule = job.scheduled_at
+    await db_session.commit()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class BlockingPreparation:
+        async def prepare(self, job_id):  # type: ignore[no-untyped-def]
+            del job_id
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    tick = PublicationJobTick(
+        factory,
+        BlockingPreparation(),
+        executor=None,
+        heartbeat_seconds=0,
+    )
+    task = asyncio.create_task(tick())
+    await started.wait()
+    async with factory.begin() as session:
+        current = await session.get(type(job), job.id)
+        assert current is not None
+        current.lease_token = uuid4()
+
+    await task
+    await db_session.refresh(job)
+
+    assert cancelled.is_set()
+    assert job.overall_status == JobStatus.WAITING
+    assert job.scheduled_at == original_schedule
+    assert "preparation_attempt_count" not in job.snapshot_metadata
+
+
+@pytest.mark.anyio
 async def test_transient_preparation_retries_without_execution_attempt(db_session) -> None:  # type: ignore[no-untyped-def]
     job = await _job(db_session)
     job.snapshot_metadata = {"asset_finalize_pending": True}
@@ -202,8 +277,8 @@ async def test_pending_preparation_runs_first_and_is_never_executed(db_session) 
             calls.append(("prepare", job_id))
 
     class RecordingExecutor:
-        async def execute(self, job_id):  # type: ignore[no-untyped-def]
-            calls.append(("execute", job_id))
+        async def execute(self, claim):  # type: ignore[no-untyped-def]
+            calls.append(("execute", claim.job_id))
 
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     await PublicationJobTick(factory, RecordingPreparation(), RecordingExecutor())()

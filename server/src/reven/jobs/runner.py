@@ -8,12 +8,14 @@ from typing import Protocol
 from uuid import UUID
 
 import httpx
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.api.routes.sync import _load_notion_config
 from reven.config import get_settings
 from reven.integrations.notion.client import NotionClient
+from reven.integrations.notion.configuration import (
+    IntegrationConfigurationError,
+    load_notion_config,
+)
 from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.integrations.notion.sync import NotionSyncService
 from reven.jobs.errors import (
@@ -41,7 +43,9 @@ class PreparationService(Protocol):
 
 
 class JobExecutor(Protocol):
-    async def execute(self, job_id: UUID) -> None: ...
+    """Task 12 must fence every result write with the supplied claim."""
+
+    async def execute(self, claim: JobClaim) -> None: ...
 
 
 class ConfiguredNotionSyncTick:
@@ -50,9 +54,9 @@ class ConfiguredNotionSyncTick:
 
     async def __call__(self) -> None:
         try:
-            token, data_source_id = await _load_notion_config(self._factory)
-        except HTTPException as exc:
-            logger.warning("跳过 Notion 同步：集成尚未可用（status=%s）", exc.status_code)
+            token, data_source_id = await load_notion_config(self._factory)
+        except IntegrationConfigurationError as exc:
+            logger.warning("跳过 Notion 同步：集成尚未可用（error_type=%s）", exc.code)
             return
         async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
             await NotionSyncService(
@@ -67,7 +71,7 @@ class ConfiguredPreparationService:
         self._factory = session_factory
 
     async def prepare(self, job_id: UUID) -> PrepareResult:
-        token, _ = await _load_notion_config(self._factory)
+        token, _ = await load_notion_config(self._factory)
         settings = get_settings()
         async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
             service = PublicationJobService(
@@ -220,17 +224,22 @@ class PublicationJobTick:
 
     async def _run_preparation(self, claim: JobClaim) -> None:
         try:
-            result = await self._preparation.prepare(claim.job_id)
-            if isinstance(result, PrepareResult) and result.blocked:
-                await self._handle_preparation_failure(claim, BlockedPublishError("准备校验未通过"))
-            else:
-                await self._clear_preparation_attempts(claim)
+            await run_until_heartbeat_stops(
+                self._prepare_pending(claim),
+                self._heartbeat(claim),
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             await self._handle_preparation_failure(claim, exc)
         finally:
             await self._release(claim)
+
+    async def _prepare_pending(self, claim: JobClaim) -> None:
+        result = await self._preparation.prepare(claim.job_id)
+        if isinstance(result, PrepareResult) and result.blocked:
+            raise BlockedPublishError("准备校验未通过")
+        await self._clear_preparation_attempts(claim)
 
     async def _run_execution(self, claim: JobClaim) -> None:
         try:
@@ -263,7 +272,7 @@ class PublicationJobTick:
         if attempt is None or self._executor is None:
             return
         try:
-            await self._executor.execute(claim.job_id)
+            await self._executor.execute(claim)
         except Exception as exc:
             raise _ExecutionError(exc, attempt) from exc
 
@@ -329,8 +338,8 @@ class PublicationJobTick:
             }:
                 return TransientPublishError(error.code)
             return BlockedPublishError(error.code)
-        if isinstance(error, HTTPException):
-            return BlockedPublishError(f"integration_status_{error.status_code}")
+        if isinstance(error, IntegrationConfigurationError):
+            return BlockedPublishError(error.code)
         if isinstance(
             error,
             (

@@ -109,10 +109,37 @@ class JobRepository:
         return JobClaim(job.id, job.lease_token)
 
     async def renew_lease(self, claim: "JobClaim", *, lease_seconds: int) -> bool:
+        now = datetime.now(tz=UTC)
         result = await self.session.execute(
             update(PublicationJob)
-            .where(PublicationJob.id == claim.job_id, PublicationJob.lease_token == claim.lease_token)
-            .values(lease_expires_at=datetime.now(tz=UTC) + timedelta(seconds=lease_seconds))
+            .where(
+                PublicationJob.id == claim.job_id,
+                PublicationJob.lease_token == claim.lease_token,
+                PublicationJob.lease_expires_at >= now,
+            )
+            .values(lease_expires_at=now + timedelta(seconds=lease_seconds))
+        )
+        return bool(cast(Any, result).rowcount)
+
+    async def assert_lease(self, claim: "JobClaim") -> bool:
+        now = datetime.now(tz=UTC)
+        statement = select(PublicationJob.id).where(
+            PublicationJob.id == claim.job_id,
+            PublicationJob.lease_token == claim.lease_token,
+            PublicationJob.lease_expires_at >= now,
+        )
+        return await self.session.scalar(statement) is not None
+
+    async def set_status_if_leased(self, claim: "JobClaim", status: JobStatus) -> bool:
+        now = datetime.now(tz=UTC)
+        result = await self.session.execute(
+            update(PublicationJob)
+            .where(
+                PublicationJob.id == claim.job_id,
+                PublicationJob.lease_token == claim.lease_token,
+                PublicationJob.lease_expires_at >= now,
+            )
+            .values(overall_status=status)
         )
         return bool(cast(Any, result).rowcount)
 
@@ -144,7 +171,11 @@ class JobRepository:
             values["scheduled_at"] = datetime.now(tz=UTC) + timedelta(seconds=delay_seconds)
         result = await self.session.execute(
             update(PublicationJob)
-            .where(PublicationJob.id == claim.job_id, PublicationJob.lease_token == claim.lease_token)
+            .where(
+                PublicationJob.id == claim.job_id,
+                PublicationJob.lease_token == claim.lease_token,
+                PublicationJob.lease_expires_at >= datetime.now(tz=UTC),
+            )
             .values(**values)
         )
         return bool(cast(Any, result).rowcount)
@@ -154,6 +185,8 @@ class JobRepository:
         if (
             job is None
             or job.lease_token != claim.lease_token
+            or job.lease_expires_at is None
+            or job.lease_expires_at < datetime.now(tz=UTC)
             or job.snapshot_metadata.get("notion_write_pending") is True
             or job.snapshot_metadata.get("asset_finalize_pending") is True
             or job.overall_status != JobStatus.PROCESSING
@@ -165,7 +198,12 @@ class JobRepository:
 
     async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:
         job = await self.session.get(PublicationJob, claim.job_id)
-        if job is None or job.lease_token != claim.lease_token:
+        if (
+            job is None
+            or job.lease_token != claim.lease_token
+            or job.lease_expires_at is None
+            or job.lease_expires_at < datetime.now(tz=UTC)
+        ):
             return None
         metadata = dict(job.snapshot_metadata)
         previous = metadata.get("preparation_attempt_count", 0)
@@ -177,7 +215,12 @@ class JobRepository:
 
     async def clear_preparation_attempts(self, claim: "JobClaim") -> None:
         job = await self.session.get(PublicationJob, claim.job_id)
-        if job is None or job.lease_token != claim.lease_token:
+        if (
+            job is None
+            or job.lease_token != claim.lease_token
+            or job.lease_expires_at is None
+            or job.lease_expires_at < datetime.now(tz=UTC)
+        ):
             return
         metadata = dict(job.snapshot_metadata)
         metadata.pop("preparation_attempt_count", None)

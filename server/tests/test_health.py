@@ -151,3 +151,49 @@ def test_runner_build_failure_does_not_dispose_external_engine(monkeypatch) -> N
             pass
 
     asyncio.run(engine.dispose())
+
+
+def test_start_error_has_priority_over_stop_error() -> None:
+    class BothFail(FakeRunner):
+        async def start(self) -> None:
+            raise ValueError("start")
+
+        async def stop(self) -> None:
+            raise RuntimeError("stop")
+
+    with pytest.raises(ValueError, match="start"):
+        with TestClient(create_app(runner=BothFail())):
+            pass
+
+
+@pytest.mark.anyio
+async def test_body_error_has_priority_over_stop_error() -> None:
+    class StopFailure(FakeRunner):
+        async def stop(self) -> None:
+            raise RuntimeError("stop")
+
+    with pytest.raises(ValueError, match="body"):
+        app = create_app(runner=StopFailure())
+        async with app.router.lifespan_context(app):
+            raise ValueError("body")
+
+
+def test_stop_error_has_priority_over_dispose_error(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class StopFailure(FakeRunner):
+        async def stop(self) -> None:
+            raise RuntimeError("stop")
+
+    engine = create_async_engine(DUMMY_DATABASE_URL)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def dispose_failure(target: AsyncEngine) -> None:
+        if target is engine:
+            raise OSError("dispose")
+
+    monkeypatch.setattr("reven.app.get_settings", lambda: object())
+    monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
+    monkeypatch.setattr(AsyncEngine, "dispose", dispose_failure)
+
+    with pytest.raises(RuntimeError, match="stop"):
+        with TestClient(create_app(runner=StopFailure())):
+            pass
