@@ -1,0 +1,68 @@
+name: Release Image
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: reven-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Define immutable image tags
+        run: |
+          repository="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/${repository}" >>"${GITHUB_ENV}"
+          echo "VERSION=${GITHUB_REF_NAME}" >>"${GITHUB_ENV}"
+      - name: Authenticate to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+      - name: Build immutable image
+        run: |
+          docker build --pull --no-cache \
+            -f infra/docker/Dockerfile \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:sha-${GITHUB_SHA}" .
+      - name: Scan fixed critical vulnerabilities
+        run: |
+          docker volume create reven-release-trivy
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v reven-release-trivy:/root/.cache/trivy \
+            aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
+            image --scanners vuln --exit-code 1 --ignore-unfixed --severity CRITICAL \
+            "${IMAGE}:${VERSION}"
+      - name: Generate SBOM
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v reven-release-trivy:/root/.cache/trivy \
+            -v "$PWD:/work" \
+            aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
+            image --scanners vuln --format cyclonedx \
+            --output /work/reven-sbom.cdx.json "${IMAGE}:${VERSION}"
+      - name: Push immutable tags and record digest
+        run: |
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:sha-${GITHUB_SHA}"
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"' | tee image-digest.txt
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reven-${{ github.ref_name }}-release-evidence
+          path: |
+            reven-sbom.cdx.json
+            image-digest.txt
+      - name: Clean scanner cache
+        if: always()
+        run: docker volume rm reven-release-trivy || true
