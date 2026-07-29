@@ -50,3 +50,33 @@ def test_workspace_cleanup_removes_only_safe_blog_path(tmp_path: Path) -> None:
     workspace.cleanup("job-id")
     assert not path.exists()
     assert snapshot.exists()
+
+
+def test_attempts_are_unique_and_cleanup_does_not_remove_sibling(tmp_path: Path) -> None:
+    workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
+    first = workspace.create_attempt("job-id")
+    second = workspace.create_attempt("job-id")
+    assert first != second
+    workspace.cleanup_attempt(first)
+    assert not first.exists()
+    assert second.exists()
+
+
+@pytest.mark.anyio
+async def test_push_uses_official_url_and_disables_hooks_and_helpers(tmp_path: Path) -> None:
+    runner = Recorder()
+    workspace = BlogWorkspace(tmp_path, runner)  # type: ignore[arg-type]
+    attempt = workspace.create_attempt("job-id")
+    repo = attempt / "push"
+    repo.mkdir()
+    await workspace.push(
+        repo,
+        "https://github.com/acme/blog.git",
+        "reven/11111111-aaaaaaaaaaaa",
+        "token",
+    )
+    argv = runner.calls[-1][0]
+    assert "origin" not in argv
+    assert "https://github.com/acme/blog.git" in argv
+    assert any("core.hooksPath=" in item for item in argv)
+    assert "credential.helper=" in argv

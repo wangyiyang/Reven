@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,7 @@ class GitHubApi(Protocol):
     async def check_runs(self, sha: str) -> list[dict[str, Any]]: ...
     async def status_contexts(self, sha: str) -> list[dict[str, Any]]: ...
     async def merge(self, number: int, sha: str) -> dict[str, Any]: ...
-    async def latest_pages_build(self) -> dict[str, Any]: ...
+    async def pages_builds(self) -> list[dict[str, Any]]: ...
     async def verify_article(self, path: str, title: str) -> str: ...
 
 
@@ -82,19 +83,23 @@ class BlogPublisher:
         existing_url = result.get("article_url")
         if isinstance(existing_url, str) and existing_url:
             return _result(result)
-        context = _context(raw)
-        default = await self._persist_value(claim, result, "default_branch", self.client.default_branch)
-        branch = release_branch(context.page_id, context.content_hash, default)
-        await self._save(claim, result, {"branch": branch})
-        commit_sha, article_path, post_path = await self._ensure_branch(claim, result, context, branch)
-        pr = await self._ensure_pull_request(claim, result, context.title, post_path, branch, default)
-        pr_number = _integer(pr.get("number"), "PR number")
-        await self._wait_checks(default, commit_sha)
-        merge_sha = await self._ensure_merge(claim, result, pr_number, commit_sha, branch, default)
-        await self._wait_pages(claim, result, merge_sha)
-        article_url = await self._external(self.client.verify_article(article_path, context.title))
-        await self._save(claim, result, {"article_url": article_url})
-        return BlogPublishResult(article_url, pr_number, merge_sha)
+        attempt = self.workspace.create_attempt(str(claim.job_id))
+        try:
+            context = _context(raw)
+            default = await self._persist_value(claim, result, "default_branch", self.client.default_branch)
+            branch = release_branch(context.page_id, context.content_hash, default)
+            await self._save(claim, result, {"branch": branch})
+            commit_sha, article_path, post_path = await self._ensure_branch(claim, result, context, branch, attempt)
+            pr = await self._ensure_pull_request(claim, result, context.title, post_path, branch, default)
+            pr_number = _integer(pr.get("number"), "PR number")
+            await self._wait_checks(default, commit_sha)
+            merge_sha = await self._ensure_merge(claim, result, pr_number, commit_sha, branch, default)
+            await self._wait_pages(claim, result, merge_sha)
+            article_url = await self._external(self.client.verify_article(article_path, context.title))
+            await self._save(claim, result, {"article_url": article_url})
+            return BlogPublishResult(article_url, pr_number, merge_sha)
+        finally:
+            self.workspace.cleanup_attempt(attempt)
 
     async def _ensure_branch(
         self,
@@ -102,6 +107,7 @@ class BlogPublisher:
         result: dict[str, object],
         context: "_PublishContext",
         branch: str,
+        attempt: Path,
     ) -> tuple[str, str, str]:
         remote = await self._external(self.client.branch(branch))
         persisted_path = result.get("article_path")
@@ -118,10 +124,15 @@ class BlogPublisher:
         if isinstance(marker, dict) and marker.get("phase") == "push":
             raise BlockedPublishError("Git push 结果无法确认且远程分支不存在，请人工核验")
         await self._assert_lease(claim)
-        path = await self.workspace.clone(str(claim.job_id), self.remote_url, self.token)
-        await self.workspace.prepare(path, branch)
-        converted = self.converter.write(path, BlogArticle(context.page_id, context.snapshot, context.assets))
-        await self.workspace.build(path)
+        build_path = await self.workspace.clone_at(attempt / "build", self.remote_url, self.token)
+        await self.workspace.prepare(build_path, branch)
+        converted = self.converter.write(build_path, BlogArticle(context.page_id, context.snapshot, context.assets))
+        await self.workspace.build(build_path)
+        self.workspace.stage_artifacts(build_path, converted.manifest, attempt)
+        shutil.rmtree(build_path)
+        path = await self.workspace.clone_at(attempt / "push", self.remote_url, self.token)
+        await self.workspace.switch(path, branch)
+        self.workspace.restore_artifacts(path, converted.manifest, attempt)
         sha = await self.workspace.commit(path, converted.manifest, context.title)
         patch: dict[str, object] = {
             "commit_sha": sha,
@@ -226,7 +237,10 @@ class BlogPublisher:
 
     async def _wait_pages(self, claim: JobClaim, result: dict[str, object], merge_sha: str) -> None:
         for _ in range(self.max_polls):
-            build = await self._external(self.client.latest_pages_build())
+            build = target_pages_build(await self._external(self.client.pages_builds()), merge_sha)
+            if build is None:
+                await self.sleep(self.poll_interval)
+                continue
             state = pages_state(build, merge_sha)
             if state == "success":
                 await self._save(claim, result, {"pages_build_id": build.get("id")})
@@ -376,6 +390,18 @@ def pages_state(build: dict[str, Any], merge_sha: str) -> str:
     if build.get("status") == "built":
         return "success"
     return "pending"
+
+
+def target_pages_build(builds: list[dict[str, Any]], merge_sha: str) -> dict[str, Any] | None:
+    matches = [build for build in builds if build.get("commit") == merge_sha]
+    if not matches:
+        return None
+
+    def build_id(build: dict[str, Any]) -> int:
+        value = build.get("id")
+        return value if isinstance(value, int) else 0
+
+    return max(matches, key=build_id)
 
 
 def pull_request_body(template: str | None, post_path: str) -> str:
