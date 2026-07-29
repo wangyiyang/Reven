@@ -258,6 +258,41 @@ async def test_terminal_finalization_is_reclaimable_without_changing_terminal_st
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("status", [JobStatus.BLOCKED, JobStatus.FAILED])
+async def test_notion_pending_terminal_job_requires_manual_retry(
+    db_session,
+    status: JobStatus,
+) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="2" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    job.overall_status = status
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": status,
+            "notion_pending": True,
+            "cleanup_pending": False,
+        }
+    }
+    await db_session.commit()
+
+    assert await repository.claim_next(lease_seconds=120) is None
+    assert await repository.bump_notification_revision_for_retry(job.id) == 1
+    await db_session.commit()
+
+    claim = await repository.claim_next(lease_seconds=120)
+    assert claim is not None
+    assert claim.job_id == job.id
+
+
+@pytest.mark.anyio
 async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> None:  # type: ignore[no-untyped-def]
     article = _new_article()
     db_session.add(article)

@@ -395,3 +395,35 @@ async def test_terminal_finalization_bypasses_content_preparation(db_session) ->
 
     assert preparation.calls == 0
     assert executor.calls == 1
+
+
+@pytest.mark.anyio
+async def test_exhausted_notion_finalization_is_not_hot_loop_claimed(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _job(db_session)
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": True,
+            "cleanup_pending": False,
+        }
+    }
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    preparation = RaisingPreparation(AssertionError("must not prepare"))
+    executor = RaisingExecutor(TransientPublishError("Notion unavailable"))
+    tick = PublicationJobTick(factory, preparation, executor)
+
+    for expected_attempt in (1, 2, 3):
+        await tick()
+        await db_session.refresh(job)
+        assert job.attempt_count == expected_attempt
+        if expected_attempt < 3:
+            job.scheduled_at = utc_now() - timedelta(seconds=1)
+            await db_session.commit()
+
+    assert job.overall_status == JobStatus.FAILED
+    await tick()
+    await db_session.refresh(job)
+    assert job.attempt_count == 3
+    assert executor.calls == 3
+    assert preparation.calls == 0

@@ -215,7 +215,7 @@ async def test_terminal_notification_and_cleanup_resume_without_republishing(
     original_cleanup = __import__("reven.publishing.orchestrator", fromlist=["cleanup_workspace"]).cleanup_workspace
     monkeypatch.setattr(
         "reven.publishing.orchestrator.cleanup_workspace",
-        lambda path: (_ for _ in ()).throw(OSError("busy")),
+        lambda path, anchor: (_ for _ in ()).throw(OSError("busy")),
     )
     blog, wechat, notion = _Publisher({}), _Publisher({}), _Notion()
     notion.fail = False
@@ -234,3 +234,38 @@ async def test_terminal_notification_and_cleanup_resume_without_republishing(
 
     assert (blog.calls, wechat.calls, notion.calls) == (0, 0, 0)
     assert not workspace.exists()
+
+
+@pytest.mark.anyio
+async def test_manual_retry_only_backfills_pending_notion(
+    db_session,
+    tmp_path: Path,
+) -> None:  # type: ignore[no-untyped-def]
+    job, claim = await create_job(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    store = SqlAlchemyDeliveryStore(factory, tmp_path)
+    await store.channel_succeeded(claim, TargetChannel.BLOG, {"article_url": "https://blog.example/post"})
+    await store.channel_succeeded(claim, TargetChannel.WECHAT, {"media_id": "draft"})
+    await store.begin_delivery(claim, JobStatus.COMPLETED, "")
+    async with factory.begin() as session:
+        persisted = await session.get(PublicationJob, job.id)
+        assert persisted is not None
+        persisted.overall_status = JobStatus.FAILED
+        persisted.lease_token = None
+        persisted.lease_expires_at = None
+    async with factory.begin() as session:
+        repository = JobRepository(session)
+        assert await repository.bump_notification_revision_for_retry(job.id) is not None
+    async with factory.begin() as session:
+        resumed = await JobRepository(session).claim_next(lease_seconds=120)
+    assert resumed is not None
+    blog, wechat, notion = _Publisher({}), _Publisher({}), _Notion()
+    notion.fail = False
+
+    await PublicationOrchestrator(store, blog, wechat, notion, _Notifier()).execute(resumed)
+
+    assert (blog.calls, wechat.calls, notion.calls) == (0, 0, 1)
+    async with factory() as session:
+        persisted = await session.get(PublicationJob, job.id)
+        assert persisted is not None
+        assert persisted.overall_status == JobStatus.COMPLETED

@@ -15,6 +15,7 @@ from reven.publishing.orchestrator import (
     Notification,
     PendingNotification,
     PublicationOrchestrator,
+    cleanup_workspace,
     error_fingerprint,
     notification_fingerprint,
 )
@@ -182,6 +183,7 @@ def make_record(tmp_path: Path, *, used_default: bool = False) -> DeliveryRecord
         False,
         False,
         (),
+        tmp_path / "jobs",
         tmp_path / "jobs" / str(job_id),
     )
 
@@ -273,3 +275,35 @@ async def test_feishu_failure_does_not_change_delivery(tmp_path: Path) -> None:
 
     assert store.record.final_status == JobStatus.COMPLETED
     assert store.record.notifications == ()
+
+
+@pytest.mark.parametrize("symlink_level", ["root", "jobs", "target"])
+def test_cleanup_rejects_symlink_components_without_deleting_outside(
+    tmp_path: Path,
+    symlink_level: str,
+) -> None:
+    outside = tmp_path / "outside"
+    victim = outside / "victim.txt"
+    outside.mkdir()
+    victim.write_text("keep", encoding="utf-8")
+    job_id = str(uuid4())
+    trusted_root = tmp_path / "trusted"
+    if symlink_level == "root":
+        trusted_root.symlink_to(outside, target_is_directory=True)
+        anchor = trusted_root / "jobs"
+        workspace = anchor / job_id
+    elif symlink_level == "jobs":
+        trusted_root.mkdir()
+        anchor = trusted_root / "jobs"
+        anchor.symlink_to(outside, target_is_directory=True)
+        workspace = anchor / job_id
+    else:
+        anchor = trusted_root / "jobs"
+        anchor.mkdir(parents=True)
+        workspace = anchor / job_id
+        workspace.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError, match="符号链接"):
+        cleanup_workspace(workspace, anchor)
+
+    assert victim.read_text(encoding="utf-8") == "keep"
