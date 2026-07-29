@@ -1,7 +1,12 @@
 import asyncio
 import json
+import os
+import resource
+import sys
 from pathlib import Path
 from typing import Any
+
+from reven.publishing.sandbox import bubblewrap_command
 
 
 class RendererError(RuntimeError):
@@ -19,19 +24,30 @@ class WechatRenderer:
         cli_path: Path | str = Path("renderer/dist/cli.mjs"),
         timeout_seconds: float = 30,
         max_output_bytes: int = 4 * 1024 * 1024,
+        sandbox_executable: Path | None = None,
     ) -> None:
         self._executable = executable
         self._cli_path = str(cli_path)
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
+        self._sandbox_executable = sandbox_executable
 
     async def render(self, markdown: str) -> str:
+        argv = [self._executable, self._cli_path]
+        if self._sandbox_executable is not None:
+            argv = bubblewrap_command(
+                self._sandbox_executable,
+                argv,
+                readable_paths=(Path(self._cli_path).resolve().parent,),
+            )
         process = await asyncio.create_subprocess_exec(
-            self._executable,
-            self._cli_path,
+            *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_renderer_environment(),
+            start_new_session=True,
+            preexec_fn=_limit_resources if sys.platform == "linux" else None,
         )
         try:
             stdout = await asyncio.wait_for(
@@ -80,7 +96,7 @@ class WechatRenderer:
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is None:
-            process.kill()
+            os.killpg(process.pid, 9)
         await process.wait()
 
     def _parse_response(self, stdout: bytes) -> str:
@@ -96,3 +112,14 @@ class WechatRenderer:
         if response.get("ok") is not True or not isinstance(html, str):
             raise RendererError("invalid_response")
         return html
+
+
+def _renderer_environment() -> dict[str, str]:
+    allowed = ("PATH", "LANG", "LC_ALL", "LC_CTYPE")
+    return {key: os.environ[key] for key in allowed if os.environ.get(key)}
+
+
+def _limit_resources() -> None:
+    resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+    resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from reven.publishing.commands import CommandResult, CommandRunner
+from reven.publishing.sandbox import bubblewrap_command
 
 _JOB_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
@@ -22,9 +23,15 @@ class TrustedArtifact:
 
 
 class BlogWorkspace:
-    def __init__(self, jobs_root: Path, runner: CommandRunner) -> None:
+    def __init__(
+        self,
+        jobs_root: Path,
+        runner: CommandRunner,
+        sandbox_executable: Path | None = None,
+    ) -> None:
         self.root = jobs_root.resolve()
         self.runner = runner
+        self.sandbox_executable = sandbox_executable
 
     async def clone(self, job_id: str, remote_url: str, token: str) -> Path:
         path = self.path(job_id)
@@ -66,8 +73,16 @@ class BlogWorkspace:
         ).stdout.strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", platform):
             raise ValueError("Ruby platform 输出无效")
-        await self.runner.run(["bundle", "lock", "--add-platform", platform], cwd=path, env=environment)
-        await self.runner.run(["bundle", "install"], cwd=path, env=environment)
+        await self.runner.run(
+            self._bundle_command(path, ["bundle", "lock", "--add-platform", platform]),
+            cwd=path,
+            env=environment,
+        )
+        await self.runner.run(
+            self._bundle_command(path, ["bundle", "install"]),
+            cwd=path,
+            env=environment,
+        )
 
     async def switch(self, path: Path, branch: str) -> None:
         self._assert_cwd(path)
@@ -79,7 +94,20 @@ class BlogWorkspace:
 
     async def build(self, path: Path) -> None:
         self._assert_cwd(path)
-        await self.runner.run(["bundle", "exec", "jekyll", "build"], cwd=path, env=_workspace_env(path))
+        argv = ["bundle", "exec", "jekyll", "build"]
+        if self.sandbox_executable is not None:
+            argv = bubblewrap_command(self.sandbox_executable, argv, writable_path=path)
+        await self.runner.run(argv, cwd=path, env=_workspace_env(path))
+
+    def _bundle_command(self, path: Path, argv: list[str]) -> list[str]:
+        if self.sandbox_executable is None:
+            return argv
+        return bubblewrap_command(
+            self.sandbox_executable,
+            argv,
+            writable_path=path,
+            network=True,
+        )
 
     async def commit(self, path: Path, manifest: tuple[Path, ...], title: str) -> str:
         self._assert_cwd(path)

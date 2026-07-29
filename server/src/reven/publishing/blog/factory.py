@@ -40,7 +40,11 @@ class ConfiguredBlogPublisher:
         config = await self._configuration()
         remote = f"https://github.com/{config.owner}/{config.repo}.git"
         runner = CommandRunner()
-        workspace = BlogWorkspace(self.data_root / "jobs", runner)
+        workspace = BlogWorkspace(
+            self.data_root / "jobs",
+            runner,
+            sandbox_executable=Path("/usr/bin/bwrap"),
+        )
         async with runner, GitHubClient(config.owner, config.repo, config.token, site_url=config.site_url) as client:
             publisher = BlogPublisher(
                 client,

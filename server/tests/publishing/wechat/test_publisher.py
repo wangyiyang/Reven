@@ -677,6 +677,7 @@ async def test_configured_publisher_loads_encrypted_integrations_and_closes_http
         f"{sys.executable} {script}",
         wechat_transport=wechat_transport,
         notion_transport=notion_transport,
+        sandbox_executable=None,
     )
 
     result = await configured.publish(claim)
