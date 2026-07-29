@@ -60,6 +60,7 @@ class CommandRunner:
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
+        process_group_id = process.pid
         if process.stdout is None or process.stderr is None:
             raise RuntimeError("子进程管道初始化失败")
         stdout_task = asyncio.create_task(_read_bounded(process.stdout, self.max_output_bytes))
@@ -69,12 +70,17 @@ class CommandRunner:
         try:
             await asyncio.wait_for(asyncio.gather(*tasks), self.timeout)
         except (TimeoutError, asyncio.CancelledError) as exc:
-            _kill_process_group(process)
+            _kill_process_group(process_group_id)
             await process.wait()
             await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
             if isinstance(exc, asyncio.CancelledError):
                 raise
             raise CommandError("命令执行超时") from exc
+        except BaseException:
+            _kill_process_group(process_group_id)
+            await process.wait()
+            await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
+            raise
         stdout, stdout_truncated = stdout_task.result()
         stderr, stderr_truncated = stderr_task.result()
         truncated = stdout_truncated or stderr_truncated
@@ -82,7 +88,6 @@ class CommandRunner:
         stderr_text = _safe_text(stderr, secrets)
         result = CommandResult(stdout_text, stderr_text, process.returncode or 0, truncated)
         if process.returncode:
-            _kill_process_group(process)
             raise CommandError(f"命令失败({process.returncode}): {stderr_text}")
         return result
 
@@ -104,13 +109,9 @@ def _secret_variants(secrets: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(variants, key=len, reverse=True))
 
 
-def _kill_process_group(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
+def _kill_process_group(process_group_id: int) -> None:
     try:
-        if os.getpgid(process.pid) != process.pid:
-            return
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process_group_id, signal.SIGKILL)
     except ProcessLookupError:
         return
 
