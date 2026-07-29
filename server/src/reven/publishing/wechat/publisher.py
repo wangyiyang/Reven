@@ -2,11 +2,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypeVar, cast
+from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from reven.articles.models import Article
 from reven.integrations.wechat.models import (
     WeChatBlockedError,
     WeChatPermanentError,
@@ -14,7 +11,6 @@ from reven.integrations.wechat.models import (
     WeChatTransientError,
 )
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
-from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim
 from reven.publishing.assets import MaterializedAsset, MaterializedAssets
 from reven.publishing.validation import (
@@ -52,6 +48,12 @@ class ResultStore(Protocol):
     async def load(self, claim: JobClaim) -> dict[str, object]: ...
     async def assert_lease(self, claim: JobClaim) -> bool: ...
     async def save_result(self, claim: JobClaim, patch: dict[str, object]) -> bool: ...
+    async def clear_inflight_if_operation_matches(
+        self,
+        job_id: UUID,
+        operation_key: str,
+        operation_id: str,
+    ) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -92,7 +94,7 @@ class WeChatPublisher:
         assets = await self._load_assets(claim, context)
         html = await self.renderer.render(context.markdown)
         placeholders = validate_placeholders(html, assets.images)
-        await self.client.get_token()
+        await self._external(self.client.get_token())
         uploaded = await self._upload_images(claim, context.result, placeholders)
         content = replace_placeholders(html, uploaded)
         thumb_media_id = await self._upload_cover(claim, context.result, assets.cover)
@@ -117,30 +119,30 @@ class WeChatPublisher:
         placeholders: tuple[Any, ...],
     ) -> dict[int, str]:
         persisted = _uploaded_images(result)
-        in_flight = _uploads_in_flight(result)
         urls: dict[int, str] = {}
         for placeholder in placeholders:
             sha256 = placeholder.asset.sha256
             url = persisted.get(sha256)
             if url is None:
                 await self._assert_lease(claim)
-                in_flight[sha256] = "body"
-                await self._save(claim, {"uploads_in_flight": in_flight})
+                operation_id = str(uuid4())
+                operation_key = f"body:{sha256}"
+                await self._start_operation(claim, result, operation_key, operation_id, "body", sha256)
                 try:
                     url = await self._external(self.client.upload_body_image(placeholder.asset.path))
                 except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
-                    await self._clear_definite_upload(claim, in_flight, sha256, exc)
+                    await self._clear_definite_operation(claim.job_id, operation_key, operation_id, exc)
                     raise
                 persisted[sha256] = url
-                completed_in_flight = dict(in_flight)
-                completed_in_flight.pop(sha256, None)
+                completed = _without_operation(result, operation_key)
                 await self._save(
                     claim,
                     {
                         "uploaded_images": persisted,
-                        "uploads_in_flight": completed_in_flight,
+                        "operations_in_flight": completed,
                     },
                 )
+                result["operations_in_flight"] = completed
             urls[placeholder.ordinal] = url
         return urls
 
@@ -156,24 +158,24 @@ class WeChatPublisher:
         if cover is None:
             raise BlockedPublishError("微信草稿缺少冻结封面")
         await self._assert_lease(claim)
-        in_flight = _uploads_in_flight(result)
-        in_flight[cover.sha256] = "cover"
-        await self._save(claim, {"uploads_in_flight": in_flight})
+        operation_id = str(uuid4())
+        operation_key = f"cover:{cover.sha256}"
+        await self._start_operation(claim, result, operation_key, operation_id, "cover", cover.sha256)
         try:
             media_id = await self._external(self.client.upload_cover_material(cover.path))
         except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
-            await self._clear_definite_upload(claim, in_flight, cover.sha256, exc)
+            await self._clear_definite_operation(claim.job_id, operation_key, operation_id, exc)
             raise
-        completed_in_flight = dict(in_flight)
-        completed_in_flight.pop(cover.sha256, None)
+        completed = _without_operation(result, operation_key)
         await self._save(
             claim,
             {
                 "thumb_media_id": media_id,
                 "cover_sha256": cover.sha256,
-                "uploads_in_flight": completed_in_flight,
+                "operations_in_flight": completed,
             },
         )
+        result["operations_in_flight"] = completed
         return media_id
 
     async def _create_draft(
@@ -184,36 +186,71 @@ class WeChatPublisher:
         thumb_media_id: str,
     ) -> str:
         payload = _draft_payload(context, content, thumb_media_id)
+        operation_id = str(uuid4())
+        operation_key = "draft"
+        asset_sha = _content_sha(content)
         await self._assert_lease(claim)
-        await self._save(claim, {"draft_creation_started": True})
+        await self._start_operation(claim, context.result, operation_key, operation_id, "draft", asset_sha)
         await self._assert_lease(claim)
         try:
             media_id = await self._external(self.client.create_draft(payload))
         except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
             if _outcome_uncertain(exc):
-                await self._mark_uncertain(claim)
+                await self._mark_uncertain(claim, operation_id)
                 raise BlockedPublishError("微信草稿创建结果不确定，请人工核验后处理") from None
-            await self._save(claim, {"draft_creation_started": False})
+            await self.store.clear_inflight_if_operation_matches(claim.job_id, operation_key, operation_id)
             raise
-        await self._save(claim, {"media_id": media_id, "content": content, "draft_creation_started": False})
+        await self._save(
+            claim,
+            {
+                "media_id": media_id,
+                "content": content,
+                "operations_in_flight": _without_operation(context.result, operation_key),
+            },
+        )
+        context.result["operations_in_flight"] = _without_operation(context.result, operation_key)
         return media_id
 
-    async def _mark_uncertain(self, claim: JobClaim) -> None:
+    async def _mark_uncertain(self, claim: JobClaim, operation_id: str) -> None:
         if await self.store.assert_lease(claim):
-            await self._save(claim, {"draft_creation_uncertain": True})
+            await self._save(
+                claim,
+                {
+                    "draft_creation_uncertain": {
+                        "operation_id": operation_id,
+                        "phase": "draft",
+                    }
+                },
+            )
 
-    async def _clear_definite_upload(
+    async def _clear_definite_operation(
         self,
-        claim: JobClaim,
-        in_flight: dict[str, str],
-        sha256: str,
+        job_id: UUID,
+        operation_key: str,
+        operation_id: str,
         error: Exception,
     ) -> None:
         if _outcome_uncertain(error):
             return
-        cleared = dict(in_flight)
-        cleared.pop(sha256, None)
-        await self._save(claim, {"uploads_in_flight": cleared})
+        await self.store.clear_inflight_if_operation_matches(job_id, operation_key, operation_id)
+
+    async def _start_operation(
+        self,
+        claim: JobClaim,
+        result: dict[str, object],
+        operation_key: str,
+        operation_id: str,
+        phase: str,
+        asset_sha: str,
+    ) -> None:
+        operations = _operations_in_flight(result)
+        operations[operation_key] = {
+            "operation_id": operation_id,
+            "phase": phase,
+            "asset_sha": asset_sha,
+        }
+        await self._save(claim, {"operations_in_flight": operations})
+        result["operations_in_flight"] = operations
 
     async def _assert_lease(self, claim: JobClaim) -> None:
         if not await self.store.assert_lease(claim):
@@ -235,50 +272,6 @@ class WeChatPublisher:
             raise error from exc
         except WeChatPermanentError as exc:
             raise PermanentPublishError(str(exc)) from exc
-
-
-class SqlAlchemyWeChatResultStore:
-    def __init__(
-        self,
-        session_factory: async_sessionmaker[AsyncSession],
-        *,
-        author: str = "",
-    ) -> None:
-        self.session_factory = session_factory
-        self.author = author
-
-    async def load(self, claim: JobClaim) -> dict[str, object]:
-        async with self.session_factory() as session:
-            row = await session.execute(
-                select(PublicationJob, Article)
-                .join(Article, Article.id == PublicationJob.article_id)
-                .where(PublicationJob.id == claim.job_id)
-            )
-            pair = row.one_or_none()
-            if pair is None:
-                raise LeaseLost("publication job missing")
-            job, article = pair
-            return _job_data(job, article, self.author)
-
-    async def assert_lease(self, claim: JobClaim) -> bool:
-        async with self.session_factory() as session:
-            database_now = func.current_timestamp()
-            statement = select(PublicationJob.id).where(
-                PublicationJob.id == claim.job_id,
-                PublicationJob.lease_token == claim.lease_token,
-                PublicationJob.lease_expires_at >= database_now,
-            )
-            return await session.scalar(statement) is not None
-
-    async def save_result(self, claim: JobClaim, patch: dict[str, object]) -> bool:
-        async with self.session_factory.begin() as session:
-            job = await session.scalar(
-                select(PublicationJob).where(PublicationJob.id == claim.job_id).with_for_update()
-            )
-            if job is None or not await _lease_matches(session, job, claim):
-                return False
-            job.wechat_result = {**job.wechat_result, **patch}
-            return True
 
 
 def load_snapshot_assets(metadata: dict[str, object]) -> MaterializedAssets:
@@ -376,51 +369,55 @@ def _uploaded_images(result: dict[str, object]) -> dict[str, str]:
 
 
 def _reject_uncertain_draft(result: dict[str, object]) -> None:
-    if result.get("draft_creation_started") is True or result.get("draft_creation_uncertain") is True:
+    if result.get("draft_creation_uncertain"):
         raise BlockedPublishError("微信草稿创建结果不确定，请人工核验后处理")
 
 
 def _reject_uncertain_uploads(result: dict[str, object]) -> None:
-    if _uploads_in_flight(result):
+    if _operations_in_flight(result):
         raise BlockedPublishError("微信素材上传结果不确定，请人工核验后处理")
 
 
-def _uploads_in_flight(result: dict[str, object]) -> dict[str, str]:
-    raw = result.get("uploads_in_flight", {})
-    valid = isinstance(raw, dict) and all(
-        isinstance(key, str) and len(key) == 64 and value in {"body", "cover"} for key, value in raw.items()
-    )
+def _operations_in_flight(
+    result: dict[str, object],
+) -> dict[str, dict[str, str]]:
+    raw = result.get("operations_in_flight", {})
+    valid = isinstance(raw, dict) and all(_valid_operation(key, value) for key, value in raw.items())
     if not valid:
         raise BlockedPublishError("微信素材上传阶段记录无效")
-    return dict(cast(dict[str, str], raw))
+    return {key: dict(value) for key, value in cast(dict[str, dict[str, str]], raw).items()}
+
+
+def _valid_operation(key: object, value: object) -> bool:
+    if not isinstance(key, str) or not isinstance(value, dict):
+        return False
+    operation_id = value.get("operation_id")
+    phase = value.get("phase")
+    asset_sha = value.get("asset_sha")
+    try:
+        UUID(str(operation_id))
+    except ValueError:
+        return False
+    return phase in {"body", "cover", "draft"} and isinstance(asset_sha, str) and len(asset_sha) == 64
+
+
+def _without_operation(
+    result: dict[str, object],
+    operation_key: str,
+) -> dict[str, dict[str, str]]:
+    operations = _operations_in_flight(result)
+    operations.pop(operation_key, None)
+    return operations
+
+
+def _content_sha(content: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 def _outcome_uncertain(error: Exception) -> bool:
     return bool(getattr(error, "outcome_uncertain", False))
-
-
-async def _lease_matches(session: AsyncSession, job: PublicationJob, claim: JobClaim) -> bool:
-    now = await session.scalar(select(func.current_timestamp()))
-    return (
-        job.lease_token == claim.lease_token
-        and job.lease_expires_at is not None
-        and now is not None
-        and job.lease_expires_at >= now
-    )
-
-
-def _job_data(job: PublicationJob, article: Article, author: str) -> dict[str, object]:
-    metadata = job.snapshot_metadata
-    notion = article.notion_metadata
-    return {
-        "source_markdown": job.source_markdown or "",
-        "snapshot_metadata": metadata,
-        "wechat_result": job.wechat_result,
-        "title": metadata.get("title", article.title),
-        "author": author or notion.get("author", ""),
-        "digest": metadata.get("summary", ""),
-        "content_source_url": article.notion_url,
-    }
 
 
 def _optional_string(value: object) -> str | None:

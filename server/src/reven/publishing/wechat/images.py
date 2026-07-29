@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from bs4 import BeautifulSoup
 
+from reven.integrations.notion.models import MappedNotionPage
 from reven.integrations.wechat.client import WECHAT_IMAGE_HOSTS
 from reven.jobs.errors import BlockedPublishError
 from reven.publishing.assets import AssetMaterializer, MaterializedAsset, MaterializedAssets
@@ -69,10 +70,12 @@ class SnapshotAssetRecoverer:
         materializer: AssetMaterializer,
         fetch_markdown: Callable[[], Awaitable[str]],
         fetch_cover_url: Callable[[], Awaitable[str | None]],
+        fetch_mapped_page: Callable[[], Awaitable[MappedNotionPage]] | None = None,
     ) -> None:
         self.materializer = materializer
         self.fetch_markdown = fetch_markdown
         self.fetch_cover_url = fetch_cover_url
+        self.fetch_mapped_page = fetch_mapped_page
 
     async def recover(
         self,
@@ -82,9 +85,10 @@ class SnapshotAssetRecoverer:
     ) -> MaterializedAssets:
         fresh_markdown = await self.fetch_markdown()
         cover_url = await self.fetch_cover_url()
+        mapped = await self.fetch_mapped_page() if self.fetch_mapped_page else None
         staged = await self.materializer.materialize(job_id, list(image_urls(fresh_markdown)), cover_url)
         try:
-            self._verify(staged, fresh_markdown, frozen_markdown, metadata)
+            self._verify(staged, fresh_markdown, frozen_markdown, metadata, mapped)
             if staged.final_dir is not None and staged.final_dir.exists():
                 repaired = _repair_existing_snapshot(staged, metadata)
                 await self.materializer.discard(staged)
@@ -101,6 +105,7 @@ class SnapshotAssetRecoverer:
         fresh_markdown: str,
         frozen_markdown: str,
         metadata: dict[str, object],
+        mapped: MappedNotionPage | None,
     ) -> None:
         if assets.cover is None:
             raise BlockedPublishError("恢复的微信素材缺少封面")
@@ -110,19 +115,26 @@ class SnapshotAssetRecoverer:
         expected = tuple(_expected_sha(item) for item in images)
         actual = tuple(asset.sha256 for asset in assets.images)
         categories_raw = metadata.get("categories", [])
-        categories = tuple(str(item) for item in categories_raw) if isinstance(categories_raw, list) else ()
+        frozen_categories = tuple(str(item) for item in categories_raw) if isinstance(categories_raw, list) else ()
+        categories = frozen_categories
+        title = mapped.title if mapped else str(metadata.get("title", ""))
+        summary = mapped.summary if mapped else str(metadata.get("summary", ""))
+        categories = tuple(mapped.categories) if mapped else categories
         snapshot = build_snapshot(
             fresh_markdown,
             image_sha256=actual,
             cover_sha256=assets.cover.sha256,
-            title=str(metadata.get("title", "")),
-            summary=str(metadata.get("summary", "")),
+            title=title,
+            summary=summary,
             categories=categories,
         )
         if (
             snapshot.markdown != frozen_markdown
             or actual != expected
             or assets.cover.sha256 != metadata.get("cover_sha256")
+            or title != metadata.get("title", "")
+            or summary != metadata.get("summary", "")
+            or tuple(sorted(categories)) != tuple(sorted(frozen_categories))
         ):
             raise BlockedPublishError("Notion 内容或素材已变化，禁止恢复旧发布任务")
 
