@@ -27,6 +27,7 @@ def test_retry_resets_only_failed_target_and_increments_revision(workbench) -> N
         "delivery_finalization": {"final_status": "失败", "notion_pending": False},
         "delivery_notification_events": [{"event": "old"}],
     }
+    job.notification_state = {"_preparation_terminal_marker": "blocked:same-version:same-error"}
     asyncio.run(_persist_job(factory, job))
 
     response = client.post(
@@ -42,6 +43,7 @@ def test_retry_resets_only_failed_target_and_increments_revision(workbench) -> N
     stored = asyncio.run(_load_job(factory, job.id))
     assert "delivery_finalization" not in stored.snapshot_metadata
     assert stored.notification_state["_revision"] == 1
+    assert "_preparation_terminal_marker" not in stored.notification_state
 
 
 async def _persist_job(factory, job) -> None:  # type: ignore[no-untyped-def]

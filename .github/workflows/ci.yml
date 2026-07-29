@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   pull_request:
     branches: [main]
 
@@ -8,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: reven-ci-${{ github.event.pull_request.number }}
+  group: reven-ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:

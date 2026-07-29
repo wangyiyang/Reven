@@ -1,4 +1,4 @@
-"""Lifecycle for the two lightweight in-process scheduler loops."""
+"""Lifecycle for the lightweight in-process scheduler loops."""
 
 import asyncio
 import logging
@@ -25,6 +25,7 @@ from reven.jobs.errors import (
     PublishError,
     TransientPublishError,
 )
+from reven.jobs.notification_outbox import PreparationNotificationTick
 from reven.jobs.preparation_models import PrepareResult
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.jobs.retry import retry_delay_seconds
@@ -101,18 +102,24 @@ def build_background_runner(
 ) -> "BackgroundRunner":
     """Build the background runner with the production delivery executor."""
     settings = get_settings()
+    orchestrator = build_configured_orchestrator(session_factory, settings)
     jobs = PublicationJobTick(
         session_factory,
         ConfiguredPreparationService(session_factory),
-        executor=build_configured_orchestrator(session_factory, settings),
+        executor=orchestrator,
         lease_seconds=settings.job_lease_seconds,
         record_heartbeat=True,
     )
     return BackgroundRunner(
         ConfiguredNotionSyncTick(session_factory),
         jobs,
+        PreparationNotificationTick(
+            session_factory,
+            orchestrator.notifier,
+        ),
         sync_interval=settings.sync_interval_seconds,
         job_interval=settings.scheduler_interval_seconds,
+        notification_interval=settings.scheduler_interval_seconds,
     )
 
 
@@ -154,14 +161,18 @@ class BackgroundRunner:
         self,
         sync_tick: Tick,
         job_tick: Tick,
+        notification_tick: Tick | None = None,
         *,
         sync_interval: float = 60,
         job_interval: float = 5,
+        notification_interval: float = 5,
     ) -> None:
         self._sync_tick = sync_tick
         self._job_tick = job_tick
+        self._notification_tick = notification_tick
         self._sync_interval = sync_interval
         self._job_interval = job_interval
+        self._notification_interval = notification_interval
         self._tasks: tuple[asyncio.Task[None], ...] = ()
 
     @property
@@ -171,10 +182,18 @@ class BackgroundRunner:
     async def start(self) -> None:
         if self._tasks:
             return
-        self._tasks = (
+        tasks = [
             asyncio.create_task(self._loop(self._sync_tick, self._sync_interval), name="reven-notion-sync"),
             asyncio.create_task(self._loop(self._job_tick, self._job_interval), name="reven-job-runner"),
-        )
+        ]
+        if self._notification_tick is not None:
+            tasks.append(
+                asyncio.create_task(
+                    self._loop(self._notification_tick, self._notification_interval),
+                    name="reven-preparation-notifications",
+                )
+            )
+        self._tasks = tuple(tasks)
 
     async def stop(self) -> None:
         tasks, self._tasks = self._tasks, ()

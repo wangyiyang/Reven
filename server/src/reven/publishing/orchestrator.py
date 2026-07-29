@@ -11,6 +11,7 @@ from uuid import UUID
 from reven.domain import JobStatus, TargetChannel
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim
+from reven.publishing.notifications import DeliveryNotifier, Notification
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,6 @@ class DeliveryRecord:
     workspace: Path
 
 
-@dataclass(frozen=True)
-class Notification:
-    title: str
-    stage: str
-    summary: str
-    links: dict[str, str]
-
-
 class DeliveryStore(Protocol):
     async def load(self, claim: JobClaim) -> DeliveryRecord: ...
     async def ensure_default_event(self, claim: JobClaim) -> DeliveryRecord: ...
@@ -81,10 +74,6 @@ class ChannelPublisher(Protocol):
 
 class NotionDeliveryWriter(Protocol):
     async def write(self, record: DeliveryRecord, status: JobStatus, reason: str) -> None: ...
-
-
-class DeliveryNotifier(Protocol):
-    async def send(self, notification: Notification) -> None: ...
 
 
 class PublicationOrchestrator:

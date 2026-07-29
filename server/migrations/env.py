@@ -9,6 +9,7 @@ from reven.articles.models import Article  # noqa: F401
 from reven.db import Base
 from reven.integrations.models import Integration  # noqa: F401
 from reven.jobs.models import PublicationJob  # noqa: F401
+from reven.jobs.notification_outbox import PreparationNotificationOutbox  # noqa: F401
 from reven.system.models import SystemState  # noqa: F401
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
