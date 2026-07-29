@@ -7,8 +7,9 @@ import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
 from reven.jobs.errors import BlockedPublishError, TransientPublishError
+from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim, JobRepository
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
@@ -373,7 +374,9 @@ async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> Non
     assert await repository.bump_notification_revision_for_retry(job.id) is None
     await db_session.execute(
         text(
-            "UPDATE publication_jobs SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE id = :job_id"
+            "UPDATE publication_jobs "
+            "SET lease_expires_at = clock_timestamp() - INTERVAL '1 second', "
+            "overall_status = '失败' WHERE id = :job_id"
         ),
         {"job_id": job.id},
     )
@@ -393,3 +396,146 @@ async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> Non
     assert job.notification_state["_revision"] == 2
     assert article.automation_status == "等待中"
     assert article.last_error is None
+
+
+async def _sync_article_then_job(
+    factory,
+    article_id,
+    job_id,
+    article_locked: asyncio.Event,
+    retry_started: asyncio.Event,
+    *,
+    increment_revision: bool,
+) -> None:  # type: ignore[no-untyped-def]
+    async with factory.begin() as session:
+        article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
+        assert article is not None
+        article.title = "同步后的标题"
+        article_locked.set()
+        await retry_started.wait()
+        job = await session.scalar(select(PublicationJob).where(PublicationJob.id == job_id).with_for_update())
+        assert job is not None
+        if increment_revision:
+            job.notification_state = {**job.notification_state, "_revision": 1}
+
+
+def _signal_lock_attempt(
+    repository: JobRepository,
+    retry_started: asyncio.Event,
+) -> None:
+    original = repository._lock_article_then_job
+
+    async def wrapped(job_id):  # type: ignore[no-untyped-def]
+        retry_started.set()
+        return await original(job_id)
+
+    repository._lock_article_then_job = wrapped  # type: ignore[method-assign]
+
+
+@pytest.mark.anyio
+async def test_notion_sync_and_mark_retry_follow_article_job_lock_order(
+    db_session,
+) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    job = await JobRepository(db_session).create_waiting(
+        article_id=article.id,
+        content_hash="4" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(seconds=1),
+    )
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": True,
+        }
+    }
+    await db_session.commit()
+    claim = await JobRepository(db_session).claim_next(lease_seconds=120)
+    await db_session.commit()
+    assert claim is not None
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    article_locked, retry_started = asyncio.Event(), asyncio.Event()
+
+    async def retry() -> None:
+        await article_locked.wait()
+        async with factory.begin() as session:
+            repository = JobRepository(session)
+            _signal_lock_attempt(repository, retry_started)
+            assert await repository.mark_retry(
+                claim,
+                delay_seconds=None,
+                error=BlockedPublishError("blocked"),
+            )
+
+    async with asyncio.timeout(3):
+        await asyncio.gather(
+            _sync_article_then_job(
+                factory,
+                article.id,
+                job.id,
+                article_locked,
+                retry_started,
+                increment_revision=False,
+            ),
+            retry(),
+        )
+
+    await db_session.refresh(article)
+    await db_session.refresh(job)
+    assert article.title == "同步后的标题"
+    assert article.automation_status == "阻塞"
+    assert job.overall_status == JobStatus.BLOCKED
+
+
+@pytest.mark.anyio
+async def test_notion_sync_and_manual_retry_do_not_deadlock_or_lose_revision(
+    db_session,
+) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    job = await JobRepository(db_session).create_waiting(
+        article_id=article.id,
+        content_hash="5" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(seconds=1),
+    )
+    job.overall_status = JobStatus.BLOCKED
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": True,
+        }
+    }
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    article_locked, retry_started = asyncio.Event(), asyncio.Event()
+
+    async def retry() -> None:
+        await article_locked.wait()
+        async with factory.begin() as session:
+            repository = JobRepository(session)
+            _signal_lock_attempt(repository, retry_started)
+            assert await repository.bump_notification_revision_for_retry(job.id) == 2
+
+    async with asyncio.timeout(3):
+        await asyncio.gather(
+            _sync_article_then_job(
+                factory,
+                article.id,
+                job.id,
+                article_locked,
+                retry_started,
+                increment_revision=True,
+            ),
+            retry(),
+        )
+
+    await db_session.refresh(article)
+    await db_session.refresh(job)
+    assert article.title == "同步后的标题"
+    assert article.automation_status == "等待中"
+    assert job.notification_state["_revision"] == 2
+    assert job.overall_status == JobStatus.WAITING

@@ -181,13 +181,17 @@ class JobRepository:
         delay_seconds: int | None,
         error: PublishError,
     ) -> bool:
+        locked = await self._lock_article_then_job(claim.job_id)
+        if locked is None:
+            return False
+        article, current = locked
         now = await self._database_now()
-        current = await self.session.get(PublicationJob, claim.job_id)
-        finalization = current.snapshot_metadata.get("delivery_finalization") if current is not None else None
+        if not _lease_matches(current, claim, now):
+            return False
+        finalization = current.snapshot_metadata.get("delivery_finalization")
         if (
             isinstance(finalization, dict)
             and finalization.get("notion_pending") is False
-            and current is not None
             and current.overall_status in {JobStatus.BLOCKED, JobStatus.FAILED, JobStatus.COMPLETED}
         ):
             return False
@@ -195,29 +199,14 @@ class JobRepository:
             status = JobStatus.BLOCKED
         else:
             status = JobStatus.WAITING if delay_seconds is not None else JobStatus.FAILED
-        values: dict[str, object] = {
-            "overall_status": status,
-            "lease_expires_at": None,
-            "lease_token": None,
-        }
+        current.overall_status = status
+        current.lease_expires_at = None
+        current.lease_token = None
         if delay_seconds is not None:
-            values["scheduled_at"] = now + timedelta(seconds=delay_seconds)
-        result = await self.session.execute(
-            update(PublicationJob)
-            .where(
-                PublicationJob.id == claim.job_id,
-                PublicationJob.lease_token == claim.lease_token,
-                PublicationJob.lease_expires_at >= now,
-            )
-            .values(**values)
-        )
-        updated = bool(cast(Any, result).rowcount)
-        if updated and current is not None and _notion_delivery_pending(current):
-            await self._update_article_after_notion_failure(
-                current,
-                status,
-            )
-        return updated
+            current.scheduled_at = now + timedelta(seconds=delay_seconds)
+        if _notion_delivery_pending(current):
+            self._update_article_after_notion_failure(article, status)
+        return True
 
     async def begin_execution(self, claim: "JobClaim") -> int | None:
         now = await self._database_now()
@@ -249,38 +238,53 @@ class JobRepository:
 
     async def bump_notification_revision_for_retry(self, job_id: UUID) -> int | None:
         """人工重试入口：仅在没有有效 worker lease 时递增事件 revision。"""
+        locked = await self._lock_article_then_job(job_id)
+        if locked is None:
+            return None
+        article, job = locked
         now = await self._database_now()
+        if job.lease_token is not None and job.lease_expires_at is not None and job.lease_expires_at >= now:
+            return None
+        current = job.notification_state.get("_revision", 0)
+        finalization = job.snapshot_metadata.get("delivery_finalization")
+        if (
+            isinstance(finalization, dict)
+            and finalization.get("notion_pending") is True
+            and job.overall_status not in {JobStatus.WAITING, JobStatus.BLOCKED, JobStatus.FAILED}
+        ):
+            return None
+        revision = (current if isinstance(current, int) else 0) + 1
+        job.notification_state = {**job.notification_state, "_revision": revision}
+        if isinstance(finalization, dict) and finalization.get("notion_pending") is True:
+            job.overall_status = JobStatus.WAITING
+            job.scheduled_at = now
+            article.automation_status = AutomationStatus.WAITING
+            article.last_error = None
+        return revision
+
+    async def _lock_article_then_job(
+        self,
+        job_id: UUID,
+    ) -> tuple[Article, PublicationJob] | None:
+        article_id = await self.session.scalar(select(PublicationJob.article_id).where(PublicationJob.id == job_id))
+        if article_id is None:
+            return None
+        article = await self.session.scalar(select(Article).where(Article.id == article_id).with_for_update())
         job = await self.session.scalar(
             select(PublicationJob)
             .where(PublicationJob.id == job_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if job is None:
+        if article is None or job is None or job.article_id != article.id:
             return None
-        if job.lease_token is not None and job.lease_expires_at is not None and job.lease_expires_at >= now:
-            return None
-        current = job.notification_state.get("_revision", 0)
-        revision = (current if isinstance(current, int) else 0) + 1
-        job.notification_state = {**job.notification_state, "_revision": revision}
-        finalization = job.snapshot_metadata.get("delivery_finalization")
-        if isinstance(finalization, dict) and finalization.get("notion_pending") is True:
-            job.overall_status = JobStatus.WAITING
-            job.scheduled_at = now
-            article = await self.session.get(Article, job.article_id)
-            if article is not None:
-                article.automation_status = AutomationStatus.WAITING
-                article.last_error = None
-        return revision
+        return article, job
 
-    async def _update_article_after_notion_failure(
-        self,
-        job: PublicationJob,
+    @staticmethod
+    def _update_article_after_notion_failure(
+        article: Article,
         status: JobStatus,
     ) -> None:
-        article = await self.session.get(Article, job.article_id)
-        if article is None:
-            return
         if status == JobStatus.BLOCKED:
             article.automation_status = AutomationStatus.BLOCKED
             article.last_error = "Notion 终态回写阻塞，请检查集成配置后人工重试"
@@ -332,3 +336,9 @@ def _notion_delivery_pending(job: PublicationJob | None) -> bool:
         return False
     finalization = job.snapshot_metadata.get("delivery_finalization")
     return isinstance(finalization, dict) and finalization.get("notion_pending") is True
+
+
+def _lease_matches(job: PublicationJob, claim: JobClaim, now: datetime) -> bool:
+    return bool(
+        job.lease_token == claim.lease_token and job.lease_expires_at is not None and job.lease_expires_at >= now
+    )
