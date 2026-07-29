@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from reven.publishing.commands import CommandResult, CommandRunner
-from reven.publishing.sandbox import bubblewrap_command
+from reven.publishing.sandbox import BLOG_RESOURCE_PROFILE, SandboxResourceProfile, bubblewrap_command
 from reven.publishing.secure_fs import ensure_directory, verify_directory
 
 _JOB_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
@@ -32,12 +32,14 @@ class BlogWorkspace:
         runner: CommandRunner,
         sandbox_executable: Path | None = None,
         bundle_root: Path = Path("/opt/reven-blog"),
+        resource_profile: SandboxResourceProfile = BLOG_RESOURCE_PROFILE,
     ) -> None:
-        self.root = jobs_root.absolute()
+        root = jobs_root.absolute()
+        self.root = ensure_directory(root.parent, root)
         self.runner = runner
         self.sandbox_executable = sandbox_executable
         self.bundle_root = bundle_root
-        verify_directory(self.root.parent, self.root)
+        self.resource_profile = resource_profile
 
     async def clone(self, job_id: str, remote_url: str, token: str) -> Path:
         path = self.path(job_id)
@@ -75,7 +77,7 @@ class BlogWorkspace:
         environment = self._workspace_env(path)
         await self.runner.run(["git", "switch", "-c", branch], cwd=path, env=environment)
         await self.runner.run(
-            self._sandbox_command(path, ["bundle", "check"]),
+            self.sandbox_command(path, ["bundle", "check"]),
             cwd=path,
             env=environment,
         )
@@ -93,11 +95,17 @@ class BlogWorkspace:
         self._verify_repository(path)
         argv = ["bundle", "exec", "jekyll", "build"]
         if self.sandbox_executable is not None:
-            argv = self._sandbox_command(path, argv)
+            argv = self.sandbox_command(path, argv)
         await self.runner.run(argv, cwd=path, env=self._workspace_env(path))
         self._verify_repository(path)
 
-    def _sandbox_command(self, path: Path, argv: list[str]) -> list[str]:
+    def sandbox_command(
+        self,
+        path: Path,
+        argv: list[str],
+        *,
+        resource_profile: SandboxResourceProfile | None = None,
+    ) -> list[str]:
         if self.sandbox_executable is None:
             return argv
         return bubblewrap_command(
@@ -106,7 +114,7 @@ class BlogWorkspace:
             writable_path=path,
             writable_paths=(self._runtime_root(path),),
             readable_paths=(self.bundle_root,),
-            resource_profile="blog",
+            resource_profile=resource_profile or self.resource_profile,
         )
 
     async def commit(self, path: Path, manifest: tuple[Path, ...], title: str) -> str:

@@ -1,11 +1,30 @@
 """Fail-closed Linux process sandbox argument construction."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 
 class SandboxUnavailableError(RuntimeError):
     """The required OS sandbox is not available."""
+
+
+@dataclass(frozen=True)
+class SandboxResourceProfile:
+    cpu_seconds: int
+    nofile: int
+    nproc: int
+    file_size_bytes: int
+    address_space_bytes: int
+
+
+BLOG_RESOURCE_PROFILE = SandboxResourceProfile(
+    cpu_seconds=240,
+    nofile=256,
+    nproc=64,
+    file_size_bytes=64 * 1024 * 1024,
+    address_space_bytes=1536 * 1024 * 1024,
+)
 
 
 def bubblewrap_command(
@@ -16,7 +35,7 @@ def bubblewrap_command(
     writable_paths: Sequence[Path] = (),
     readable_paths: Sequence[Path] = (),
     network: bool = False,
-    resource_profile: str | None = None,
+    resource_profile: SandboxResourceProfile | None = None,
 ) -> list[str]:
     if not executable.is_file():
         raise SandboxUnavailableError("OS 沙箱不可用")
@@ -25,6 +44,8 @@ def bubblewrap_command(
         "--die-with-parent",
         "--new-session",
         "--unshare-all",
+        "--cap-drop",
+        "ALL",
     ]
     for path in _system_paths():
         sandbox.extend(["--ro-bind", str(path), str(path)])
@@ -50,8 +71,8 @@ def bubblewrap_command(
         resolved = path.resolve()
         sandbox.extend(["--bind", str(resolved), str(resolved)])
     command = [*sandbox, "--", *argv]
-    if resource_profile == "blog":
-        return ["/usr/bin/prlimit", *_blog_limits(), "--", *command]
+    if resource_profile is not None:
+        return ["/usr/bin/prlimit", *_resource_limits(resource_profile), "--", *command]
     return command
 
 
@@ -60,11 +81,11 @@ def _system_paths() -> tuple[Path, ...]:
     return tuple(path for path in candidates if path.exists())
 
 
-def _blog_limits() -> tuple[str, ...]:
+def _resource_limits(profile: SandboxResourceProfile) -> tuple[str, ...]:
     return (
-        "--cpu=240",
-        "--nofile=256",
-        "--nproc=64",
-        "--fsize=67108864",
-        "--as=1610612736",
+        f"--cpu={profile.cpu_seconds}",
+        f"--nofile={profile.nofile}",
+        f"--nproc={profile.nproc}",
+        f"--fsize={profile.file_size_bytes}",
+        f"--as={profile.address_space_bytes}",
     )

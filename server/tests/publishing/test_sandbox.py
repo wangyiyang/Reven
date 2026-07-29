@@ -13,6 +13,7 @@ def test_bubblewrap_command_is_networkless_and_binds_only_workspace_writable(tmp
     command = bubblewrap_command(executable, ["jekyll", "build"], writable_path=workspace)
 
     assert "--unshare-all" in command
+    assert command[command.index("--cap-drop") + 1] == "ALL"
     assert "--share-net" not in command
     assert ["--ro-bind", "/", "/"] != command[command.index("--ro-bind") : command.index("--ro-bind") + 3]
     assert "--proc" not in command

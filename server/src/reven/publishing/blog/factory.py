@@ -40,11 +40,7 @@ class ConfiguredBlogPublisher:
         config = await self._configuration()
         remote = f"https://github.com/{config.owner}/{config.repo}.git"
         runner = CommandRunner()
-        workspace = BlogWorkspace(
-            self.data_root / "jobs",
-            runner,
-            sandbox_executable=Path("/usr/bin/bwrap"),
-        )
+        workspace = create_blog_workspace(self.data_root, runner)
         async with runner, GitHubClient(config.owner, config.repo, config.token, site_url=config.site_url) as client:
             publisher = BlogPublisher(
                 client,
@@ -73,6 +69,11 @@ class ConfiguredBlogPublisher:
         if not token:
             raise BlockedPublishError("GitHub Token 尚未配置")
         return _Configuration(owner, repo, site_url, token)
+
+
+def create_blog_workspace(data_root: Path, runner: CommandRunner) -> BlogWorkspace:
+    """Build the production workspace using JOB_DATA_DIR as the jobs root."""
+    return BlogWorkspace(data_root, runner, sandbox_executable=Path("/usr/bin/bwrap"))
 
 
 def _field(config: dict[str, object], key: str) -> str:
