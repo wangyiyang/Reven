@@ -30,26 +30,38 @@ class BlogWorkspace:
 
     async def prepare(self, path: Path, branch: str) -> None:
         self._assert_cwd(path)
-        await self.runner.run(["git", "switch", "-c", branch], cwd=path)
-        platform = (await self.runner.run(["ruby", "-e", "print Gem::Platform.local"])).stdout.strip()
+        environment = _workspace_env(path)
+        await self.runner.run(["git", "switch", "-c", branch], cwd=path, env=environment)
+        platform = (
+            await self.runner.run(
+                ["ruby", "-e", "print Gem::Platform.local"],
+                cwd=path,
+                env=environment,
+            )
+        ).stdout.strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", platform):
             raise ValueError("Ruby platform 输出无效")
-        await self.runner.run(["bundle", "lock", "--add-platform", platform], cwd=path)
-        await self.runner.run(["bundle", "install"], cwd=path)
+        await self.runner.run(["bundle", "lock", "--add-platform", platform], cwd=path, env=environment)
+        await self.runner.run(["bundle", "install"], cwd=path, env=environment)
 
     async def build(self, path: Path) -> None:
         self._assert_cwd(path)
-        await self.runner.run(["bundle", "exec", "jekyll", "build"], cwd=path)
+        await self.runner.run(["bundle", "exec", "jekyll", "build"], cwd=path, env=_workspace_env(path))
 
     async def commit(self, path: Path, manifest: tuple[Path, ...], title: str) -> str:
         self._assert_cwd(path)
         paths = [item.as_posix() for item in manifest]
         if not paths or any(item.startswith("/") or ".." in Path(item).parts for item in paths):
             raise ValueError("Git manifest 无效")
-        await self.runner.run(["git", "add", "--", *paths], cwd=path)
+        environment = _workspace_env(path)
+        await self.runner.run(["git", "add", "--", *paths], cwd=path, env=environment)
         safe_title = " ".join(title.replace("\0", "").split())[:120]
-        await self.runner.run(["git", "commit", "-m", f"feat: publish {safe_title}"], cwd=path)
-        result = await self.runner.run(["git", "rev-parse", "HEAD"], cwd=path)
+        await self.runner.run(
+            ["git", "commit", "-m", f"feat: publish {safe_title}"],
+            cwd=path,
+            env=environment,
+        )
+        result = await self.runner.run(["git", "rev-parse", "HEAD"], cwd=path, env=environment)
         return result.stdout.strip()
 
     async def push(self, path: Path, remote_url: str, branch: str, token: str) -> CommandResult:
@@ -59,7 +71,7 @@ class BlogWorkspace:
         return await self.runner.run(
             ["git", "push", "origin", f"HEAD:refs/heads/{branch}"],
             cwd=path,
-            env=_git_auth_env(remote_url, token),
+            env={**_workspace_env(path), **_git_auth_env(remote_url, token)},
             secrets=(token,),
         )
 
@@ -73,6 +85,14 @@ class BlogWorkspace:
         if not resolved.is_relative_to(self.root) or resolved.name != "blog":
             raise ValueError("命令工作目录越界")
 
+    def cleanup(self, job_id: str) -> None:
+        path = self.path(job_id)
+        if path.is_symlink():
+            raise ValueError("拒绝清理符号链接工作区")
+        self._assert_cwd(path)
+        if path.exists():
+            shutil.rmtree(path)
+
 
 def _git_auth_env(remote_url: str, token: str) -> dict[str, str]:
     parsed = urlsplit(remote_url)
@@ -84,3 +104,17 @@ def _git_auth_env(remote_url: str, token: str) -> dict[str, str]:
         "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
         "GIT_CONFIG_VALUE_0": f"Authorization: Basic {encoded}",
     }
+
+
+def _workspace_env(path: Path) -> dict[str, str]:
+    isolated = path / ".reven"
+    directories = {
+        "HOME": isolated / "home",
+        "TMPDIR": isolated / "tmp",
+        "BUNDLE_USER_HOME": isolated / "bundle",
+        "BUNDLE_PATH": isolated / "bundle" / "path",
+        "GEM_HOME": isolated / "gem",
+    }
+    for directory in directories.values():
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return {key: str(value) for key, value in directories.items()}

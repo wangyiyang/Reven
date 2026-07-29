@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
-from uuid import uuid4
 
 from reven.integrations.github.client import (
     GitHubBlockedError,
@@ -43,6 +42,7 @@ class ResultStore(Protocol):
     async def assert_lease(self, claim: JobClaim) -> bool: ...
     async def save_result(self, claim: JobClaim, patch: dict[str, object]) -> bool: ...
     async def clear_operation(self, claim: JobClaim, operation_id: str) -> bool: ...
+    async def begin_operation_if_absent(self, claim: JobClaim, phase: str) -> str | None: ...
 
 
 @dataclass(frozen=True)
@@ -200,6 +200,7 @@ class BlogPublisher:
     ) -> str:
         existing = result.get("merge_sha")
         if isinstance(existing, str) and existing:
+            await self._recover_operation(claim, result, "merge")
             return existing
         del branch, default
         current = await self._external(self.client.get_pull(number))
@@ -251,7 +252,10 @@ class BlogPublisher:
         marker = result.get("operation")
         if isinstance(marker, dict):
             raise BlockedPublishError(f"{marker.get('phase', '外部写')}结果不确定，请人工核验")
-        await self._save(claim, result, {"operation": {"id": str(uuid4()), "phase": phase}})
+        operation_id = await self.store.begin_operation_if_absent(claim, phase)
+        if operation_id is None:
+            raise BlockedPublishError(f"{phase} 已由其他 worker 发起，等待远端证据恢复")
+        result["operation"] = {"id": operation_id, "phase": phase}
 
     async def _clear_operation(self, claim: JobClaim, result: dict[str, object]) -> None:
         marker = _dict(result.get("operation"))
@@ -365,9 +369,11 @@ def verify_remote_branch(local_sha: str, branch: dict[str, Any]) -> str:
 
 
 def pages_state(build: dict[str, Any], merge_sha: str) -> str:
+    if build.get("commit") != merge_sha:
+        return "pending"
     if build.get("status") in {"errored", "cancelled"}:
         raise BlockedPublishError("GitHub Pages 最新构建失败")
-    if build.get("commit") == merge_sha and build.get("status") == "built":
+    if build.get("status") == "built":
         return "success"
     return "pending"
 

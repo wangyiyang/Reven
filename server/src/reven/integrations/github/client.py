@@ -428,6 +428,14 @@ def _raise_for_status(response: httpx.Response, method: str) -> None:
     uncertain = method not in {"GET", "HEAD"}
     if status == 429 or status >= 500:
         raise GitHubTransientError(message, status=status, uncertain=uncertain)
+    if status == 403 and (
+        response.headers.get("x-ratelimit-remaining") == "0" or response.headers.get("retry-after") is not None
+    ):
+        error = GitHubTransientError(message, status=status, uncertain=uncertain)
+        retry_after = response.headers.get("retry-after", "")
+        if retry_after.isdigit():
+            setattr(error, "retry_after_seconds", min(int(retry_after), 3600))
+        raise error
     if status in {401, 403}:
         raise GitHubBlockedError(message, status=status)
     raise GitHubPermanentError(message, status=status)

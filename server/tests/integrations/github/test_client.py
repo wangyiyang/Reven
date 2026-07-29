@@ -266,3 +266,19 @@ async def test_github_http_errors_are_classified(status: int, error: type[Except
     async with GitHubClient("acme", "blog", "secret") as client:
         with pytest.raises(error):
             await client.default_branch()
+
+
+@pytest.mark.anyio
+@respx.mock
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Retry-After": "10"},
+        {"X-RateLimit-Remaining": "0"},
+    ],
+)
+async def test_github_rate_limit_403_is_transient(headers: dict[str, str]) -> None:
+    respx.get("https://api.github.com/repos/acme/blog").mock(return_value=httpx.Response(403, headers=headers))
+    async with GitHubClient("acme", "blog", "secret") as client:
+        with pytest.raises(GitHubTransientError):
+            await client.default_branch()

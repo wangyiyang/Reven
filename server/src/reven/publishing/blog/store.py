@@ -1,5 +1,7 @@
 """Fenced persistence for recoverable blog publication phases."""
 
+from uuid import uuid4
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -68,6 +70,22 @@ class SqlAlchemyBlogResultStore:
                 return False
             job.blog_result = {key: value for key, value in job.blog_result.items() if key != "operation"}
             return True
+
+    async def begin_operation_if_absent(self, claim: JobClaim, phase: str) -> str | None:
+        async with self.session_factory.begin() as session:
+            job = await session.scalar(
+                select(PublicationJob).where(PublicationJob.id == claim.job_id).with_for_update()
+            )
+            if job is None or not await _lease_matches(session, job, claim):
+                return None
+            if isinstance(job.blog_result.get("operation"), dict):
+                return None
+            operation_id = str(uuid4())
+            job.blog_result = {
+                **job.blog_result,
+                "operation": {"id": operation_id, "phase": phase},
+            }
+            return operation_id
 
 
 async def _lease_matches(session: AsyncSession, job: PublicationJob, claim: JobClaim) -> bool:
