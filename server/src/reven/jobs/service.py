@@ -36,6 +36,7 @@ from reven.jobs.preparation_state import persist_blocked as _persist_blocked
 from reven.jobs.preparation_state import refresh_article as _refresh_article
 from reven.jobs.preparation_state import source_failure as _source_failure
 from reven.jobs.preparation_state import valid_asset_manifest as _valid_asset_manifest
+from reven.jobs.preparation_state import validation_metadata as _validation_metadata
 from reven.publishing.assets import AssetDownloadError, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot, image_urls
 from reven.publishing.validation import (
@@ -254,7 +255,14 @@ class PublicationJobService:
             if not work.validation.is_valid or work.assets is None:
                 return _persist_blocked(job, article, work.validation)
             return await self._freeze_validated(
-                session, job, article, mapped, work.markdown, work.channels, work.assets
+                session,
+                job,
+                article,
+                mapped,
+                work.markdown,
+                work.channels,
+                work.assets,
+                work.validation,
             )
 
     async def _freeze_validated(
@@ -266,6 +274,7 @@ class PublicationJobService:
         markdown: str,
         channels: tuple[TargetChannel, ...],
         assets: MaterializedAssets,
+        validation: ValidationResult,
     ) -> _PersistedPreparation:
         if assets.cover is None:
             raise PublicationPreparationError("校验器错误地放行了缺少封面的快照")
@@ -294,6 +303,7 @@ class PublicationJobService:
             _snapshot_metadata(snapshot.metadata(), final_assets),
             assets,
         )
+        metadata["validation"] = _validation_metadata(validation)
         _freeze(job, snapshot.content_hash, snapshot.markdown, metadata, channels)
         article.automation_status = AutomationStatus.WAITING
         article.last_error = None
