@@ -61,6 +61,12 @@ class NotionClient:
             raise NotionSchemaError("字段 markdown 缺失或不是字符串，Notion 响应契约可能已变化")
         return markdown
 
+    async def retrieve_page(self, page_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/v1/pages/{page_id}")
+
+    async def update_page(self, page_id: str, *, properties: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("PATCH", f"/v1/pages/{page_id}", json={"properties": properties})
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         try:
             response = await self.http.request(method, path, headers=self.headers, **kwargs)
