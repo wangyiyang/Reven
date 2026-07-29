@@ -12,12 +12,14 @@ import { ArticleStatus } from "./article-status"
 import { ChannelTimeline } from "./channel-timeline"
 import type { ArticleDetail, ChannelName, JobDetail, JobSummary, ValidationItem } from "./types"
 import { WechatPreview } from "./wechat-preview"
+import { parseAction, parseArticleDetail, parseJobDetail } from "./response-parsers"
+import { PublicationGuidance } from "./publication-guidance"
 
 export function ArticleDetailPage() {
   const { articleId = "" } = useParams()
   const article = useQuery({
     queryKey: ["article", articleId],
-    queryFn: () => apiRequest<ArticleDetail>(`/articles/${articleId}`),
+    queryFn: async () => parseArticleDetail(await apiRequest<unknown>(`/articles/${articleId}`)),
     enabled: Boolean(articleId),
   })
   if (article.isLoading) return <DetailLoading />
@@ -31,7 +33,7 @@ function DetailContent({ article }: { article: ArticleDetail }) {
   const newest = article.jobs[0]
   const job = useQuery({
     queryKey: ["article-job", article.id, newest?.id],
-    queryFn: () => apiRequest<JobDetail>(`/articles/${article.id}/jobs/${newest.id}`),
+    queryFn: async () => parseJobDetail(await apiRequest<unknown>(`/articles/${article.id}/jobs/${newest.id}`)),
     enabled: Boolean(newest),
   })
   return (
@@ -54,10 +56,19 @@ function DetailContent({ article }: { article: ArticleDetail }) {
       </section>
       <section aria-label="渠道交付时间线">
         <p className="section-kicker mb-2">Delivery timeline / 渠道状态</p>
-        <ChannelTimeline channel="个人博客" result={job.data?.blog ?? article.blog} />
-        <ChannelTimeline channel="微信公众号" result={job.data?.wechat ?? article.wechat} />
+        {!newest && <>
+          <ChannelTimeline channel="个人博客" result={article.blog} />
+          <ChannelTimeline channel="微信公众号" result={article.wechat} />
+        </>}
+        {newest && job.isLoading && <JobLoading />}
+        {newest && job.isError && <JobError message={job.error.message} retry={() => job.refetch()} />}
+        {job.isSuccess && <>
+          <ChannelTimeline channel="个人博客" result={job.data.blog} />
+          <ChannelTimeline channel="微信公众号" result={job.data.wechat} />
+        </>}
       </section>
-      {newest && <JobActions articleId={article.id} job={job.data ?? newest} />}
+      {job.isSuccess && <JobActions articleId={article.id} job={job.data} />}
+      <PublicationGuidance article={article} job={job.data ?? null} />
       <JobHistory article={article} />
     </main>
   )
@@ -70,7 +81,7 @@ function Metadata({ article }: { article: ArticleDetail }) {
       <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
         <Meta label="封面校验" value={article.cover_valid ? "通过" : "未通过：发布将被阻止"} danger={!article.cover_valid} />
         <Meta label="计划时间" value={formatDate(article.planned_at)} />
-        <Meta label="目标渠道" value={article.target_channels.join("、")} />
+        <Meta label="目标渠道" value={(article.target_channels.length ? article.target_channels : ["个人博客", "微信公众号"]).join("、")} />
         <Meta label="最近同步" value={formatDate(article.last_synced_at)} />
         <Meta label="内容 Hash" value={article.content_hash ?? "尚未冻结"} mono />
       </dl>
@@ -99,25 +110,26 @@ function JobActions({ articleId, job }: { articleId: string; job: JobSummary | J
   const lock = useRef(false)
   const client = useQueryClient()
   const action = useMutation({
-    mutationFn: async ({ kind, channels }: { kind: "retry" | "cancel"; channels?: ChannelName[] }) => {
-      if (lock.current) return
-      lock.current = true
-      try {
-        return await apiRequest(`/articles/${articleId}/jobs/${job.id}/${kind}`, {
+    mutationFn: async ({ kind, channels }: { kind: "retry" | "cancel"; channels?: ChannelName[] }) =>
+      parseAction(
+        await apiRequest<unknown>(`/articles/${articleId}/jobs/${job.id}/${kind}`, {
           method: "POST",
           body: channels ? JSON.stringify({ channels }) : undefined,
-        })
-      } finally {
-        lock.current = false
-      }
-    },
+        }),
+      ),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["article", articleId] })
       await client.invalidateQueries({ queryKey: ["article-job", articleId, job.id] })
       toast.success("任务状态已更新")
     },
     onError: (error: Error) => toast.error(error.message),
+    onSettled: () => { lock.current = false },
   })
+  const runAction = (input: { kind: "retry" | "cancel"; channels?: ChannelName[] }) => {
+    if (lock.current) return
+    lock.current = true
+    action.mutate(input)
+  }
   const failed = [
     ...(isFailed(job.blog_status) ? ["个人博客" as const] : []),
     ...(isFailed(job.wechat_status) ? ["微信公众号" as const] : []),
@@ -126,8 +138,8 @@ function JobActions({ articleId, job }: { articleId: string; job: JobSummary | J
     <section className="my-8 flex flex-wrap items-center justify-between gap-4 border-y border-[var(--ink)] py-5">
       <div><p className="text-xs text-[var(--muted)]">最近任务</p><p className="mt-1 font-mono text-xs">{job.id}</p></div>
       <div className="flex flex-wrap gap-2">
-        {failed.map((channel) => <Button disabled={action.isPending} key={channel} onClick={() => action.mutate({ kind: "retry", channels: [channel] })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />重试{channel}</Button>)}
-        {job.overall_status === "等待中" && <Button disabled={action.isPending} onClick={() => action.mutate({ kind: "cancel" })} size="sm" variant="outline"><Ban aria-hidden size={13} />取消等待任务</Button>}
+        {failed.map((channel) => <Button disabled={action.isPending} key={channel} onClick={() => runAction({ kind: "retry", channels: [channel] })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />重试{channel}</Button>)}
+        {job.overall_status === "等待中" && <Button disabled={action.isPending} onClick={() => runAction({ kind: "cancel" })} size="sm" variant="outline"><Ban aria-hidden size={13} />取消等待任务</Button>}
       </div>
     </section>
   )
@@ -164,4 +176,12 @@ function DetailLoading() {
 
 function DetailError({ message, retry }: { message: string; retry: () => void }) {
   return <main className="mx-auto max-w-6xl px-5 py-12"><div className="border border-[var(--red)] bg-[var(--red-soft)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
+}
+
+function JobLoading() {
+  return <div aria-busy="true" aria-label="正在读取最近任务" className="grid gap-3 py-6"><Skeleton className="h-20 rounded-none" /><Skeleton className="h-20 rounded-none" /></div>
+}
+
+function JobError({ message, retry }: { message: string; retry: () => void }) {
+  return <div className="my-5 border border-[var(--red)] bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]" role="alert"><p>最近任务读取失败：{message}</p><Button className="mt-3" onClick={retry} size="sm" variant="outline">重试任务详情</Button></div>
 }

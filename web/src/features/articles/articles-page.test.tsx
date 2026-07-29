@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
-import { describe, expect, it } from "vitest"
+import { toast } from "sonner"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { server } from "@/test/server"
 import { ArticlesPage } from "./articles-page"
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const article = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -24,6 +27,8 @@ const article = {
 }
 
 describe("ArticlesPage", () => {
+  beforeEach(() => vi.clearAllMocks())
+
   it("persists status channel query and page filters in the URL", async () => {
     const requests: string[] = []
     server.use(http.get("/api/articles", ({ request }) => {
@@ -71,6 +76,42 @@ describe("ArticlesPage", () => {
     await userEvent.dblClick(buttons[0])
 
     await waitFor(() => expect(calls).toBe(1))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
+  })
+
+  it("moves channel statuses into the mobile summary", async () => {
+    server.use(http.get("/api/articles", () => HttpResponse.json({ items: [article], total: 1, page: 1, page_size: 20 })))
+    renderPage("/articles")
+
+    const summary = await screen.findByRole("article", { name: "测试稿件移动摘要" })
+
+    expect(within(summary).getByText("博客")).toBeInTheDocument()
+    expect(within(summary).getByText("微信")).toBeInTheDocument()
+    expect(within(summary).getByText("草稿已生成")).toBeInTheDocument()
+  })
+
+  it.each([
+    ["null items", { items: null, total: 1, page: 1, page_size: 20 }],
+    ["string total", { items: [article], total: "1", page: 1, page_size: 20 }],
+  ])("shows a recoverable error for malformed %s responses", async (_, body) => {
+    server.use(http.get("/api/articles", () => HttpResponse.json(body)))
+    renderPage("/articles")
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("稿件列表响应格式无效")
+    expect(screen.getByRole("button", { name: "重新读取" })).toBeInTheDocument()
+  })
+
+  it("reports a malformed successful sync response without a success toast", async () => {
+    server.use(
+      http.get("/api/articles", () => HttpResponse.json({ items: [article], total: 1, page: 1, page_size: 20 })),
+      http.post("/api/articles/:id/sync", () => HttpResponse.json({ ok: true })),
+    )
+    renderPage("/articles")
+
+    await userEvent.click((await screen.findAllByRole("button", { name: /同步/ }))[0])
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("同步操作响应格式无效"))
+    expect(toast.success).not.toHaveBeenCalled()
   })
 })
 

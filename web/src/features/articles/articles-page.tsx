@@ -10,7 +10,8 @@ import { apiRequest } from "@/lib/api"
 import { safeNotionUrl } from "@/lib/external-url"
 import { ArticleFilters, type ArticleFilterValues } from "./article-filters"
 import { ArticleStatus } from "./article-status"
-import type { ArticleList, ArticleSummary } from "./types"
+import { parseArticleList, parseSync } from "./response-parsers"
+import type { ArticleSummary } from "./types"
 
 const PAGE_SIZE = 20
 
@@ -20,7 +21,7 @@ export function ArticlesPage() {
   const queryString = buildQuery(filters)
   const articles = useQuery({
     queryKey: ["articles", queryString],
-    queryFn: () => apiRequest<ArticleList>(`/articles?${queryString}`),
+    queryFn: async () => parseArticleList(await apiRequest<unknown>(`/articles?${queryString}`)),
   })
   const updateFilters = (next: ArticleFilterValues) => {
     const params = new URLSearchParams()
@@ -92,7 +93,7 @@ function ArticleRow({ article }: { article: ArticleSummary }) {
       <td className="px-2 py-5"><ArticleStatus compact status={article.notion_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.automation_status} /></td>
       <td className="px-2 py-5">{article.cover_valid ? "✓ 已校验" : <span className="text-[var(--red)]">! 缺失</span>}</td>
-      <td className="px-2 py-5">{article.target_channels.join(" · ")}</td>
+      <td className="px-2 py-5">{channelLabel(article.target_channels, " · ")}</td>
       <td className="px-2 py-5">{formatDate(article.planned_at)}</td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.blog_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.wechat_status} /></td>
@@ -105,15 +106,19 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
   return (
     <div className="mt-6 grid gap-4 xl:hidden">
       {items.map((article) => (
-        <article className="border border-[var(--line-strong)] bg-white/25 p-5" key={article.id}>
+        <article aria-label={`${article.title}移动摘要`} className="border border-[var(--line-strong)] bg-white/25 p-5" key={article.id}>
           <Link className="font-display text-2xl leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
           <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
           <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-            <Meta label="渠道" value={article.target_channels.join("、")} />
+            <Meta label="渠道" value={channelLabel(article.target_channels, "、")} />
             <Meta label="封面" value={article.cover_valid ? "已校验" : "缺失"} />
             <Meta label="计划" value={formatDate(article.planned_at)} />
             <Meta label="最近同步" value={formatDate(article.last_synced_at)} />
           </dl>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <ChannelSummary label="博客" status={article.blog_status} />
+            <ChannelSummary label="微信" status={article.wechat_status} />
+          </div>
           <RowActions article={article} />
         </article>
       ))}
@@ -125,26 +130,24 @@ function RowActions({ article }: { article: ArticleSummary }) {
   const lock = useRef(false)
   const client = useQueryClient()
   const sync = useMutation({
-    mutationFn: async () => {
-      if (lock.current) return
-      lock.current = true
-      try {
-        return await apiRequest(`/articles/${article.id}/sync`, { method: "POST" })
-      } finally {
-        lock.current = false
-      }
-    },
+    mutationFn: async () => parseSync(await apiRequest<unknown>(`/articles/${article.id}/sync`, { method: "POST" })),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["articles"] })
       toast.success("已读取最新 Notion 稿件")
     },
     onError: (error: Error) => toast.error(error.message),
+    onSettled: () => { lock.current = false },
   })
+  const runSync = () => {
+    if (lock.current) return
+    lock.current = true
+    sync.mutate()
+  }
   const notionUrl = safeNotionUrl(article.notion_url)
   return (
     <div className="mt-3 flex flex-wrap gap-1">
       {notionUrl && <a className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5" href={notionUrl} rel="noopener noreferrer" target="_blank">Notion <ArrowUpRight aria-hidden size={12} /></a>}
-      <button className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5 disabled:opacity-45" disabled={sync.isPending} onClick={() => sync.mutate()} type="button"><RefreshCcw aria-hidden className={sync.isPending ? "animate-spin" : ""} size={12} />同步</button>
+      <button className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5 disabled:opacity-45" disabled={sync.isPending} onClick={runSync} type="button"><RefreshCcw aria-hidden className={sync.isPending ? "animate-spin" : ""} size={12} />同步</button>
       <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-black/5" to={`/articles/${article.id}`}>任务详情</Link>
     </div>
   )
@@ -184,8 +187,16 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Shanghai" }).format(new Date(value))
 }
 
+function channelLabel(channels: ArticleSummary["target_channels"], separator: string) {
+  return (channels.length > 0 ? channels : ["个人博客", "微信公众号"]).join(separator)
+}
+
 function Meta({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">{label}</dt><dd className="mt-1">{value}</dd></div>
+}
+
+function ChannelSummary({ label, status }: { label: string; status: string | null }) {
+  return <div><p className="mb-1 text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">{label}</p><ArticleStatus compact status={status} /></div>
 }
 
 function LoadingRows() {

@@ -7,23 +7,22 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { apiRequest } from "@/lib/api"
 import { copyRichHtml } from "@/lib/clipboard"
+import { parsePreview } from "./response-parsers"
 
 export function WechatPreview({ articleId, title }: { articleId: string; title: string }) {
   const [open, setOpen] = useState(false)
   const lock = useRef(false)
   const preview = useMutation({
-    mutationFn: async () => {
-      if (lock.current) return
-      lock.current = true
-      try {
-        return await apiRequest<{ html: string }>(`/articles/${articleId}/preview/wechat`, { method: "POST" })
-      } finally {
-        lock.current = false
-      }
-    },
+    mutationFn: async () => parsePreview(await apiRequest<unknown>(`/articles/${articleId}/preview/wechat`, { method: "POST" })),
     onSuccess: () => setOpen(true),
     onError: (error: Error) => toast.error(error.message),
+    onSettled: () => { lock.current = false },
   })
+  const runPreview = () => {
+    if (lock.current) return
+    lock.current = true
+    preview.mutate()
+  }
   const copy = async () => {
     if (!preview.data) return
     try {
@@ -35,7 +34,7 @@ export function WechatPreview({ articleId, title }: { articleId: string; title: 
   }
   return (
     <>
-      <Button disabled={preview.isPending} onClick={() => preview.mutate()} type="button" variant="outline">
+      <Button disabled={preview.isPending} onClick={runPreview} type="button" variant="outline">
         {preview.isPending ? <LoaderCircle aria-hidden className="animate-spin" size={15} /> : <Eye aria-hidden size={15} />}
         生成微信预览
       </Button>

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import Select, func, nullslast, select
+from sqlalchemy import Select, func, literal, nullslast, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.articles.models import Article
@@ -39,7 +39,7 @@ class ArticleQuery:
         if status:
             statement = statement.where((Article.notion_status == status) | (Article.automation_status == status))
         if channel:
-            statement = statement.where(Article.target_channels.contains([channel]))
+            statement = statement.where(or_(Article.target_channels.contains([channel]), Article.target_channels == []))
         if query:
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             statement = statement.where(Article.title.ilike(f"%{escaped}%", escape="\\"))
@@ -48,27 +48,39 @@ class ArticleQuery:
     async def get(self, article_id: UUID) -> Article | None:
         return await self.session.get(Article, article_id)
 
-    async def latest_jobs(self, article_ids: list[UUID]) -> dict[UUID, PublicationJob]:
+    async def latest_channel_jobs(self, article_ids: list[UUID]) -> dict[tuple[UUID, str], PublicationJob]:
         if not article_ids:
             return {}
-        ranked = (
-            select(
-                PublicationJob.id.label("job_id"),
-                func.row_number()
-                .over(
-                    partition_by=PublicationJob.article_id,
-                    order_by=(PublicationJob.created_at.desc(), PublicationJob.id.desc()),
-                )
-                .label("position"),
+        ranked = union_all(
+            self._ranked_channel_jobs(article_ids, "个人博客"),
+            self._ranked_channel_jobs(article_ids, "微信公众号"),
+        ).subquery()
+        statement = (
+            select(PublicationJob, ranked.c.channel)
+            .join(ranked, ranked.c.job_id == PublicationJob.id)
+            .where(ranked.c.position == 1)
+        )
+        rows = await self.session.execute(statement)
+        return {(job.article_id, channel): job for job, channel in rows}
+
+    def _ranked_channel_jobs(
+        self,
+        article_ids: list[UUID],
+        channel: str,
+    ) -> Select[tuple[UUID, str, int]]:
+        return select(
+            PublicationJob.id.label("job_id"),
+            literal(channel).label("channel"),
+            func.row_number()
+            .over(
+                partition_by=PublicationJob.article_id,
+                order_by=(PublicationJob.created_at.desc(), PublicationJob.id.desc()),
             )
-            .where(PublicationJob.article_id.in_(article_ids))
-            .subquery()
+            .label("position"),
+        ).where(
+            PublicationJob.article_id.in_(article_ids),
+            or_(PublicationJob.target_channels.contains([channel]), PublicationJob.target_channels == []),
         )
-        statement = select(PublicationJob).join(ranked, ranked.c.job_id == PublicationJob.id).where(
-            ranked.c.position == 1
-        )
-        jobs = await self.session.scalars(statement)
-        return {job.article_id: job for job in jobs}
 
     async def jobs(self, article_id: UUID) -> tuple[list[PublicationJob], int]:
         total = await self.session.scalar(
@@ -77,7 +89,7 @@ class ArticleQuery:
         statement = (
             select(PublicationJob)
             .where(PublicationJob.article_id == article_id)
-            .order_by(PublicationJob.created_at.desc(), PublicationJob.id)
+            .order_by(PublicationJob.created_at.desc(), PublicationJob.id.desc())
             .limit(ARTICLE_DETAIL_JOB_LIMIT)
         )
         return list(await self.session.scalars(statement)), int(total or 0)
