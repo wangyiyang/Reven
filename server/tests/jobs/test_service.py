@@ -435,7 +435,7 @@ async def test_source_refresh_failure_blocks_with_redacted_reason(db_session) ->
 
 
 @pytest.mark.anyio
-async def test_concurrent_prepare_returns_single_frozen_winner(db_session, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+async def test_concurrent_prepare_returns_single_frozen_winner(db_session) -> None:  # type: ignore[no-untyped-def]
     first = await _seed_job(db_session)
     second = PublicationJob(
         article_id=first.article_id,
@@ -451,26 +451,12 @@ async def test_concurrent_prepare_returns_single_frozen_winner(db_session, monke
     await db_session.commit()
     factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
     notion = FakeNotion(_page())
-    original_lookup = service_module._existing_frozen
-    ready = asyncio.Event()
-    lookup_count = 0
-
-    async def synchronized_lookup(*args: Any, **kwargs: Any) -> PublicationJob | None:
-        nonlocal lookup_count
-        with args[0].no_autoflush:
-            result = await original_lookup(*args, **kwargs)
-        lookup_count += 1
-        if lookup_count < 2:
-            await ready.wait()
-        else:
-            ready.set()
-        return result
-
-    monkeypatch.setattr(service_module, "_existing_frozen", synchronized_lookup)
-
-    first_result, second_result = await asyncio.gather(
-        PublicationJobService(factory, notion, FakeMaterializer()).prepare(first.id),
-        PublicationJobService(factory, notion, FakeMaterializer()).prepare(second.id),
+    first_result, second_result = await asyncio.wait_for(
+        asyncio.gather(
+            PublicationJobService(factory, notion, FakeMaterializer()).prepare(first.id),
+            PublicationJobService(factory, notion, FakeMaterializer()).prepare(second.id),
+        ),
+        timeout=3,
     )
 
     assert first_result.job_id == second_result.job_id

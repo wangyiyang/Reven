@@ -17,8 +17,10 @@ class ArticleRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_by_notion_page_id(self, page_id: str) -> Article | None:
+    async def get_by_notion_page_id(self, page_id: str, *, for_update: bool = False) -> Article | None:
         statement = select(Article).where(Article.notion_page_id == page_id)
+        if for_update:
+            statement = statement.with_for_update()
         article: Article | None = await self.session.scalar(statement)
         return article
 

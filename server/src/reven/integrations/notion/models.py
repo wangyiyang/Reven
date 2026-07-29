@@ -27,6 +27,10 @@ class NotionTransientError(NotionError):
         self.retry_after = retry_after
 
 
+class NotionResponseTooLargeError(NotionTransientError):
+    """The decompressed response exceeded the configured safety bound."""
+
+
 class NotionSchemaError(NotionError):
     """稿件库字段缺失或类型与契约不符，错误信息包含字段名。"""
 

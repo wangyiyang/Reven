@@ -1,6 +1,7 @@
 """Side-effect-free rendering of the latest Notion article."""
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,6 +17,20 @@ from reven.publishing.wechat.renderer import WechatRenderer
 
 class PreviewConflictError(RuntimeError):
     pass
+
+
+class PreviewValidationError(RuntimeError):
+    pass
+
+
+MAX_PREVIEW_MARKDOWN_BYTES = 1024 * 1024
+MAX_PREVIEW_IMAGES = 100
+_MEDIA_HOST_SUFFIXES = (
+    "notion.so",
+    "notion-static.com",
+    "amazonaws.com",
+    "cloudfront.net",
+)
 
 
 class ConfiguredWechatPreview:
@@ -46,10 +61,37 @@ class ConfiguredWechatPreview:
 
 
 def _canonical_with_current_urls(markdown: str) -> str:
+    if len(markdown.encode("utf-8")) > MAX_PREVIEW_MARKDOWN_BYTES:
+        raise PreviewValidationError("Notion 正文超过预览大小限制")
     urls = image_urls(markdown)
+    if len(urls) > MAX_PREVIEW_IMAGES:
+        raise PreviewValidationError("Notion 正文图片数量超过预览限制")
+    for url in urls:
+        _validate_media_url(url)
     snapshot = build_snapshot(
         markdown,
         image_sha256=tuple("0" * 64 for _ in urls),
         cover_sha256="",
     )
     return replace_image_destinations(snapshot.markdown, urls)
+
+
+def _validate_media_url(url: str) -> None:
+    if any(character.isspace() or ord(character) < 32 for character in url):
+        raise PreviewValidationError("Notion 正文包含不安全的图片地址")
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise PreviewValidationError("Notion 正文包含不安全的图片地址") from exc
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.fragment
+        or not any(host == suffix or host.endswith(f".{suffix}") for suffix in _MEDIA_HOST_SUFFIXES)
+    ):
+        raise PreviewValidationError("Notion 正文包含不安全的图片地址")

@@ -23,13 +23,6 @@ from reven.scheduling import resolve_scheduled_at, utc_now
 CONNECTION_TEST_MAX_AGE = timedelta(days=7)
 
 
-async def locked_job(session: AsyncSession, job_id: UUID) -> PublicationJob | None:
-    job: PublicationJob | None = await session.scalar(
-        select(PublicationJob).where(PublicationJob.id == job_id).with_for_update()
-    )
-    return job
-
-
 async def candidate(
     session: AsyncSession,
     mapped: MappedNotionPage,
@@ -123,7 +116,9 @@ async def existing_frozen(
     )
     if exclude_id is not None:
         statement = statement.where(PublicationJob.id != exclude_id)
-    job: PublicationJob | None = await session.scalar(statement.order_by(PublicationJob.created_at).limit(1))
+    job: PublicationJob | None = await session.scalar(
+        statement.order_by(PublicationJob.created_at).with_for_update().limit(1)
+    )
     return job
 
 

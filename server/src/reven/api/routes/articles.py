@@ -24,8 +24,9 @@ from reven.articles.models import Article
 from reven.articles.query import ArticleQuery
 from reven.domain import TargetChannel
 from reven.integrations.notion.configuration import IntegrationConfigurationError
+from reven.integrations.notion.models import NotionResponseTooLargeError
 from reven.jobs.models import PublicationJob
-from reven.publishing.wechat.preview import PreviewConflictError
+from reven.publishing.wechat.preview import PreviewConflictError, PreviewValidationError
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 _SAFE_RESULT_KEYS = frozenset(
@@ -63,9 +64,9 @@ async def get_article(article_id: UUID, session: SessionDep) -> ArticleDetail | 
     article = await query.get(article_id)
     if article is None:
         return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
-    jobs = await query.jobs(article_id)
+    jobs, jobs_total = await query.jobs(article_id)
     latest = jobs[0] if jobs else None
-    return _article_detail(article, jobs, latest)
+    return _article_detail(article, jobs, jobs_total, latest)
 
 
 @router.get("/{article_id}/jobs/{job_id}", response_model=JobDetail)
@@ -91,6 +92,10 @@ async def preview_wechat(
         return _error(409, "NOTION_NOT_CONFIGURED", "Notion 集成尚未正确配置")
     except PreviewConflictError:
         return _error(409, "PREVIEW_SOURCE_CHANGED", "Notion 内容在生成预览期间发生变化，请重试")
+    except PreviewValidationError as exc:
+        return _error(422, "PREVIEW_CONTENT_INVALID", str(exc))
+    except NotionResponseTooLargeError:
+        return _error(422, "PREVIEW_CONTENT_TOO_LARGE", "Notion 页面超过预览大小限制")
     except Exception:
         return _error(502, "PREVIEW_FAILED", "微信预览生成失败，请检查集成和渲染器")
     return PreviewResponse(html=html)
@@ -150,6 +155,7 @@ def _article_summary(article: Article) -> ArticleSummary:
 def _article_detail(
     article: Article,
     jobs: list[PublicationJob],
+    jobs_total: int,
     latest: PublicationJob | None,
 ) -> ArticleDetail:
     summary = _article_summary(article).model_dump()
@@ -168,6 +174,8 @@ def _article_detail(
         blog=_channel_result(latest, "blog") if latest else None,
         wechat=_channel_result(latest, "wechat") if latest else None,
         jobs=[_job_summary(job) for job in jobs],
+        jobs_total=jobs_total,
+        jobs_has_more=jobs_total > len(jobs),
     )
 
 

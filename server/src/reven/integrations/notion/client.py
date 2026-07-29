@@ -12,11 +12,17 @@ from typing import Any, NoReturn
 
 import httpx
 
-from reven.integrations.notion.models import NotionConfigError, NotionSchemaError, NotionTransientError
+from reven.integrations.notion.models import (
+    NotionConfigError,
+    NotionResponseTooLargeError,
+    NotionSchemaError,
+    NotionTransientError,
+)
 from reven.security.redaction import redact
 
 _BODY_EXCERPT_LENGTH = 500
 _DEFAULT_RETRY_AFTER = 1.0
+MAX_NOTION_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 class NotionClient:
@@ -69,34 +75,49 @@ class NotionClient:
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         try:
-            response = await self.http.request(method, path, headers=self.headers, **kwargs)
+            async with self.http.stream(method, path, headers=self.headers, **kwargs) as response:
+                body = await _read_bounded(response)
+                status = response.status_code
+                headers = response.headers
         except httpx.TimeoutException as exc:
             raise NotionTransientError("Notion 请求超时，请稍后重试") from exc
         except httpx.HTTPError as exc:
             raise NotionTransientError(f"Notion 请求失败（{type(exc).__name__}），请稍后重试") from exc
-        if response.is_success:
+        if 200 <= status < 300:
             try:
-                payload: dict[str, Any] = response.json()
-            except json.JSONDecodeError as exc:
-                excerpt = redact(response.text[:_BODY_EXCERPT_LENGTH], [self._token])
+                parsed: Any = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                excerpt = redact(body[:_BODY_EXCERPT_LENGTH].decode("utf-8", errors="replace"), [self._token])
                 raise NotionTransientError(f"Notion 响应格式异常，可重试：{excerpt}") from exc
-            return payload
-        self._raise_for_status(response)
+            if not isinstance(parsed, dict):
+                raise NotionTransientError("Notion 响应格式异常，可重试：顶层必须为对象")
+            return parsed
+        self._raise_for_status(status, headers, body)
 
-    def _raise_for_status(self, response: httpx.Response) -> NoReturn:
+    def _raise_for_status(self, status: int, headers: httpx.Headers, body: bytes) -> NoReturn:
         # 注意：Notion 409 conflict 官方语义可重试，这里刻意归入不可重试的配置错误（安全方向，不误重试）
-        excerpt = redact(response.text[:_BODY_EXCERPT_LENGTH], [self._token])
-        status = response.status_code
+        excerpt = redact(body[:_BODY_EXCERPT_LENGTH].decode("utf-8", errors="replace"), [self._token])
         if status == 429:
             raise NotionTransientError(
                 f"Notion 限流（HTTP 429）：{excerpt}",
-                retry_after=_parse_retry_after(response.headers.get("Retry-After")),
+                retry_after=_parse_retry_after(headers.get("Retry-After")),
             )
         if status in (401, 403, 404):
             raise NotionConfigError(f"Notion 配置无效（HTTP {status}），请检查 Token 与数据源权限：{excerpt}")
         if status >= 500:
             raise NotionTransientError(f"Notion 服务异常（HTTP {status}）：{excerpt}")
         raise NotionConfigError(f"Notion 请求被拒绝（HTTP {status}）：{excerpt}")
+
+
+async def _read_bounded(response: httpx.Response) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+        size += len(chunk)
+        if size > MAX_NOTION_RESPONSE_BYTES:
+            raise NotionResponseTooLargeError("Notion 响应超过安全大小限制，请缩小页面内容后重试")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _parse_retry_after(value: str | None) -> float:
