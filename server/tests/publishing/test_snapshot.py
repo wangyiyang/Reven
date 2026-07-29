@@ -1,3 +1,4 @@
+from markdown_it import MarkdownIt
 from reven.publishing.snapshot import build_snapshot
 
 
@@ -45,12 +46,12 @@ def test_only_markdown_image_destination_is_replaced() -> None:
     assert snapshot.markdown == markdown.replace(f"![图]({url})", "![图](reven-asset://image/1)")
 
 
-def test_angle_destination_and_escaped_title_are_safely_normalized() -> None:
+def test_angle_destination_and_escaped_title_are_preserved() -> None:
     markdown = r'![图](<https://files.notion.so/a b.png> "a \"title\"")'
 
     snapshot = build_snapshot(markdown, image_sha256=("a" * 64,), cover_sha256="b" * 64)
 
-    assert snapshot.markdown == "![图](reven-asset://image/1)"
+    assert snapshot.markdown == r'![图](<reven-asset://image/1> "a \"title\"")'
 
 
 def test_reference_and_nested_image_syntax_are_normalized() -> None:
@@ -75,12 +76,46 @@ def test_reference_and_nested_image_syntax_are_normalized() -> None:
 
 
 def test_shared_reference_link_keeps_stable_semantics_and_hash() -> None:
-    first = "![图][asset] 与 [下载][asset]\n\n[asset]: https://files.notion.so/a.png?X-Amz-Signature=one\n"
+    first = '![图][asset] 与 [下载][asset]\n\n[asset]: https://files.notion.so/a.png?X-Amz-Signature=one "下载标题"\n'
     second = first.replace("Signature=one", "Signature=two")
 
     first_snapshot = build_snapshot(first, image_sha256=("a" * 64,), cover_sha256="b" * 64)
     second_snapshot = build_snapshot(second, image_sha256=("a" * 64,), cover_sha256="b" * 64)
 
     assert "[下载][asset]" in first_snapshot.markdown
-    assert "[ASSET]: <https://files.notion.so/a.png>" in first_snapshot.markdown
+    assert '![图](reven-asset://image/1 "下载标题")' in first_snapshot.markdown
+    assert first.splitlines()[-1] in first_snapshot.markdown
+    env: dict[str, object] = {}
+    tokens = MarkdownIt("commonmark").parse(first_snapshot.markdown, env)
+    link = next(child for token in tokens for child in (token.children or ()) if child.type == "link_open")
+    assert link.attrGet("href") == "https://files.notion.so/a.png?X-Amz-Signature=one"
+    assert link.attrGet("title") == "下载标题"
     assert first_snapshot.content_hash == second_snapshot.content_hash
+
+
+def test_multiline_containers_and_same_line_images_map_to_source() -> None:
+    markdown = (
+        '> 第一行\n> ![引用图](https://files.notion.so/a.png "引用标题")\n\n'
+        "- 第一行\n  ![列表图](https://files.notion.so/b.png)\n\n"
+        "![甲](https://files.notion.so/c.png) 与 ![乙](https://files.notion.so/d.png)\n"
+    )
+
+    snapshot = build_snapshot(
+        markdown,
+        image_sha256=("a" * 64, "b" * 64, "c" * 64, "d" * 64),
+        cover_sha256="e" * 64,
+    )
+
+    assert '> ![引用图](reven-asset://image/1 "引用标题")' in snapshot.markdown
+    assert "  ![列表图](reven-asset://image/2)" in snapshot.markdown
+    assert "![甲](reven-asset://image/3) 与 ![乙](reven-asset://image/4)" in snapshot.markdown
+
+
+def test_reference_business_query_still_affects_hash() -> None:
+    first = "![图][asset]\n\n[asset]: https://example.com/a.png?size=small\n"
+    second = first.replace("size=small", "size=large")
+
+    first_snapshot = build_snapshot(first, image_sha256=("a" * 64,), cover_sha256="b" * 64)
+    second_snapshot = build_snapshot(second, image_sha256=("a" * 64,), cover_sha256="b" * 64)
+
+    assert first_snapshot.content_hash != second_snapshot.content_hash
