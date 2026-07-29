@@ -5,7 +5,7 @@ from time import monotonic
 from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
@@ -95,6 +95,7 @@ class NotionSyncService:
         try:
             mapped = map_notion_page(raw_page)
             async with self.session_factory.begin() as session:
+                await _lock_notion_page(session, mapped.page_id)
                 articles = ArticleRepository(session)
                 existing = await articles.get_by_notion_page_id(mapped.page_id)
                 article = await articles.upsert_from_notion(mapped)
@@ -111,11 +112,13 @@ class NotionSyncService:
 
     async def _save_state(self, *, cursor: str | None, completed: bool) -> None:
         async with self.session_factory.begin() as session:
+            await _lock_sync_state(session)
             state = await session.get(SystemState, "notion_sync")
             if state is None:
                 state = SystemState(key="notion_sync")
                 session.add(state)
-            value: dict[str, object] = {"cursor": cursor or ""}
+            value = dict(state.value or {})
+            value["cursor"] = cursor or ""
             if completed:
                 value["last_success_at"] = utc_now().isoformat()
             state.value = value
@@ -199,7 +202,9 @@ def _page_results(response: dict[str, Any]) -> list[dict[str, Any]]:
     results = response.get("results")
     if not isinstance(results, list):
         raise NotionSchemaError("Notion 查询响应缺少 results 列表")
-    return [item for item in results if isinstance(item, dict)]
+    if not all(isinstance(item, dict) for item in results):
+        raise NotionSchemaError("Notion 查询响应 results 包含非对象项")
+    return results
 
 
 def _next_cursor(response: dict[str, Any]) -> str | None:
@@ -207,3 +212,16 @@ def _next_cursor(response: dict[str, Any]) -> str | None:
     if response.get("has_more") and not isinstance(cursor, str):
         raise NotionSchemaError("Notion 查询响应分页游标缺失")
     return cursor if isinstance(cursor, str) else None
+
+
+async def _lock_notion_page(session: AsyncSession, page_id: str) -> None:
+    await _lock_transaction_key(session, f"reven:notion_page:{page_id}")
+
+
+async def _lock_sync_state(session: AsyncSession) -> None:
+    await _lock_transaction_key(session, "reven:notion_sync_state")
+
+
+async def _lock_transaction_key(session: AsyncSession, key: str) -> None:
+    statement = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+    await session.execute(statement, {"key": key})
