@@ -33,6 +33,7 @@ from reven.jobs.service import (
     PublicationJobService,
 )
 from reven.publishing.assets import AssetDownloadError, AssetMaterializer
+from reven.publishing.factory import build_configured_orchestrator
 
 logger = logging.getLogger(__name__)
 Tick = Callable[[], Awaitable[None]]
@@ -95,17 +96,12 @@ class ConfiguredPreparationService:
 def build_background_runner(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> "BackgroundRunner":
-    """Build the Task 8 runner.
-
-    Task 12 injects the channel executor. Until then ``executor=None`` is an
-    intentional fail-closed gate: sync and pending recovery run, ordinary
-    publication jobs are not claimed.
-    """
+    """Build the background runner with the production delivery executor."""
     settings = get_settings()
     jobs = PublicationJobTick(
         session_factory,
         ConfiguredPreparationService(session_factory),
-        executor=None,
+        executor=build_configured_orchestrator(session_factory, settings),
         lease_seconds=settings.job_lease_seconds,
     )
     return BackgroundRunner(

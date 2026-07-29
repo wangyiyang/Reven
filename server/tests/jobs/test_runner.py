@@ -210,17 +210,26 @@ async def test_configured_sync_tick_skips_missing_integration(monkeypatch) -> No
     await ConfiguredNotionSyncTick(object())()  # type: ignore[arg-type]
 
 
-def test_default_runner_is_fail_closed_until_executor_is_injected(monkeypatch) -> None:
+def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
     class Settings:
         job_lease_seconds = 120
         sync_interval_seconds = 60
         scheduler_interval_seconds = 5
+        job_data_dir = "/tmp/reven-tests"
+        public_base_url = "https://dev.example.com"
+        renderer_command = "node /app/renderer/dist/cli.mjs"
+        reven_master_key = type("Secret", (), {"get_secret_value": lambda self: "key"})()
 
     monkeypatch.setattr("reven.jobs.runner.get_settings", Settings)
+    executor = object()
+    monkeypatch.setattr(
+        "reven.jobs.runner.build_configured_orchestrator",
+        lambda factory, settings: executor,
+    )
     runner = build_background_runner(object())  # type: ignore[arg-type]
 
     assert isinstance(runner._job_tick, PublicationJobTick)
-    assert runner._job_tick._executor is None
+    assert runner._job_tick._executor is executor
 
 
 @pytest.mark.parametrize(
