@@ -3,7 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -23,6 +23,12 @@ def compute_target_channels_hash(target_channels: list[str]) -> str:
 class JobRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def _database_now(self) -> datetime:
+        now = await self.session.scalar(select(func.current_timestamp()))
+        if not isinstance(now, datetime):
+            raise RuntimeError("数据库未返回有效时间")
+        return now
 
     async def create_waiting(
         self,
@@ -51,7 +57,7 @@ class JobRepository:
 
         The caller must commit within the same transaction to persist the lease.
         """
-        now = datetime.now(tz=UTC)
+        now = await self._database_now()
         statement = (
             select(PublicationJob)
             .where(
@@ -83,7 +89,7 @@ class JobRepository:
         This does not change status or lease and must never be treated as permission
         to execute publication channels. The caller must pass the Job to prepare().
         """
-        now = datetime.now(tz=UTC)
+        now = await self._database_now()
         statement = (
             select(PublicationJob)
             .where(
@@ -109,7 +115,7 @@ class JobRepository:
         return JobClaim(job.id, job.lease_token)
 
     async def renew_lease(self, claim: "JobClaim", *, lease_seconds: int) -> bool:
-        now = datetime.now(tz=UTC)
+        now = await self._database_now()
         result = await self.session.execute(
             update(PublicationJob)
             .where(
@@ -122,7 +128,7 @@ class JobRepository:
         return bool(cast(Any, result).rowcount)
 
     async def assert_lease(self, claim: "JobClaim") -> bool:
-        now = datetime.now(tz=UTC)
+        now = await self._database_now()
         statement = select(PublicationJob.id).where(
             PublicationJob.id == claim.job_id,
             PublicationJob.lease_token == claim.lease_token,
@@ -130,16 +136,23 @@ class JobRepository:
         )
         return await self.session.scalar(statement) is not None
 
-    async def set_status_if_leased(self, claim: "JobClaim", status: JobStatus) -> bool:
-        now = datetime.now(tz=UTC)
+    async def mark_completed_if_leased(self, claim: "JobClaim") -> bool:
+        """Atomically persist legal PROCESSING completion for the lease owner."""
+        now = await self._database_now()
         result = await self.session.execute(
             update(PublicationJob)
             .where(
                 PublicationJob.id == claim.job_id,
                 PublicationJob.lease_token == claim.lease_token,
                 PublicationJob.lease_expires_at >= now,
+                PublicationJob.overall_status == JobStatus.PROCESSING,
             )
-            .values(overall_status=status)
+            .values(
+                overall_status=JobStatus.COMPLETED,
+                finished_at=now,
+                lease_token=None,
+                lease_expires_at=None,
+            )
         )
         return bool(cast(Any, result).rowcount)
 
@@ -158,6 +171,7 @@ class JobRepository:
         delay_seconds: int | None,
         error: PublishError,
     ) -> bool:
+        now = await self._database_now()
         if isinstance(error, BlockedPublishError):
             status = JobStatus.BLOCKED
         else:
@@ -168,25 +182,26 @@ class JobRepository:
             "lease_token": None,
         }
         if delay_seconds is not None:
-            values["scheduled_at"] = datetime.now(tz=UTC) + timedelta(seconds=delay_seconds)
+            values["scheduled_at"] = now + timedelta(seconds=delay_seconds)
         result = await self.session.execute(
             update(PublicationJob)
             .where(
                 PublicationJob.id == claim.job_id,
                 PublicationJob.lease_token == claim.lease_token,
-                PublicationJob.lease_expires_at >= datetime.now(tz=UTC),
+                PublicationJob.lease_expires_at >= now,
             )
             .values(**values)
         )
         return bool(cast(Any, result).rowcount)
 
     async def begin_execution(self, claim: "JobClaim") -> int | None:
+        now = await self._database_now()
         job = await self.session.get(PublicationJob, claim.job_id)
         if (
             job is None
             or job.lease_token != claim.lease_token
             or job.lease_expires_at is None
-            or job.lease_expires_at < datetime.now(tz=UTC)
+            or job.lease_expires_at < now
             or job.snapshot_metadata.get("notion_write_pending") is True
             or job.snapshot_metadata.get("asset_finalize_pending") is True
             or job.overall_status != JobStatus.PROCESSING
@@ -197,12 +212,13 @@ class JobRepository:
         return job.attempt_count
 
     async def record_preparation_attempt(self, claim: "JobClaim") -> int | None:
+        now = await self._database_now()
         job = await self.session.get(PublicationJob, claim.job_id)
         if (
             job is None
             or job.lease_token != claim.lease_token
             or job.lease_expires_at is None
-            or job.lease_expires_at < datetime.now(tz=UTC)
+            or job.lease_expires_at < now
         ):
             return None
         metadata = dict(job.snapshot_metadata)
@@ -214,12 +230,13 @@ class JobRepository:
         return attempt
 
     async def clear_preparation_attempts(self, claim: "JobClaim") -> None:
+        now = await self._database_now()
         job = await self.session.get(PublicationJob, claim.job_id)
         if (
             job is None
             or job.lease_token != claim.lease_token
             or job.lease_expires_at is None
-            or job.lease_expires_at < datetime.now(tz=UTC)
+            or job.lease_expires_at < now
         ):
             return
         metadata = dict(job.snapshot_metadata)

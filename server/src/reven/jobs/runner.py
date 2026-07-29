@@ -38,12 +38,22 @@ logger = logging.getLogger(__name__)
 Tick = Callable[[], Awaitable[None]]
 
 
+def heartbeat_interval_seconds(lease_seconds: int) -> float:
+    if lease_seconds < 3:
+        raise ValueError("job lease must be at least 3 seconds")
+    return min(30, lease_seconds / 3)
+
+
 class PreparationService(Protocol):
     async def prepare(self, job_id: UUID) -> object: ...
 
 
 class JobExecutor(Protocol):
-    """Task 12 must fence every result write with the supplied claim."""
+    """Task 12 must use semantic repository CAS writes with this claim.
+
+    Checking ownership and then issuing an unfenced write is forbidden because
+    the lease may change between those operations.
+    """
 
     async def execute(self, claim: JobClaim) -> None: ...
 
@@ -197,13 +207,15 @@ class PublicationJobTick:
         executor: JobExecutor | None,
         *,
         lease_seconds: int = 120,
-        heartbeat_seconds: float = 30,
+        heartbeat_seconds: float | None = None,
     ) -> None:
         self._factory = session_factory
         self._preparation = preparation
         self._executor = executor
         self._lease_seconds = lease_seconds
-        self._heartbeat_seconds = heartbeat_seconds
+        self._heartbeat_seconds = (
+            heartbeat_interval_seconds(lease_seconds) if heartbeat_seconds is None else heartbeat_seconds
+        )
 
     async def __call__(self) -> None:
         preparation_claim = await self._claim(preparation=True)

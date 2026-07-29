@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+from pydantic import ValidationError
+from reven.config import Settings
 from reven.integrations.notion.configuration import IntegrationConfigurationError
 from reven.jobs.errors import TransientPublishError
 from reven.jobs.runner import (
@@ -8,6 +10,7 @@ from reven.jobs.runner import (
     ConfiguredNotionSyncTick,
     PublicationJobTick,
     build_background_runner,
+    heartbeat_interval_seconds,
     run_until_heartbeat_stops,
 )
 from reven.publishing.assets import AssetDownloadError
@@ -218,3 +221,24 @@ def test_default_runner_is_fail_closed_until_executor_is_injected(monkeypatch) -
 
     assert isinstance(runner._job_tick, PublicationJobTick)
     assert runner._job_tick._executor is None
+
+
+@pytest.mark.parametrize(
+    ("lease_seconds", "expected"),
+    [(3, 1), (30, 10), (31, 31 / 3), (120, 30)],
+)
+def test_heartbeat_interval_is_derived_before_lease_expiry(lease_seconds: int, expected: float) -> None:
+    interval = heartbeat_interval_seconds(lease_seconds)
+
+    assert interval == expected
+    assert 0 < interval < lease_seconds
+
+
+@pytest.mark.parametrize("lease_seconds", [0, -1, 1, 2])
+def test_settings_reject_unsafe_job_lease(lease_seconds: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            database_url="postgresql+asyncpg://user:pass@localhost/reven",
+            reven_master_key="test",
+            job_lease_seconds=lease_seconds,
+        )
