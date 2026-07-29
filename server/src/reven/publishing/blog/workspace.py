@@ -4,6 +4,7 @@ import base64
 import hashlib
 import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -11,6 +12,13 @@ from uuid import uuid4
 from reven.publishing.commands import CommandResult, CommandRunner
 
 _JOB_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
+
+
+@dataclass(frozen=True)
+class TrustedArtifact:
+    relative: Path
+    content: bytes
+    digest: bytes
 
 
 class BlogWorkspace:
@@ -116,33 +124,23 @@ class BlogWorkspace:
             raise ValueError("job_id 无效")
         return self.root / job_id / "blog"
 
-    def stage_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
-        artifact = attempt / "artifact"
+    def capture_artifacts(self, repo: Path, manifest: tuple[Path, ...]) -> tuple[TrustedArtifact, ...]:
+        trusted = []
         for relative in manifest:
-            source = repo / relative
-            destination = artifact / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
-            (destination.with_suffix(destination.suffix + ".sha256")).write_text(
-                hashlib.sha256(source.read_bytes()).hexdigest()
-            )
+            content = (repo / relative).read_bytes()
+            trusted.append(TrustedArtifact(relative, content, hashlib.sha256(content).digest()))
+        return tuple(trusted)
 
-    def restore_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
-        for relative in manifest:
-            source = attempt / "artifact" / relative
-            expected = source.with_suffix(source.suffix + ".sha256").read_text()
-            if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
-                raise ValueError("发布 artifact 哈希不匹配")
-            destination = repo / relative
+    def restore_artifacts(self, repo: Path, trusted: tuple[TrustedArtifact, ...]) -> None:
+        for artifact in trusted:
+            destination = repo / artifact.relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
+            destination.write_bytes(artifact.content)
 
-    def verify_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
-        for relative in manifest:
-            trusted = attempt / "artifact" / relative
-            expected = trusted.with_suffix(trusted.suffix + ".sha256").read_text()
-            candidate = repo / relative
-            if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).hexdigest() != expected:
+    def verify_artifacts(self, repo: Path, trusted: tuple[TrustedArtifact, ...]) -> None:
+        for artifact in trusted:
+            candidate = repo / artifact.relative
+            if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).digest() != artifact.digest:
                 raise ValueError("Jekyll 构建篡改了发布 manifest")
 
     def _assert_cwd(self, path: Path) -> None:
