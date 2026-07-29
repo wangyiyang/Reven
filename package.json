@@ -1,0 +1,17 @@
+{
+  "name": "reven",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "build": "pnpm --filter @reven/renderer build",
+    "test": "pnpm --filter @reven/renderer test"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "juice@11.1.1": "vendor/doocs-md/patches/juice@11.1.1.patch"
+    }
+  }
+}
