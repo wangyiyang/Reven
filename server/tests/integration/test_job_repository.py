@@ -1,11 +1,12 @@
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from reven.articles.models import Article
 from reven.domain import JobStatus
-from reven.jobs.errors import TransientPublishError
+from reven.jobs.errors import BlockedPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim, JobRepository
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -293,6 +294,56 @@ async def test_notion_pending_terminal_job_requires_manual_retry(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "delay", "job_status", "article_status"),
+    [
+        (BlockedPublishError("token=must-not-leak"), None, JobStatus.BLOCKED, "阻塞"),
+        (TransientPublishError("token=must-not-leak"), None, JobStatus.FAILED, "失败"),
+    ],
+)
+async def test_notion_terminal_failure_updates_article_with_safe_error(
+    db_session,
+    error,
+    delay,
+    job_status: JobStatus,
+    article_status: str,
+) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="3" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(seconds=1),
+    )
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": True,
+            "cleanup_pending": False,
+        }
+    }
+    await db_session.commit()
+    claim = await repository.claim_next(lease_seconds=120)
+    assert claim is not None
+
+    stale = JobClaim(job.id, uuid4())
+    assert await repository.mark_retry(stale, delay_seconds=delay, error=error) is False
+    assert article.automation_status == "等待中"
+    assert await repository.mark_retry(claim, delay_seconds=delay, error=error)
+    await db_session.commit()
+    await db_session.refresh(job)
+    await db_session.refresh(article)
+
+    assert job.overall_status == job_status
+    assert article.automation_status == article_status
+    assert article.last_error is not None
+    assert "must-not-leak" not in article.last_error
+
+
+@pytest.mark.anyio
 async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> None:  # type: ignore[no-untyped-def]
     article = _new_article()
     db_session.add(article)
@@ -302,13 +353,23 @@ async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> Non
         article_id=article.id,
         content_hash="1" * 64,
         target_channels=["个人博客"],
-        scheduled_at=datetime.now(tz=UTC),
+        scheduled_at=datetime.now(tz=UTC) - timedelta(seconds=1),
     )
+    job.snapshot_metadata = {
+        "delivery_finalization": {
+            "final_status": JobStatus.COMPLETED,
+            "notion_pending": True,
+            "cleanup_pending": False,
+        }
+    }
     await db_session.commit()
     claim = await repository.claim_next(lease_seconds=120)
     await db_session.commit()
     assert claim is not None
 
+    article.automation_status = "阻塞"
+    article.last_error = "old"
+    await db_session.commit()
     assert await repository.bump_notification_revision_for_retry(job.id) is None
     await db_session.execute(
         text(
@@ -328,4 +389,7 @@ async def test_manual_retry_revision_is_database_clock_fenced(db_session) -> Non
 
     assert sorted(value for value in revisions if value is not None) == [1, 2]
     await db_session.refresh(job)
+    await db_session.refresh(article)
     assert job.notification_state["_revision"] == 2
+    assert article.automation_status == "等待中"
+    assert article.last_error is None
