@@ -118,3 +118,41 @@ async def test_cover_upload_uses_multipart_and_closes_file(tmp_path: Path) -> No
     assert result == "thumb-id"
     assert b'filename="cover.png"' in seen
     image.rename(tmp_path / "renamed.png")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "uncertain"),
+    [(408, False), (429, False), (500, True)],
+)
+async def test_http_transient_errors_record_outcome_certainty(status: int, uncertain: bool) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/cgi-bin/token":
+            return httpx.Response(200, json={"access_token": "token", "expires_in": 7200})
+        return httpx.Response(status, json={"errcode": -1})
+
+    async with httpx.AsyncClient(
+        base_url="https://api.weixin.qq.com",
+        transport=httpx.MockTransport(handler),
+    ) as http:
+        with pytest.raises(WeChatTransientError) as raised:
+            await WeChatClient("appid", "secret", http).create_draft({"articles": []})
+    assert raised.value.outcome_uncertain is uncertain
+
+
+@pytest.mark.anyio
+async def test_uploadimg_rejects_non_wechat_host(tmp_path: Path) -> None:
+    image = tmp_path / "image.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/cgi-bin/token":
+            return httpx.Response(200, json={"access_token": "token", "expires_in": 7200})
+        return httpx.Response(200, json={"url": "https://example.com/image"})
+
+    async with httpx.AsyncClient(
+        base_url="https://api.weixin.qq.com",
+        transport=httpx.MockTransport(handler),
+    ) as http:
+        with pytest.raises(WeChatPermanentError):
+            await WeChatClient("appid", "secret", http).upload_body_image(image)
