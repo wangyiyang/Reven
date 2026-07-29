@@ -1,8 +1,15 @@
 import asyncio
 
 import pytest
+from fastapi import HTTPException
 from reven.jobs.errors import TransientPublishError
-from reven.jobs.runner import BackgroundRunner, run_until_heartbeat_stops
+from reven.jobs.runner import (
+    BackgroundRunner,
+    ConfiguredNotionSyncTick,
+    PublicationJobTick,
+    run_until_heartbeat_stops,
+)
+from reven.publishing.assets import AssetDownloadError
 
 
 class FakeJobLoop:
@@ -85,3 +92,32 @@ async def test_lost_lease_cancels_and_awaits_execution() -> None:
         await run_until_heartbeat_stops(execute(), lost_lease())
 
     assert execution_cancelled.is_set()
+
+
+def test_asset_finalize_integrity_error_is_blocked() -> None:
+    error = AssetDownloadError("asset_finalize_mismatch", "tampered", field="assets")
+
+    classified = PublicationJobTick._publish_error(error)
+
+    assert type(classified).__name__ == "BlockedPublishError"
+
+
+def test_asset_finalize_os_error_is_transient() -> None:
+    try:
+        raise OSError("disk busy")
+    except OSError as cause:
+        error = AssetDownloadError("asset_finalize_failed", "failed", field="assets")
+        error.__cause__ = cause
+
+    assert isinstance(PublicationJobTick._publish_error(error), TransientPublishError)
+
+
+@pytest.mark.anyio
+async def test_configured_sync_tick_skips_missing_integration(monkeypatch) -> None:
+    async def missing(factory):  # type: ignore[no-untyped-def]
+        del factory
+        raise HTTPException(status_code=409, detail="not configured")
+
+    monkeypatch.setattr("reven.jobs.runner._load_notion_config", missing)
+
+    await ConfiguredNotionSyncTick(object())()  # type: ignore[arg-type]

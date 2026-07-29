@@ -3,14 +3,34 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
+import httpx
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.jobs.errors import PublishError, TransientPublishError
+from reven.api.routes.sync import _load_notion_config
+from reven.config import get_settings
+from reven.integrations.notion.client import NotionClient
+from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
+from reven.integrations.notion.sync import NotionSyncService
+from reven.jobs.errors import (
+    BlockedPublishError,
+    PermanentPublishError,
+    PublishError,
+    TransientPublishError,
+)
+from reven.jobs.preparation_models import PrepareResult
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.jobs.retry import retry_delay_seconds
+from reven.jobs.service import (
+    NotionStatusWriteError,
+    PreparationConflictError,
+    PublicationJobService,
+)
+from reven.publishing.assets import AssetDownloadError, AssetMaterializer
 
 logger = logging.getLogger(__name__)
 Tick = Callable[[], Awaitable[None]]
@@ -22,6 +42,64 @@ class PreparationService(Protocol):
 
 class JobExecutor(Protocol):
     async def execute(self, job_id: UUID) -> None: ...
+
+
+class ConfiguredNotionSyncTick:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = session_factory
+
+    async def __call__(self) -> None:
+        try:
+            token, data_source_id = await _load_notion_config(self._factory)
+        except HTTPException as exc:
+            logger.warning("跳过 Notion 同步：集成尚未可用（status=%s）", exc.status_code)
+            return
+        async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
+            await NotionSyncService(
+                self._factory,
+                NotionClient(token=token, http=http),
+                data_source_id,
+            ).sync_once()
+
+
+class ConfiguredPreparationService:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = session_factory
+
+    async def prepare(self, job_id: UUID) -> PrepareResult:
+        token, _ = await _load_notion_config(self._factory)
+        settings = get_settings()
+        async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
+            service = PublicationJobService(
+                self._factory,
+                NotionClient(token=token, http=http),
+                AssetMaterializer(Path(settings.job_data_dir)),
+            )
+            return await service.prepare(job_id)
+
+
+def build_background_runner(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> "BackgroundRunner":
+    settings = get_settings()
+    jobs = PublicationJobTick(
+        session_factory,
+        ConfiguredPreparationService(session_factory),
+        executor=None,
+        lease_seconds=settings.job_lease_seconds,
+    )
+    return BackgroundRunner(
+        ConfiguredNotionSyncTick(session_factory),
+        jobs,
+        sync_interval=settings.sync_interval_seconds,
+        job_interval=settings.scheduler_interval_seconds,
+    )
+
+
+class _ExecutionError(Exception):
+    def __init__(self, error: Exception, attempt: int) -> None:
+        self.error = error
+        self.attempt = attempt
 
 
 async def run_until_heartbeat_stops(
@@ -94,7 +172,7 @@ class PublicationJobTick:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         preparation: PreparationService,
-        executor: JobExecutor,
+        executor: JobExecutor | None,
         *,
         lease_seconds: int = 120,
         heartbeat_seconds: float = 30,
@@ -109,6 +187,8 @@ class PublicationJobTick:
         preparation_claim = await self._claim(preparation=True)
         if preparation_claim is not None:
             await self._run_preparation(preparation_claim)
+        if self._executor is None:
+            return
         claim = await self._claim(preparation=False)
         if claim is not None:
             await self._run_execution(claim)
@@ -122,12 +202,21 @@ class PublicationJobTick:
 
     async def _run_preparation(self, claim: JobClaim) -> None:
         try:
-            await self._preparation.prepare(claim.job_id)
+            result = await self._preparation.prepare(claim.job_id)
+            if isinstance(result, PrepareResult) and result.blocked:
+                await self._fail(
+                    claim,
+                    BlockedPublishError("准备校验未通过"),
+                    attempt=1,
+                )
+            else:
+                await self._clear_preparation_attempts(claim)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            await self._fail(claim, self._publish_error(exc), attempt=1)
-        else:
+            attempt = await self._record_preparation_attempt(claim)
+            await self._fail(claim, self._publish_error(exc), attempt=attempt or 1)
+        finally:
             await self._release(claim)
 
     async def _run_execution(self, claim: JobClaim) -> None:
@@ -138,16 +227,24 @@ class PublicationJobTick:
             )
         except asyncio.CancelledError:
             raise
+        except _ExecutionError as exc:
+            await self._fail(claim, self._publish_error(exc.error), attempt=exc.attempt)
         except Exception as exc:
             await self._fail(claim, self._publish_error(exc), attempt=1)
         finally:
             await self._release(claim)
 
     async def _execute_claim(self, claim: JobClaim) -> None:
-        await self._preparation.prepare(claim.job_id)
+        result = await self._preparation.prepare(claim.job_id)
+        if isinstance(result, PrepareResult) and result.blocked:
+            raise BlockedPublishError("准备校验未通过")
         attempt = await self._begin_execution(claim)
-        if attempt is not None:
+        if attempt is None or self._executor is None:
+            return
+        try:
             await self._executor.execute(claim.job_id)
+        except Exception as exc:
+            raise _ExecutionError(exc, attempt) from exc
 
     async def _heartbeat(self, claim: JobClaim) -> None:
         while True:
@@ -161,12 +258,26 @@ class PublicationJobTick:
         async with self._factory.begin() as session:
             return await JobRepository(session).begin_execution(claim)
 
+    async def _record_preparation_attempt(self, claim: JobClaim) -> int | None:
+        async with self._factory.begin() as session:
+            return await JobRepository(session).record_preparation_attempt(claim)
+
+    async def _clear_preparation_attempts(self, claim: JobClaim) -> None:
+        async with self._factory.begin() as session:
+            await JobRepository(session).clear_preparation_attempts(claim)
+
     async def _release(self, claim: JobClaim) -> None:
         async with self._factory.begin() as session:
             await JobRepository(session).release_lease(claim)
 
     async def _fail(self, claim: JobClaim, error: PublishError, *, attempt: int) -> None:
         delay = retry_delay_seconds(error, attempt)
+        logger.warning(
+            "发布任务失败（job_id=%s, category=%s, attempt=%s）",
+            claim.job_id,
+            type(error).__name__,
+            attempt,
+        )
         async with self._factory.begin() as session:
             await JobRepository(session).mark_retry(claim, delay_seconds=delay, error=error)
 
@@ -174,4 +285,26 @@ class PublicationJobTick:
     def _publish_error(error: Exception) -> PublishError:
         if isinstance(error, PublishError):
             return error
-        return TransientPublishError(type(error).__name__)
+        if isinstance(error, AssetDownloadError):
+            if isinstance(error.__cause__, OSError) or error.code in {
+                "download_failed",
+                "dns_failed",
+                "filesystem_error",
+            }:
+                return TransientPublishError(error.code)
+            return BlockedPublishError(error.code)
+        if isinstance(error, HTTPException):
+            return BlockedPublishError(f"integration_status_{error.status_code}")
+        if isinstance(
+            error,
+            (
+                NotionStatusWriteError,
+                PreparationConflictError,
+                OSError,
+                TimeoutError,
+                ConnectionError,
+                httpx.TransportError,
+            ),
+        ):
+            return TransientPublishError(type(error).__name__)
+        return PermanentPublishError(type(error).__name__)

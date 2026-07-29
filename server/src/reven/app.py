@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from reven.api.routes.sync import router as sync_router
 from reven.config import get_settings
 from reven.db import create_session_factory
+from reven.jobs.runner import build_background_runner
 
 
 class RunnerProtocol:
@@ -35,6 +37,8 @@ def create_app(
         if factory is not None:
             current_app.state.session_factory = factory
         active_runner = runner
+        if start_background_tasks and active_runner is None and factory is not None:
+            active_runner = cast(RunnerProtocol, build_background_runner(factory))
         try:
             if start_background_tasks and active_runner is not None:
                 await active_runner.start()

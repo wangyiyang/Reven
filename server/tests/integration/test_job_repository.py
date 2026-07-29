@@ -132,3 +132,22 @@ async def test_old_lease_token_cannot_renew_or_release_new_lease(db_session) -> 
     assert await repository.renew_lease(first, lease_seconds=120) is False
     assert await repository.release_lease(first) is False
     assert await repository.renew_lease(second, lease_seconds=120) is True
+
+
+@pytest.mark.anyio
+async def test_blocked_preparation_is_not_hot_loop_claimed(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="c" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    job.snapshot_metadata = {"asset_finalize_pending": True}
+    job.overall_status = JobStatus.BLOCKED
+    await db_session.commit()
+
+    assert await repository.claim_next_preparation_pending(lease_seconds=120) is None
