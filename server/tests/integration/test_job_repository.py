@@ -79,7 +79,8 @@ async def test_concurrent_claimants_cannot_take_same_job(db_session) -> None:  #
 
 
 @pytest.mark.anyio
-async def test_pending_notion_write_uses_preparation_queue_not_execution_queue(db_session) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("pending_flag", ["notion_write_pending", "asset_finalize_pending"])
+async def test_pending_preparation_uses_recovery_queue_not_execution_queue(db_session, pending_flag: str) -> None:  # type: ignore[no-untyped-def]
     article = _new_article()
     db_session.add(article)
     await db_session.flush()
@@ -90,7 +91,7 @@ async def test_pending_notion_write_uses_preparation_queue_not_execution_queue(d
         target_channels=["个人博客"],
         scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
     )
-    job.snapshot_metadata = {"notion_write_pending": True}
+    job.snapshot_metadata = {pending_flag: True}
     await db_session.commit()
 
     assert await repository.claim_next(lease_seconds=120) is None

@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpcore
 import httpx
@@ -66,6 +67,43 @@ async def test_materializer_uses_pinned_ip_sequential_names_and_hashes(tmp_path:
     assert final.images[0].path == tmp_path / "jobs" / JOB_ID / "snapshot" / "image-1.png"
     assert final.images[0].path.is_file()
     assert not (tmp_path / "jobs" / JOB_ID / "staging").exists()
+
+
+@pytest.mark.anyio
+async def test_resume_finalize_recovers_staging_and_is_idempotent(tmp_path: Path) -> None:
+    materializer = AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=public_resolver)
+    staged = await materializer.materialize(JOB_ID, ["https://example.com/image"], "https://example.com/cover")
+    assert staged.staging_dir is not None
+    manifest = [
+        {"name": asset.path.name, "sha256": asset.sha256}
+        for asset in (*staged.images, staged.cover)
+        if asset is not None
+    ]
+
+    await materializer.resume_finalize(UUID(JOB_ID), staged.staging_dir.name, manifest)
+    await materializer.resume_finalize(UUID(JOB_ID), staged.staging_dir.name, manifest)
+
+    final = tmp_path / "jobs" / JOB_ID / "snapshot"
+    assert (final / "image-1.png").read_bytes() == PNG
+    assert (final / "cover.png").read_bytes() == PNG
+
+
+@pytest.mark.anyio
+async def test_resume_finalize_rejects_missing_or_tampered_snapshot(tmp_path: Path) -> None:
+    materializer = AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=public_resolver)
+    identity = "22222222-2222-2222-2222-222222222222"
+    manifest = [{"name": "cover.png", "sha256": hashlib.sha256(PNG).hexdigest()}]
+
+    with pytest.raises(AssetDownloadError) as missing:
+        await materializer.resume_finalize(UUID(JOB_ID), identity, manifest)
+    assert missing.value.code == "asset_finalize_missing"
+
+    final = tmp_path / "jobs" / JOB_ID / "snapshot"
+    final.mkdir(parents=True)
+    (final / "cover.png").write_bytes(b"tampered")
+    with pytest.raises(AssetDownloadError) as mismatch:
+        await materializer.resume_finalize(UUID(JOB_ID), identity, manifest)
+    assert mismatch.value.code == "asset_finalize_mismatch"
 
 
 @pytest.mark.anyio

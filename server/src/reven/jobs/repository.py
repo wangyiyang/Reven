@@ -54,6 +54,7 @@ class JobRepository:
             .where(
                 PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
                 func.coalesce(PublicationJob.snapshot_metadata["notion_write_pending"].astext, "false") != "true",
+                func.coalesce(PublicationJob.snapshot_metadata["asset_finalize_pending"].astext, "false") != "true",
                 PublicationJob.scheduled_at <= now,
                 or_(
                     PublicationJob.lease_expires_at.is_(None),
@@ -73,7 +74,7 @@ class JobRepository:
         return job
 
     async def claim_next_preparation_pending(self) -> PublicationJob | None:
-        """Lock one frozen Job that only needs its idempotent Notion status write.
+        """Lock one frozen Job that needs idempotent preparation recovery.
 
         This does not change status or lease and must never be treated as permission
         to execute publication channels. The caller must pass the Job to prepare().
@@ -82,8 +83,11 @@ class JobRepository:
             select(PublicationJob)
             .where(
                 PublicationJob.content_hash.is_not(None),
-                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING]),
-                PublicationJob.snapshot_metadata["notion_write_pending"].astext == "true",
+                PublicationJob.overall_status.in_([JobStatus.WAITING, JobStatus.PROCESSING, JobStatus.BLOCKED]),
+                or_(
+                    PublicationJob.snapshot_metadata["notion_write_pending"].astext == "true",
+                    PublicationJob.snapshot_metadata["asset_finalize_pending"].astext == "true",
+                ),
             )
             .order_by(PublicationJob.scheduled_at, PublicationJob.created_at)
             .with_for_update(skip_locked=True)
