@@ -2,21 +2,19 @@
 set -eu
 
 image="${REVEN_IMAGE:-}"
-case "$image" in
-  ghcr.io/*@sha256:*) digest="${image##*@sha256:}" ;;
-  *)
-    echo "REVEN_IMAGE must be ghcr.io/<owner>/<repository>@sha256:<64 lowercase hex>" >&2
-    exit 1
-    ;;
-esac
+pattern='^ghcr\.io/[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'
 
-if [ "${#digest}" -ne 64 ]; then
-  echo "REVEN_IMAGE sha256 digest must contain exactly 64 hex characters" >&2
+if ! printf '%s\n' "$image" | grep -Eq "$pattern"; then
+  echo "REVEN_IMAGE must be ghcr.io/<owner>/<repository>@sha256:<64 lowercase hex>" >&2
   exit 1
 fi
-case "$digest" in
-  *[!0-9a-f]*)
-    echo "REVEN_IMAGE sha256 digest must use lowercase hex characters only" >&2
+
+path="${image#ghcr.io/}"
+repository_with_digest="${path#*/}"
+repository="${repository_with_digest%%@sha256:*}"
+case "$repository" in
+  . | ..)
+    echo "REVEN_IMAGE must be ghcr.io/<owner>/<repository>@sha256:<64 lowercase hex>" >&2
     exit 1
     ;;
 esac
