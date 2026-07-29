@@ -1,8 +1,12 @@
+import base64
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from reven.api.routes.sync import get_notion_sync_service, router
+from reven.app import create_app
+from reven.config import get_settings
 from reven.integrations.notion.sync import SyncResult
 
 
@@ -42,3 +46,28 @@ def test_article_sync_api_passes_article_id() -> None:
     assert response.status_code == 200
     assert response.json()["updated"] == 1
     assert service.article_id == article_id
+
+
+@pytest.mark.anyio
+async def test_production_app_mounts_sync_routes_with_database_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://reven_test:reven_test@127.0.0.1:55432/reven_test",
+    )
+    monkeypatch.setenv(
+        "REVEN_MASTER_KEY",
+        base64.urlsafe_b64encode(b"t" * 32).decode(),
+    )
+    get_settings.cache_clear()
+
+    with TestClient(create_app(start_background_tasks=False)) as client:
+        response = client.post("/api/sync/notion")
+        paths = client.get("/openapi.json").json()["paths"]
+
+    assert response.status_code == 409
+    assert "/api/sync/notion" in paths
+    assert "/api/articles/{article_id}/sync" in paths
+    get_settings.cache_clear()

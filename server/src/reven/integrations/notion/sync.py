@@ -1,5 +1,6 @@
 """Notion editorial index synchronization without fetching article bodies."""
 
+import asyncio
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Protocol
@@ -104,6 +105,12 @@ class NotionSyncService:
             page_id = str(raw_page.get("id", "unknown"))
             await self._record_page_error(page_id, str(exc))
             return "failed"
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            page_id = str(raw_page.get("id", "unknown"))
+            await self._record_page_error(page_id, f"页面处理失败（{type(exc).__name__}）")
+            return "failed"
 
     async def _save_state(self, *, cursor: str | None, completed: bool) -> None:
         async with self.session_factory.begin() as session:
@@ -146,8 +153,7 @@ async def _reconcile_job(session: AsyncSession, article: Article) -> None:
     if job.overall_status == JobStatus.WAITING:
         _update_waiting_job(job, article)
     elif job.overall_status == JobStatus.BLOCKED:
-        job.overall_status = JobStatus.WAITING
-        article.automation_status = AutomationStatus.WAITING
+        _retry_blocked_job(job, article)
 
 
 async def _active_job(session: AsyncSession, article_id: UUID) -> PublicationJob | None:
@@ -176,6 +182,20 @@ def _update_waiting_job(job: PublicationJob, article: Article) -> None:
 def _scheduled_channels(raw_channels: list[str]) -> list[str]:
     selection = parse_target_channels(raw_channels)
     return [channel.value for channel in TargetChannel if channel in selection.channels]
+
+
+def _retry_blocked_job(job: PublicationJob, article: Article) -> None:
+    edited_at = article.notion_last_edited_at.isoformat()
+    marker = job.notification_state.get("_sync_revalidation_edited_at")
+    if marker == edited_at:
+        article.automation_status = AutomationStatus.BLOCKED
+        return
+    job.notification_state = {
+        **job.notification_state,
+        "_sync_revalidation_edited_at": edited_at,
+    }
+    job.overall_status = JobStatus.WAITING
+    article.automation_status = AutomationStatus.WAITING
 
 
 def _page_results(response: dict[str, Any]) -> list[dict[str, Any]]:

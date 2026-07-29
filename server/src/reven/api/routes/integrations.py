@@ -24,6 +24,7 @@ from reven.api.schemas.integrations import (
     to_response,
 )
 from reven.config import get_settings
+from reven.db import create_session_factory
 from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.security.secrets import SecretBox
@@ -35,7 +36,10 @@ register_notion_adapter()
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
-    factory = request.app.state.session_factory
+    factory = getattr(request.app.state, "session_factory", None)
+    if factory is None:
+        factory = create_session_factory(get_settings())
+        request.app.state.session_factory = factory
     if not isinstance(factory, async_sessionmaker):
         raise RuntimeError("app.state.session_factory 未初始化")
     return factory
