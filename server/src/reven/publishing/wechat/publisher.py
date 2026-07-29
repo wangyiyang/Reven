@@ -24,6 +24,7 @@ from reven.publishing.wechat.images import (
     SnapshotAssetsMissingError,
     replace_placeholders,
     validate_placeholders,
+    verify_snapshot_file_set,
 )
 
 T = TypeVar("T")
@@ -282,7 +283,9 @@ def load_snapshot_assets(metadata: dict[str, object]) -> MaterializedAssets:
     images = tuple(_metadata_asset(item) for item in images_raw)
     cover = _metadata_asset(cover_raw)
     _verify_asset_hashes(images, cover, metadata)
-    return MaterializedAssets(images, cover)
+    assets = MaterializedAssets(images, cover)
+    verify_snapshot_file_set(assets)
+    return assets
 
 
 def _metadata_asset(raw: object) -> MaterializedAsset:

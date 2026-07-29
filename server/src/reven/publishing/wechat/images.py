@@ -201,6 +201,10 @@ def _repair_existing_snapshot(
                 source.size,
             )
         )
+    _verify_directory_files(
+        staged.final_dir,
+        {asset.path.name for asset in repaired},
+    )
     return MaterializedAssets(tuple(repaired[:-1]), repaired[-1], final_dir=staged.final_dir)
 
 
@@ -247,9 +251,34 @@ def _replace_if_needed(source: MaterializedAsset, destination: Path) -> None:
         if _sha256(temporary) != source.sha256:
             raise BlockedPublishError("恢复素材哈希校验失败")
         temporary.replace(destination)
+        _fsync_directory(destination.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verify_snapshot_file_set(assets: MaterializedAssets) -> None:
+    all_assets = (*assets.images, *((assets.cover,) if assets.cover else ()))
+    parents = {asset.path.parent for asset in all_assets}
+    if len(parents) != 1:
+        raise BlockedPublishError("微信素材快照目录不一致")
+    _verify_directory_files(parents.pop(), {asset.path.name for asset in all_assets})
+
+
+def _verify_directory_files(directory: Path, expected: set[str]) -> None:
+    if directory.is_symlink() or not directory.is_dir():
+        raise BlockedPublishError("微信素材快照目录无效")
+    actual = {path.name for path in directory.iterdir()}
+    if actual != expected:
+        raise BlockedPublishError("微信素材快照包含未知或缺失文件")
+
+
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
