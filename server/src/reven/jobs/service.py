@@ -1,39 +1,49 @@
 """Freeze validated Notion content into an idempotent publication job."""
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol, TypeGuard
+from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
-from reven.domain import (
-    AutomationStatus,
-    BlogStage,
-    JobStatus,
-    TargetChannel,
-    WechatStage,
-    parse_target_channels,
-)
-from reven.integrations.models import Integration
+from reven.domain import AutomationStatus, JobStatus, TargetChannel, parse_target_channels
 from reven.integrations.notion.mapper import map_notion_page
 from reven.integrations.notion.models import MappedNotionPage
 from reven.jobs.models import PublicationJob
-from reven.jobs.repository import compute_target_channels_hash
+from reven.jobs.preparation_models import (
+    PersistedPreparation as _PersistedPreparation,
+)
+from reven.jobs.preparation_models import (
+    Preflight as _Preflight,
+)
+from reven.jobs.preparation_models import (
+    PreparedWork as _PreparedWork,
+)
+from reven.jobs.preparation_models import PrepareResult
+from reven.jobs.preparation_state import (
+    adopt_existing as _adopt_existing,
+)
+from reven.jobs.preparation_state import candidate as _candidate
+from reven.jobs.preparation_state import error_summary as _error_summary
+from reven.jobs.preparation_state import existing_frozen as _existing_frozen
+from reven.jobs.preparation_state import freeze as _freeze
+from reven.jobs.preparation_state import (
+    is_idempotency_conflict as _is_idempotency_conflict,
+)
+from reven.jobs.preparation_state import locked_job as _locked_job
+from reven.jobs.preparation_state import persist_blocked as _persist_blocked
+from reven.jobs.preparation_state import refresh_article as _refresh_article
+from reven.jobs.preparation_state import source_failure as _source_failure
+from reven.jobs.preparation_state import valid_asset_manifest as _valid_asset_manifest
 from reven.publishing.assets import AssetDownloadError, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot, image_urls
 from reven.publishing.validation import (
-    PublicationCandidate,
     ValidationError,
     ValidationResult,
     validate_candidate,
 )
-from reven.scheduling import resolve_scheduled_at, utc_now
-
-CONNECTION_TEST_MAX_AGE = timedelta(days=7)
+from reven.scheduling import utc_now
 
 
 class PublicationPreparationError(Exception):
@@ -76,43 +86,6 @@ class Materializer(Protocol):
         staging_identity: str,
         expected_manifest: list[dict[str, str]],
     ) -> None: ...
-
-
-@dataclass(frozen=True)
-class PrepareResult:
-    job_id: UUID
-    reused: bool = False
-    blocked: bool = False
-    validation: ValidationResult | None = None
-
-
-@dataclass(frozen=True)
-class _PersistedPreparation:
-    result: PrepareResult
-    page_id: str | None = None
-    status: AutomationStatus | None = None
-    reason: str | None = None
-    staging_identity: str | None = None
-    asset_manifest: list[dict[str, str]] | None = None
-
-
-@dataclass(frozen=True)
-class _Preflight:
-    job_id: UUID
-    article_id: UUID
-    notion_page_id: str
-    article_updated_at: datetime
-
-
-@dataclass(frozen=True)
-class _PreparedWork:
-    preflight: _Preflight
-    mapped: MappedNotionPage | None
-    markdown: str
-    channels: tuple[TargetChannel, ...]
-    unsupported: tuple[str, ...]
-    assets: MaterializedAssets | None
-    validation: ValidationResult
 
 
 class PublicationJobService:
@@ -437,87 +410,6 @@ class PublicationJobService:
             return _adopt_existing(current, existing, article).result
 
 
-async def _locked_job(session: AsyncSession, job_id: UUID) -> PublicationJob | None:
-    job: PublicationJob | None = await session.scalar(
-        select(PublicationJob).where(PublicationJob.id == job_id).with_for_update()
-    )
-    return job
-
-
-async def _integration_status(session: AsyncSession) -> tuple[dict[str, bool], str, str | None]:
-    rows = list(await session.scalars(select(Integration)))
-    integrations = {row.provider: row for row in rows}
-    now = datetime.now(tz=UTC)
-    status: dict[str, bool] = {}
-    for provider in ("github", "wechat"):
-        item = integrations.get(provider)
-        recent = (
-            item is not None
-            and item.last_tested_at is not None
-            and now - item.last_tested_at <= CONNECTION_TEST_MAX_AGE
-        )
-        status[provider] = bool(item and item.encrypted_secret and item.connection_status == "连接正常" and recent)
-    wechat = integrations.get("wechat")
-    author = str(wechat.public_config.get("author", "")) if wechat else ""
-    feishu = integrations.get("feishu")
-    feishu_error = "unavailable" if feishu is not None and feishu.connection_status == "连接失败" else None
-    return status, author, feishu_error
-
-
-async def _candidate(
-    session: AsyncSession,
-    mapped: MappedNotionPage,
-    markdown: str,
-    channels: tuple[TargetChannel, ...],
-    unsupported: tuple[str, ...],
-    assets: MaterializedAssets | None,
-    asset_errors: tuple[ValidationError, ...],
-) -> PublicationCandidate:
-    integration_status, author, feishu_error = await _integration_status(session)
-    count = len(image_urls(markdown))
-    return PublicationCandidate(
-        title=mapped.title,
-        markdown=markdown,
-        summary=mapped.summary,
-        author=author,
-        cover=assets.cover if assets else None,
-        image_count=count,
-        materialized_image_count=len(assets.images) if assets else 0,
-        channels=channels,
-        unsupported_channels=unsupported,
-        integration_status=integration_status,
-        materialization_errors=asset_errors,
-        feishu_error=feishu_error,
-    )
-
-
-def _refresh_article(article: Article, mapped: MappedNotionPage) -> None:
-    article.title = mapped.title
-    article.notion_status = mapped.status
-    article.target_channels = mapped.target_channels
-    article.planned_at = resolve_scheduled_at(mapped.planned_raw) if mapped.planned_raw else None
-    article.notion_last_edited_at = mapped.last_edited_at
-    article.last_synced_at = utc_now()
-
-
-def _freeze(
-    job: PublicationJob,
-    content_hash: str,
-    markdown: str,
-    metadata: dict[str, object],
-    channels: tuple[TargetChannel, ...],
-) -> None:
-    values = [channel.value for channel in channels]
-    job.content_hash = content_hash
-    job.target_channels = values
-    job.target_channels_hash = compute_target_channels_hash(values)
-    job.source_markdown = markdown
-    metadata["notion_write_pending"] = True
-    job.snapshot_metadata = metadata
-    job.overall_status = JobStatus.WAITING
-    job.lease_expires_at = None
-
-
 def _snapshot_metadata(metadata: dict[str, object], assets: MaterializedAssets) -> dict[str, object]:
     if assets.cover is None:
         raise PublicationPreparationError("缺少封面时不能生成快照元数据")
@@ -547,98 +439,3 @@ def _asset_finalize_metadata(
     metadata["asset_staging_identity"] = identity
     metadata["asset_manifest"] = [{"name": asset.path.name, "sha256": asset.sha256} for asset in assets]
     return metadata
-
-
-def _valid_asset_manifest(value: object) -> TypeGuard[list[dict[str, str]]]:
-    return isinstance(value, list) and all(
-        isinstance(item, dict) and isinstance(item.get("name"), str) and isinstance(item.get("sha256"), str)
-        for item in value
-    )
-
-
-async def _existing_frozen(
-    session: AsyncSession,
-    article_id: UUID,
-    content_hash: str | None,
-    channels: tuple[TargetChannel, ...],
-    *,
-    exclude_id: UUID | None = None,
-) -> PublicationJob | None:
-    if content_hash is None:
-        return None
-    statement = select(PublicationJob).where(
-        PublicationJob.article_id == article_id,
-        PublicationJob.content_hash == content_hash,
-        PublicationJob.target_channels_hash == compute_target_channels_hash([item.value for item in channels]),
-    )
-    if exclude_id is not None:
-        statement = statement.where(PublicationJob.id != exclude_id)
-    job: PublicationJob | None = await session.scalar(statement.order_by(PublicationJob.created_at).limit(1))
-    return job
-
-
-def _error_summary(validation: ValidationResult) -> str:
-    return "；".join(f"{error.field}：{error.message}" for error in validation.errors)[:1000]
-
-
-def _persist_blocked(job: PublicationJob, article: Article, validation: ValidationResult) -> _PersistedPreparation:
-    reason = _error_summary(validation)
-    job.overall_status = JobStatus.BLOCKED
-    job.lease_expires_at = None
-    article.automation_status = AutomationStatus.BLOCKED
-    article.last_error = reason
-    result = PrepareResult(job.id, blocked=True, validation=validation)
-    return _PersistedPreparation(result, article.notion_page_id, AutomationStatus.BLOCKED, reason)
-
-
-def _adopt_existing(current: PublicationJob, existing: PublicationJob, article: Article) -> _PersistedPreparation:
-    status = JobStatus(existing.overall_status)
-    if current.id != existing.id:
-        current.overall_status = JobStatus.CANCELLED
-    notion_status: AutomationStatus | None = None
-    if status in {JobStatus.FAILED, JobStatus.CANCELLED}:
-        existing.overall_status = JobStatus.WAITING
-        existing.lease_expires_at = None
-        if existing.blog_status != BlogStage.ONLINE:
-            existing.blog_error = None
-        if existing.wechat_status != WechatStage.DRAFT_CREATED:
-            existing.wechat_error = None
-        article.automation_status = AutomationStatus.WAITING
-        article.last_error = None
-        if existing.snapshot_metadata.get("notion_write_pending") is True:
-            notion_status = AutomationStatus.PROCESSING
-    elif status == JobStatus.COMPLETED:
-        article.automation_status = AutomationStatus.COMPLETED
-        article.last_error = None
-    elif status == JobStatus.PROCESSING:
-        article.automation_status = AutomationStatus.PROCESSING
-        article.last_error = None
-    elif status == JobStatus.WAITING:
-        article.automation_status = AutomationStatus.WAITING
-        article.last_error = None
-        if existing.snapshot_metadata.get("notion_write_pending") is True:
-            notion_status = AutomationStatus.PROCESSING
-    else:
-        article.automation_status = AutomationStatus.BLOCKED
-    return _PersistedPreparation(
-        PrepareResult(existing.id, reused=True),
-        article.notion_page_id if notion_status else None,
-        notion_status,
-    )
-
-
-def _is_idempotency_conflict(exc: IntegrityError) -> bool:
-    original = exc.orig
-    cause = getattr(original, "__cause__", None)
-    constraint = getattr(cause, "constraint_name", None) or getattr(original, "constraint_name", None)
-    sqlstate = getattr(cause, "sqlstate", None) or getattr(original, "sqlstate", None)
-    return constraint == "uq_job_article_version_channels" and sqlstate == "23505"
-
-
-def _source_failure(error_type: str) -> ValidationResult:
-    issue = ValidationError(
-        "source_sync_failed",
-        f"无法获取最新 Notion 内容（{error_type}），请检查连接后重试",
-        "notion",
-    )
-    return ValidationResult((issue,))
