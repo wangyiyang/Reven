@@ -221,7 +221,7 @@ async def test_resolver_and_filesystem_errors_are_structured_and_redacted(
 ) -> None:
     async def bad_resolver(host: str, port: int, *, type: int) -> list[tuple[object, ...]]:
         del host, port, type
-        raise RuntimeError("token=sensitive")
+        raise socket.gaierror("token=sensitive")
 
     with pytest.raises(AssetDownloadError) as dns_error:
         await AssetMaterializer(tmp_path, requester=FakeRequester(png_response), resolver=bad_resolver).materialize(

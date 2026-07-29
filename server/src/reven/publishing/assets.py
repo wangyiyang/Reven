@@ -232,7 +232,7 @@ class AssetMaterializer:
             raise AssetDownloadError("url_unsafe", "素材地址不安全：仅允许 HTTPS", field=field)
         try:
             addresses = await self.resolver(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             raise AssetDownloadError("dns_failed", "素材域名解析失败", field=field) from exc
         ips = [str(item[-1][0]) for item in addresses if item and isinstance(item[-1], tuple)]
         if not ips or any(_is_unsafe_address(ip) for ip in ips):
