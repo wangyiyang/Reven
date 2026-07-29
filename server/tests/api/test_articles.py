@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from reven.articles.models import Article
 from reven.articles.query import ARTICLE_DETAIL_JOB_LIMIT
@@ -63,6 +63,43 @@ def test_list_exposes_latest_channel_statuses(workbench) -> None:  # type: ignor
 
     assert item["blog_status"] == "构建中"
     assert item["wechat_status"] == "草稿已生成"
+
+
+def test_list_uses_latest_job_per_channel_with_default_channel_semantics(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    now = datetime.now(tz=UTC)
+    article = _article("分渠道状态", now)
+    article.target_channels = []
+    jobs = [
+        _channel_job(article.id, UUID(int=1), now, [], "默认博客", "默认微信"),
+        _channel_job(article.id, UUID(int=2), now, ["微信公众号"], "不应覆盖博客", "新微信"),
+        _channel_job(article.id, UUID(int=3), now, ["个人博客"], "新博客", "不应覆盖微信"),
+    ]
+    asyncio.run(_seed_values(factory, article, jobs))
+
+    payload = client.get(
+        "/api/articles",
+        params={"query": "分渠道状态", "channel": "微信公众号"},
+    ).json()
+
+    assert payload["items"][0]["blog_status"] == "新博客"
+    assert payload["items"][0]["wechat_status"] == "新微信"
+
+
+def test_detail_job_history_uses_descending_id_for_equal_timestamps(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    now = datetime.now(tz=UTC)
+    article = _article("稳定排序", now)
+    jobs = [
+        _channel_job(article.id, UUID(int=10), now, ["个人博客"], "旧", "待处理"),
+        _channel_job(article.id, UUID(int=11), now, ["个人博客"], "新", "待处理"),
+    ]
+    asyncio.run(_seed_values(factory, article, jobs))
+
+    payload = client.get(f"/api/articles/{article.id}").json()
+
+    assert [item["id"] for item in payload["jobs"]] == [str(UUID(int=11)), str(UUID(int=10))]
+    assert payload["blog_status"] == "新"
 
 
 def test_preview_uses_injected_latest_source_service_without_state_write(workbench) -> None:  # type: ignore[no-untyped-def]
@@ -170,3 +207,33 @@ async def _seed_job_history(
                     updated_at=now + timedelta(seconds=index),
                 )
             )
+
+
+def _channel_job(
+    article_id,
+    job_id: UUID,
+    created_at: datetime,
+    channels: list[str],
+    blog_status: str,
+    wechat_status: str,
+) -> PublicationJob:
+    return PublicationJob(
+        id=job_id,
+        article_id=article_id,
+        content_hash=job_id.hex.rjust(64, "0"),
+        target_channels=channels,
+        target_channels_hash=compute_target_channels_hash(channels),
+        snapshot_metadata={},
+        overall_status="处理中",
+        blog_status=blog_status,
+        wechat_status=wechat_status,
+        scheduled_at=created_at,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
+async def _seed_values(factory: async_sessionmaker, article: Article, jobs: list[PublicationJob]) -> None:
+    async with factory.begin() as session:
+        session.add(article)
+        session.add_all(jobs)
