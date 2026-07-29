@@ -13,6 +13,8 @@ from reven.config import get_settings
 from reven.integrations.notion.sync import SyncResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
+
 
 class FakeSyncService:
     def __init__(self) -> None:
@@ -77,7 +79,7 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
 def test_app_lifespan_does_not_dispose_injected_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    engine = create_async_engine(DUMMY_DATABASE_URL)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     disposed = False
     original_dispose = AsyncEngine.dispose
@@ -111,7 +113,7 @@ def test_app_lifespan_does_not_dispose_injected_engine(
 def test_app_lifespan_disposes_internally_created_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("DATABASE_URL", DUMMY_DATABASE_URL)
     monkeypatch.setenv(
         "REVEN_MASTER_KEY",
         base64.urlsafe_b64encode(b"t" * 32).decode(),
