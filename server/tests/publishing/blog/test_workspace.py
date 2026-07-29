@@ -80,3 +80,17 @@ async def test_push_uses_official_url_and_disables_hooks_and_helpers(tmp_path: P
     assert "https://github.com/acme/blog.git" in argv
     assert any("core.hooksPath=" in item for item in argv)
     assert "credential.helper=" in argv
+
+
+def test_build_mutation_is_rejected_against_prebuild_trusted_artifact(tmp_path: Path) -> None:
+    workspace = BlogWorkspace(tmp_path, Recorder())  # type: ignore[arg-type]
+    attempt = workspace.create_attempt("job-id")
+    repo = attempt / "build"
+    post = repo / "_posts/post.md"
+    post.parent.mkdir(parents=True)
+    post.write_text("trusted")
+    manifest = (Path("_posts/post.md"),)
+    workspace.stage_artifacts(repo, manifest, attempt)
+    post.write_text("malicious build mutation")
+    with pytest.raises(ValueError, match="构建篡改"):
+        workspace.verify_artifacts(repo, manifest, attempt)

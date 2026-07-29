@@ -137,6 +137,14 @@ class BlogWorkspace:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
 
+    def verify_artifacts(self, repo: Path, manifest: tuple[Path, ...], attempt: Path) -> None:
+        for relative in manifest:
+            trusted = attempt / "artifact" / relative
+            expected = trusted.with_suffix(trusted.suffix + ".sha256").read_text()
+            candidate = repo / relative
+            if not candidate.is_file() or hashlib.sha256(candidate.read_bytes()).hexdigest() != expected:
+                raise ValueError("Jekyll 构建篡改了发布 manifest")
+
     def _assert_cwd(self, path: Path) -> None:
         resolved = path.resolve()
         if not resolved.is_relative_to(self.root) or "blog" not in resolved.parts:

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import pytest
+import reven.publishing.commands as commands_module
 from reven.publishing.commands import CommandError, CommandRunner
 
 
@@ -119,3 +120,50 @@ async def test_command_runner_context_removes_isolated_environment() -> None:
         isolated = runner.isolated
         assert isolated.exists()
     assert not isolated.exists()
+
+
+@pytest.mark.anyio
+async def test_timeout_kills_group_after_leader_exits(tmp_path: Path) -> None:
+    pid_file = tmp_path / "orphan.pid"
+    script = (
+        "import pathlib,subprocess,sys;"
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']);"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid));"
+        "sys.exit(7)"
+    )
+    with pytest.raises(CommandError, match="超时"):
+        await CommandRunner(timeout=0.1).run([sys.executable, "-c", script])
+    child_pid = int(pid_file.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("orphan child survived timeout cleanup")
+
+
+@pytest.mark.anyio
+async def test_nonzero_exit_with_closed_pipes_reports_exit_code() -> None:
+    with pytest.raises(CommandError, match=r"命令失败\(7\)"):
+        await CommandRunner(timeout=1).run([sys.executable, "-c", "import sys; sys.exit(7)"])
+
+
+@pytest.mark.anyio
+async def test_reader_failure_kills_and_reaps_process_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = commands_module._read_bounded
+    calls = 0
+
+    async def failing_reader(stream, limit):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("reader failed")
+        return await original(stream, limit)
+
+    monkeypatch.setattr(commands_module, "_read_bounded", failing_reader)
+    started = time.monotonic()
+    with pytest.raises(OSError, match="reader failed"):
+        await CommandRunner(timeout=5).run([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert time.monotonic() - started < 2
