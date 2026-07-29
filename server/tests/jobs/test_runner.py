@@ -118,6 +118,66 @@ async def test_lost_lease_cancels_and_awaits_execution() -> None:
     assert execution_cancelled.is_set()
 
 
+@pytest.mark.anyio
+async def test_parent_cancellation_cancels_and_awaits_both_children() -> None:
+    execution_cancelled = asyncio.Event()
+    heartbeat_cancelled = asyncio.Event()
+    baseline = asyncio.all_tasks()
+
+    async def endless(cancelled: asyncio.Event) -> None:
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    parent = asyncio.create_task(
+        run_until_heartbeat_stops(
+            endless(execution_cancelled),
+            endless(heartbeat_cancelled),
+        )
+    )
+    await asyncio.sleep(0)
+    children = asyncio.all_tasks() - baseline - {parent}
+
+    parent.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+
+    assert execution_cancelled.is_set()
+    assert heartbeat_cancelled.is_set()
+    assert children
+    assert all(task.done() for task in children)
+    assert not (children & asyncio.all_tasks())
+
+
+@pytest.mark.anyio
+async def test_background_runner_stop_cleans_tick_children() -> None:
+    execution_cancelled = asyncio.Event()
+    heartbeat_cancelled = asyncio.Event()
+    started = asyncio.Event()
+
+    async def endless(cancelled: asyncio.Event) -> None:
+        try:
+            started.set()
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    async def sync_tick() -> None:
+        await run_until_heartbeat_stops(
+            endless(execution_cancelled),
+            endless(heartbeat_cancelled),
+        )
+
+    runner = BackgroundRunner(sync_tick, FakeJobLoop(), sync_interval=3600, job_interval=3600)
+    await runner.start()
+    await started.wait()
+    await runner.stop()
+
+    assert execution_cancelled.is_set()
+    assert heartbeat_cancelled.is_set()
+
+
 def test_asset_finalize_integrity_error_is_blocked() -> None:
     error = AssetDownloadError("asset_finalize_mismatch", "tampered", field="assets")
 
