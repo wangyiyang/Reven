@@ -194,16 +194,18 @@ async def _pair(session: AsyncSession, job_id: UUID) -> tuple[PublicationJob, Ar
 
 
 async def _locked_pair(session: AsyncSession, claim: JobClaim) -> tuple[PublicationJob, Article]:
-    row = await session.execute(
-        select(PublicationJob, Article)
-        .join(Article, Article.id == PublicationJob.article_id)
+    article_id = await session.scalar(select(PublicationJob.article_id).where(PublicationJob.id == claim.job_id))
+    if article_id is None:
+        raise RuntimeError("发布任务不存在")
+    article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
+    job = await session.scalar(
+        select(PublicationJob)
         .where(PublicationJob.id == claim.job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    pair = row.one_or_none()
-    if pair is None:
+    if article is None or job is None or job.article_id != article.id:
         raise RuntimeError("发布任务不存在")
-    job, article = cast(tuple[PublicationJob, Article], pair)
     await _require_lease(session, job, claim)
     return job, article
 
