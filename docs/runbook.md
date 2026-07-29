@@ -125,6 +125,8 @@ Git Tag 触发 `.github/workflows/release.yml` 后，先核对完整质量门禁
 
 ```bash
 REVEN_IMAGE=ghcr.io/<OWNER>/<REPOSITORY>@sha256:<AUDITED_DIGEST>
+export REVEN_IMAGE
+./scripts/validate_reven_image.sh
 docker --config /opt/reven/.docker pull "$REVEN_IMAGE"
 test "$(docker image inspect "$REVEN_IMAGE" --format '{{index .RepoDigests 0}}')" = "$REVEN_IMAGE"
 chmod 600 .env
