@@ -1,14 +1,16 @@
 """Exercise the real production blog workspace against an adversarial fixture."""
 
 import asyncio
-import json
 import shutil
 import socket
+import time
+from dataclasses import replace
 from pathlib import Path
 
+from reven.publishing.blog.factory import create_blog_workspace
 from reven.publishing.blog.workspace import BlogWorkspace
-from reven.publishing.commands import CommandRunner
-from reven.publishing.sandbox import bubblewrap_command
+from reven.publishing.commands import CommandError, CommandRunner
+from reven.publishing.sandbox import BLOG_RESOURCE_PROFILE, SandboxResourceProfile
 
 
 async def main() -> None:
@@ -18,7 +20,9 @@ async def main() -> None:
     listener = socket.create_server(("127.0.0.1", 0))
     listener.settimeout(0.1)
     runner = CommandRunner(timeout=300)
-    workspace = BlogWorkspace(jobs_root, runner, sandbox_executable=Path("/usr/bin/bwrap"))
+    workspace = create_blog_workspace(jobs_root, runner)
+    assert workspace.root == jobs_root
+    assert not (jobs_root / "jobs").exists()
     attempt = workspace.create_attempt("security-smoke")
     repository = attempt / "build"
     shutil.copytree(fixture, repository)
@@ -27,7 +31,8 @@ async def main() -> None:
         await _initialize_repository(runner, repository)
         await workspace.prepare(repository, "reven/security-smoke")
         await workspace.build(repository)
-        await _assert_resource_limits(runner, repository)
+        await _assert_resource_behavior(workspace, repository)
+        _assert_container_limits()
         _assert_listener_unused(listener)
         assert (repository / "_site/index.html").is_file()
     finally:
@@ -44,30 +49,126 @@ async def _initialize_repository(runner: CommandRunner, repository: Path) -> Non
     await runner.run(["git", "commit", "-m", "fixture"], cwd=repository)
 
 
-async def _assert_resource_limits(runner: CommandRunner, repository: Path) -> None:
-    ruby = (
-        'require "json"; puts JSON.generate({'
-        "cpu: Process.getrlimit(:CPU)[0], "
-        "nofile: Process.getrlimit(:NOFILE)[0], "
-        "nproc: Process.getrlimit(:NPROC)[0], "
-        "fsize: Process.getrlimit(:FSIZE)[0], "
-        "as: Process.getrlimit(:AS)[0]})"
+async def _assert_resource_behavior(workspace: BlogWorkspace, repository: Path) -> None:
+    memory_probe = """
+begin
+  "x" * (2 * 1024 * 1024 * 1024)
+  abort "address-space limit missing"
+rescue NoMemoryError
+end
+"""
+    file_probe = """
+chunk = "x" * (1024 * 1024)
+File.open("oversized.bin", "wb") { |file| 65.times { file.write(chunk) } }
+abort "file-size limit missing"
+"""
+    await _assert_fork_limit(workspace, repository)
+    await _run_probe(workspace, repository, memory_probe)
+    try:
+        await _run_probe(workspace, repository, file_probe, must_fail=True)
+    finally:
+        (repository / "oversized.bin").unlink(missing_ok=True)
+
+    cpu_profile = replace(BLOG_RESOURCE_PROFILE, cpu_seconds=1)
+    started = time.monotonic()
+    await _run_probe(
+        workspace,
+        repository,
+        "loop {}",
+        must_fail=True,
+        resource_profile=cpu_profile,
     )
-    command = bubblewrap_command(
-        Path("/usr/bin/bwrap"),
-        ["ruby", "-e", ruby],
-        writable_path=repository,
-        resource_profile="blog",
-    )
-    result = await runner.run(command, cwd=repository)
-    limits = json.loads(result.stdout)
-    assert limits == {
-        "cpu": 240,
-        "nofile": 256,
-        "nproc": 64,
-        "fsize": 67_108_864,
-        "as": 1_610_612_736,
+    assert time.monotonic() - started < 6
+
+
+async def _assert_fork_limit(workspace: BlogWorkspace, repository: Path) -> None:
+    source = repository / "nproc-probe.c"
+    executable = repository / "nproc-probe"
+    source.write_text(
+        """
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+int main(void) {
+    pid_t children[80];
+    int count = 0;
+    int limited = 0;
+    for (int i = 0; i < 80; i++) {
+        pid_t child = fork();
+        if (child == -1) {
+            limited = errno == EAGAIN;
+            break;
+        }
+        if (child == 0) {
+            pause();
+            _exit(0);
+        }
+        children[count++] = child;
     }
+    for (int i = 0; i < count; i++) kill(children[i], SIGKILL);
+    for (int i = 0; i < count; i++) {
+        while (waitpid(children[i], 0, 0) == -1 && errno == EINTR) {}
+    }
+    return limited ? 0 : 2;
+}
+""",
+        encoding="utf-8",
+    )
+    try:
+        async with CommandRunner(timeout=15) as runner:
+            await runner.run(["gcc", "-O2", "-o", str(executable), str(source)], cwd=repository)
+        await _run_command_probe(workspace, repository, ["./nproc-probe"])
+    finally:
+        executable.unlink(missing_ok=True)
+        source.unlink(missing_ok=True)
+
+
+async def _run_probe(
+    workspace: BlogWorkspace,
+    repository: Path,
+    ruby: str,
+    *,
+    must_fail: bool = False,
+    resource_profile: SandboxResourceProfile | None = None,
+) -> None:
+    await _run_command_probe(
+        workspace,
+        repository,
+        ["ruby", "-e", ruby],
+        must_fail=must_fail,
+        resource_profile=resource_profile,
+    )
+
+
+async def _run_command_probe(
+    workspace: BlogWorkspace,
+    repository: Path,
+    argv: list[str],
+    *,
+    must_fail: bool = False,
+    resource_profile: SandboxResourceProfile | None = None,
+) -> None:
+    command = workspace.sandbox_command(
+        repository,
+        argv,
+        resource_profile=resource_profile,
+    )
+    async with CommandRunner(timeout=5) as runner:
+        try:
+            await runner.run(command, cwd=repository)
+        except CommandError as exc:
+            assert must_fail and "超时" not in str(exc)
+        else:
+            assert not must_fail
+
+
+def _assert_container_limits() -> None:
+    assert Path("/sys/fs/cgroup/pids.max").read_text().strip() == "128"
+    assert Path("/sys/fs/cgroup/memory.max").read_text().strip() == str(2 * 1024 * 1024 * 1024)
+    quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()
+    assert quota != "max" and int(quota) / int(period) == 2
 
 
 def _assert_listener_unused(listener: socket.socket) -> None:
