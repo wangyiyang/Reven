@@ -1,0 +1,167 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeft, ArrowUpRight, Ban, RefreshCcw, RotateCcw } from "lucide-react"
+import { useRef } from "react"
+import { Link, useParams } from "react-router-dom"
+import { toast } from "sonner"
+
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { apiRequest } from "@/lib/api"
+import { safeNotionUrl } from "@/lib/external-url"
+import { ArticleStatus } from "./article-status"
+import { ChannelTimeline } from "./channel-timeline"
+import type { ArticleDetail, ChannelName, JobDetail, JobSummary, ValidationItem } from "./types"
+import { WechatPreview } from "./wechat-preview"
+
+export function ArticleDetailPage() {
+  const { articleId = "" } = useParams()
+  const article = useQuery({
+    queryKey: ["article", articleId],
+    queryFn: () => apiRequest<ArticleDetail>(`/articles/${articleId}`),
+    enabled: Boolean(articleId),
+  })
+  if (article.isLoading) return <DetailLoading />
+  if (article.isError) return <DetailError message={article.error.message} retry={() => article.refetch()} />
+  if (!article.data) return null
+  return <DetailContent article={article.data} />
+}
+
+function DetailContent({ article }: { article: ArticleDetail }) {
+  const notionUrl = safeNotionUrl(article.notion_url)
+  const newest = article.jobs[0]
+  const job = useQuery({
+    queryKey: ["article-job", article.id, newest?.id],
+    queryFn: () => apiRequest<JobDetail>(`/articles/${article.id}/jobs/${newest.id}`),
+    enabled: Boolean(newest),
+  })
+  return (
+    <main className="page-enter mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 lg:px-12 lg:py-12">
+      <Link className="inline-flex min-h-10 items-center gap-2 text-xs font-semibold hover:underline" to="/articles"><ArrowLeft aria-hidden size={14} />返回稿件索引</Link>
+      <header className="mt-5 grid gap-7 border-b border-[var(--ink)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div>
+          <p className="section-kicker">Article dossier / 交付档案</p>
+          <h1 className="font-display mt-3 max-w-4xl text-[clamp(2.5rem,6vw,5.5rem)] leading-[0.95] tracking-[-0.05em]">{article.title}</h1>
+          <div className="mt-5 flex flex-wrap gap-2"><ArticleStatus status={article.notion_status} /><ArticleStatus status={article.automation_status} /></div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {notionUrl && <a className="inline-flex min-h-10 items-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold hover:border-[var(--ink)]" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={14} /></a>}
+          <WechatPreview articleId={article.id} title={article.title} />
+        </div>
+      </header>
+      <section className="grid gap-8 py-8 lg:grid-cols-[0.8fr_1.2fr]">
+        <Metadata article={article} />
+        <Validation errors={article.validation_errors} warnings={article.validation_warnings} />
+      </section>
+      <section aria-label="渠道交付时间线">
+        <p className="section-kicker mb-2">Delivery timeline / 渠道状态</p>
+        <ChannelTimeline channel="个人博客" result={job.data?.blog ?? article.blog} />
+        <ChannelTimeline channel="微信公众号" result={job.data?.wechat ?? article.wechat} />
+      </section>
+      {newest && <JobActions articleId={article.id} job={job.data ?? newest} />}
+      <JobHistory article={article} />
+    </main>
+  )
+}
+
+function Metadata({ article }: { article: ArticleDetail }) {
+  return (
+    <section>
+      <h2 className="font-display text-3xl">Notion 元数据</h2>
+      <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
+        <Meta label="封面校验" value={article.cover_valid ? "通过" : "未通过：发布将被阻止"} danger={!article.cover_valid} />
+        <Meta label="计划时间" value={formatDate(article.planned_at)} />
+        <Meta label="目标渠道" value={article.target_channels.join("、")} />
+        <Meta label="最近同步" value={formatDate(article.last_synced_at)} />
+        <Meta label="内容 Hash" value={article.content_hash ?? "尚未冻结"} mono />
+      </dl>
+    </section>
+  )
+}
+
+function Validation({ errors, warnings }: { errors: ValidationItem[]; warnings: ValidationItem[] }) {
+  return (
+    <section>
+      <h2 className="font-display text-3xl">发布前校验</h2>
+      <div className="mt-5 grid gap-3">
+        {errors.length === 0 && warnings.length === 0 && <p className="border border-[#39734d] bg-[#dce9dc] p-4 text-sm text-[#2d5b3d]">当前没有校验问题。</p>}
+        {errors.map((item, index) => <Issue item={item} key={`error-${index}`} tone="error" />)}
+        {warnings.map((item, index) => <Issue item={item} key={`warning-${index}`} tone="warning" />)}
+      </div>
+    </section>
+  )
+}
+
+function Issue({ item, tone }: { item: ValidationItem; tone: "error" | "warning" }) {
+  return <div className={tone === "error" ? "border-l-2 border-[var(--red)] bg-[var(--red-soft)] p-4" : "border-l-2 border-[#9a6712] bg-[#f3e4bd] p-4"}><p className="text-sm font-semibold">{item.message ?? item.code ?? "未知校验问题"}</p>{item.field && <p className="mt-1 text-xs opacity-70">字段：{item.field}</p>}</div>
+}
+
+function JobActions({ articleId, job }: { articleId: string; job: JobSummary | JobDetail }) {
+  const lock = useRef(false)
+  const client = useQueryClient()
+  const action = useMutation({
+    mutationFn: async ({ kind, channels }: { kind: "retry" | "cancel"; channels?: ChannelName[] }) => {
+      if (lock.current) return
+      lock.current = true
+      try {
+        return await apiRequest(`/articles/${articleId}/jobs/${job.id}/${kind}`, {
+          method: "POST",
+          body: channels ? JSON.stringify({ channels }) : undefined,
+        })
+      } finally {
+        lock.current = false
+      }
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["article", articleId] })
+      await client.invalidateQueries({ queryKey: ["article-job", articleId, job.id] })
+      toast.success("任务状态已更新")
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+  const failed = [
+    ...(isFailed(job.blog_status) ? ["个人博客" as const] : []),
+    ...(isFailed(job.wechat_status) ? ["微信公众号" as const] : []),
+  ]
+  return (
+    <section className="my-8 flex flex-wrap items-center justify-between gap-4 border-y border-[var(--ink)] py-5">
+      <div><p className="text-xs text-[var(--muted)]">最近任务</p><p className="mt-1 font-mono text-xs">{job.id}</p></div>
+      <div className="flex flex-wrap gap-2">
+        {failed.map((channel) => <Button disabled={action.isPending} key={channel} onClick={() => action.mutate({ kind: "retry", channels: [channel] })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />重试{channel}</Button>)}
+        {job.overall_status === "等待中" && <Button disabled={action.isPending} onClick={() => action.mutate({ kind: "cancel" })} size="sm" variant="outline"><Ban aria-hidden size={13} />取消等待任务</Button>}
+      </div>
+    </section>
+  )
+}
+
+function JobHistory({ article }: { article: ArticleDetail }) {
+  return (
+    <section className="py-5">
+      <h2 className="font-display text-3xl">任务历史</h2>
+      <p className="mt-2 text-xs text-[var(--muted)]">显示最近 {article.jobs.length} 条，共 {article.jobs_total} 条。{article.jobs_has_more && "更早记录未在本页加载。"}</p>
+      <ol className="mt-5 grid gap-2">
+        {article.jobs.map((job) => <li className="grid gap-2 border-b border-[var(--line)] py-3 text-xs sm:grid-cols-[1fr_auto_auto]" key={job.id}><span className="truncate font-mono">{job.id}</span><ArticleStatus compact status={job.overall_status} /><time>{formatDate(job.scheduled_at)}</time></li>)}
+      </ol>
+    </section>
+  )
+}
+
+function Meta({ label, value, danger = false, mono = false }: { label: string; value: string; danger?: boolean; mono?: boolean }) {
+  return <div className="min-w-0"><dt className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{label}</dt><dd className={`mt-1 break-words ${danger ? "text-[var(--red)]" : ""} ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
+}
+
+function isFailed(status: string) {
+  return /失败|阻塞/.test(status)
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "未安排"
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Shanghai" }).format(new Date(value))
+}
+
+function DetailLoading() {
+  return <main aria-busy="true" aria-label="正在读取稿件详情" className="mx-auto max-w-6xl px-5 py-12"><Skeleton className="h-16 rounded-none" /><Skeleton className="mt-8 h-72 rounded-none" /></main>
+}
+
+function DetailError({ message, retry }: { message: string; retry: () => void }) {
+  return <main className="mx-auto max-w-6xl px-5 py-12"><div className="border border-[var(--red)] bg-[var(--red-soft)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
+}

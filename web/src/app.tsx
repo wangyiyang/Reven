@@ -2,12 +2,15 @@ import { Navigate, Route, Routes } from "react-router-dom"
 
 import { AppShell } from "@/components/app-shell"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
+import { ArticleDetailPage } from "@/features/articles/article-detail-page"
+import { ArticlesPage } from "@/features/articles/articles-page"
 
 export function App() {
   return (
     <AppShell>
       <Routes>
-        <Route element={<Placeholder eyebrow="Editorial queue" title="稿件" />} path="/articles" />
+        <Route element={<ArticlesPage />} path="/articles" />
+        <Route element={<ArticleDetailPage />} path="/articles/:articleId" />
         <Route element={<IntegrationsPage />} path="/integrations" />
         <Route element={<Placeholder eyebrow="Operations" title="系统状态" />} path="/system" />
         <Route element={<Navigate replace to="/articles" />} path="*" />

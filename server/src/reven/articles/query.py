@@ -48,6 +48,28 @@ class ArticleQuery:
     async def get(self, article_id: UUID) -> Article | None:
         return await self.session.get(Article, article_id)
 
+    async def latest_jobs(self, article_ids: list[UUID]) -> dict[UUID, PublicationJob]:
+        if not article_ids:
+            return {}
+        ranked = (
+            select(
+                PublicationJob.id.label("job_id"),
+                func.row_number()
+                .over(
+                    partition_by=PublicationJob.article_id,
+                    order_by=(PublicationJob.created_at.desc(), PublicationJob.id.desc()),
+                )
+                .label("position"),
+            )
+            .where(PublicationJob.article_id.in_(article_ids))
+            .subquery()
+        )
+        statement = select(PublicationJob).join(ranked, ranked.c.job_id == PublicationJob.id).where(
+            ranked.c.position == 1
+        )
+        jobs = await self.session.scalars(statement)
+        return {job.article_id: job for job in jobs}
+
     async def jobs(self, article_id: UUID) -> tuple[list[PublicationJob], int]:
         total = await self.session.scalar(
             select(func.count(PublicationJob.id)).where(PublicationJob.article_id == article_id)

@@ -1,0 +1,71 @@
+export type ChannelName = "个人博客" | "微信公众号"
+
+export interface ArticleSummary {
+  id: string
+  title: string
+  notion_url: string
+  notion_status: string
+  automation_status: string
+  target_channels: ChannelName[]
+  planned_at: string | null
+  notion_last_edited_at: string
+  last_synced_at: string
+  cover_valid: boolean
+  blog_status: string | null
+  wechat_status: string | null
+}
+
+export interface ArticleList {
+  items: ArticleSummary[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface JobSummary {
+  id: string
+  overall_status: string
+  target_channels: ChannelName[]
+  scheduled_at: string
+  content_hash: string | null
+  blog_status: string
+  wechat_status: string
+}
+
+export interface ChannelResult {
+  status: string
+  error: string | null
+  result: Record<string, string | number>
+}
+
+export interface ArticleDetail extends ArticleSummary {
+  notion_url: string
+  notion_metadata: Record<string, unknown>
+  cover_metadata: Record<string, unknown>
+  last_error: string | null
+  content_hash: string | null
+  validation_errors: ValidationItem[]
+  validation_warnings: ValidationItem[]
+  blog: ChannelResult | null
+  wechat: ChannelResult | null
+  jobs: JobSummary[]
+  jobs_total: number
+  jobs_has_more: boolean
+}
+
+export interface JobDetail extends JobSummary {
+  article_id: string
+  snapshot_metadata: Record<string, unknown>
+  blog: ChannelResult
+  wechat: ChannelResult
+  wechat_html: string | null
+  attempt_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ValidationItem {
+  code?: string
+  field?: string
+  message?: string
+}

@@ -15,11 +15,16 @@ class ApiError(BaseModel):
 class ArticleSummary(BaseModel):
     id: UUID
     title: str
+    notion_url: str
     notion_status: str
     automation_status: str
     target_channels: list[str]
     planned_at: datetime | None
     notion_last_edited_at: datetime
+    last_synced_at: datetime
+    cover_valid: bool
+    blog_status: str | None = None
+    wechat_status: str | None = None
 
 
 class ArticleList(BaseModel):
