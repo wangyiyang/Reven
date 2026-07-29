@@ -5,15 +5,22 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
-from reven.jobs.errors import BlockedPublishError
+from reven.integrations.github.client import (
+    GitHubBlockedError,
+    GitHubPermanentError,
+    GitHubTransientError,
+)
+from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim
 from reven.publishing.blog.converter import BlogArticle, BlogConverter
 from reven.publishing.blog.workspace import BlogWorkspace
 from reven.publishing.snapshot import build_snapshot
 from reven.publishing.wechat.publisher import LeaseLost, load_snapshot_assets
+
+T = TypeVar("T")
 
 
 class GitHubApi(Protocol):
@@ -22,6 +29,7 @@ class GitHubApi(Protocol):
     async def pull_requests(self, head: str, *, base: str, state: str = "all") -> list[dict[str, Any]]: ...
     async def pull_request_template(self, default_branch: str) -> str | None: ...
     async def create_pull_request(self, *, title: str, head: str, base: str, body: str) -> dict[str, Any]: ...
+    async def get_pull(self, number: int) -> dict[str, Any]: ...
     async def required_contexts(self, branch: str) -> tuple["RequiredCheck", ...]: ...
     async def check_runs(self, sha: str) -> list[dict[str, Any]]: ...
     async def status_contexts(self, sha: str) -> list[dict[str, Any]]: ...
@@ -84,7 +92,7 @@ class BlogPublisher:
         await self._wait_checks(default, commit_sha)
         merge_sha = await self._ensure_merge(claim, result, pr_number, commit_sha, branch, default)
         await self._wait_pages(claim, result, merge_sha)
-        article_url = await self.client.verify_article(article_path, context.title)
+        article_url = await self._external(self.client.verify_article(article_path, context.title))
         await self._save(claim, result, {"article_url": article_url})
         return BlogPublishResult(article_url, pr_number, merge_sha)
 
@@ -95,7 +103,7 @@ class BlogPublisher:
         context: "_PublishContext",
         branch: str,
     ) -> tuple[str, str, str]:
-        remote = await self.client.branch(branch)
+        remote = await self._external(self.client.branch(branch))
         persisted_path = result.get("article_path")
         persisted_sha = result.get("commit_sha")
         if remote is not None:
@@ -125,7 +133,7 @@ class BlogPublisher:
         try:
             await self.workspace.push(path, self.remote_url, branch, self.token)
         except Exception as exc:
-            recovered = await self.client.branch(branch)
+            recovered = await self._external(self.client.branch(branch))
             if recovered is None:
                 raise BlockedPublishError("Git push 结果不确定，请人工核验") from exc
             verify_remote_branch(sha, recovered)
@@ -141,23 +149,25 @@ class BlogPublisher:
         branch: str,
         default: str,
     ) -> dict[str, Any]:
-        pulls = await self.client.pull_requests(branch, base=default)
+        pulls = await self._external(self.client.pull_requests(branch, base=default))
         existing = select_pull_request(pulls)
         if existing is not None:
             pr = existing
             await self._recover_operation(claim, result, "create_pr")
         else:
-            template = await self.client.pull_request_template(default)
+            template = await self._external(self.client.pull_request_template(default))
             await self._operation(claim, result, "create_pr")
             try:
-                pr = await self.client.create_pull_request(
-                    title=f"feat: publish {' '.join(title.split())[:120]}",
-                    head=branch,
-                    base=default,
-                    body=pull_request_body(template, post_path),
+                pr = await self._external(
+                    self.client.create_pull_request(
+                        title=f"feat: publish {' '.join(title.split())[:120]}",
+                        head=branch,
+                        base=default,
+                        body=pull_request_body(template, post_path),
+                    )
                 )
             except Exception as exc:
-                recovered = await self.client.pull_requests(branch, base=default)
+                recovered = await self._external(self.client.pull_requests(branch, base=default))
                 selected = select_pull_request(recovered)
                 if selected is None:
                     raise BlockedPublishError("PR 创建结果不确定，请人工核验") from exc
@@ -167,11 +177,13 @@ class BlogPublisher:
         return pr
 
     async def _wait_checks(self, default: str, sha: str) -> None:
-        required = await self.client.required_contexts(default)
+        required = await self._external(self.client.required_contexts(default))
         if not required:
             checks_state(required, [], [])
         for _ in range(self.max_polls):
-            state = checks_state(required, await self.client.check_runs(sha), await self.client.status_contexts(sha))
+            runs = await self._external(self.client.check_runs(sha))
+            statuses = await self._external(self.client.status_contexts(sha))
+            state = checks_state(required, runs, statuses)
             if state == "success":
                 return
             await self.sleep(self.poll_interval)
@@ -189,30 +201,31 @@ class BlogPublisher:
         existing = result.get("merge_sha")
         if isinstance(existing, str) and existing:
             return existing
-        pulls = await self.client.pull_requests(branch, base=default)
-        merged_pr = next((item for item in pulls if item.get("merged_at")), None)
-        if merged_pr is not None:
-            merge_sha = _string(merged_pr.get("merge_commit_sha"), "merge SHA")
+        del branch, default
+        current = await self._external(self.client.get_pull(number))
+        recovered_sha = _merged_pull_sha(current, number)
+        if recovered_sha is not None:
+            merge_sha = recovered_sha
             await self._save(claim, result, {"merge_sha": merge_sha})
             await self._recover_operation(claim, result, "merge")
             return merge_sha
         await self._operation(claim, result, "merge")
         try:
-            merged = await self.client.merge(number, sha)
-            merge_sha = _string(merged.get("sha"), "merge SHA")
+            merged = await self._external(self.client.merge(number, sha))
+            merge_sha = _git_sha(merged.get("sha"), "merge SHA")
         except Exception as exc:
-            pulls = await self.client.pull_requests(branch, base=default)
-            merged_pr = next((item for item in pulls if item.get("merged_at")), None)
-            if merged_pr is None:
+            current = await self._external(self.client.get_pull(number))
+            recovered_sha = _merged_pull_sha(current, number)
+            if recovered_sha is None:
                 raise BlockedPublishError("PR 合并结果不确定，请人工核验") from exc
-            merge_sha = _string(merged_pr.get("merge_commit_sha"), "merge SHA")
+            merge_sha = recovered_sha
         await self._save(claim, result, {"merge_sha": merge_sha})
         await self._clear_operation(claim, result)
         return merge_sha
 
     async def _wait_pages(self, claim: JobClaim, result: dict[str, object], merge_sha: str) -> None:
         for _ in range(self.max_polls):
-            build = await self.client.latest_pages_build()
+            build = await self._external(self.client.latest_pages_build())
             state = pages_state(build, merge_sha)
             if state == "success":
                 await self._save(claim, result, {"pages_build_id": build.get("id")})
@@ -230,7 +243,7 @@ class BlogPublisher:
         current = result.get(key)
         if isinstance(current, str) and current:
             return current
-        value = await loader()
+        value = await self._external(loader())
         await self._save(claim, result, {key: value})
         return value
 
@@ -261,6 +274,19 @@ class BlogPublisher:
         if not await self.store.save_result(claim, patch):
             raise LeaseLost("publication lease lost")
         result.update(patch)
+
+    @staticmethod
+    async def _external(operation: Awaitable[T]) -> T:
+        try:
+            return await operation
+        except GitHubTransientError as exc:
+            error = TransientPublishError("GitHub 暂时不可用，请稍后重试")
+            setattr(error, "outcome_uncertain", exc.uncertain)
+            raise error from exc
+        except GitHubBlockedError as exc:
+            raise BlockedPublishError("GitHub 权限配置阻塞发布，请检查集成权限") from exc
+        except GitHubPermanentError as exc:
+            raise PermanentPublishError("GitHub 请求被拒绝，请检查仓库配置") from exc
 
 
 def release_branch(page_id: str, content_hash: str, default_branch: str) -> str:
@@ -409,6 +435,21 @@ def _integer(value: object, field: str) -> int:
     if not isinstance(value, int):
         raise BlockedPublishError(f"{field} 无效")
     return value
+
+
+def _git_sha(value: object, field: str) -> str:
+    sha = _string(value, field)
+    if re.fullmatch(r"[0-9a-fA-F]{40}", sha) is None:
+        raise BlockedPublishError(f"{field} 无效")
+    return sha.lower()
+
+
+def _merged_pull_sha(pull: dict[str, Any], number: int) -> str | None:
+    if pull.get("number") != number:
+        raise BlockedPublishError("GitHub 返回了错误的 PR")
+    if not pull.get("merged_at"):
+        return None
+    return _git_sha(pull.get("merge_commit_sha"), "merge SHA")
 
 
 def _result(result: dict[str, object]) -> BlogPublishResult:

@@ -62,6 +62,32 @@ def image_urls(markdown: str) -> tuple[str, ...]:
     return tuple(urls)
 
 
+def replace_image_destinations(markdown: str, destinations: tuple[str, ...]) -> str:
+    """Replace only parser-recognized inline image destination spans."""
+    _, tokens, _ = _parse_with_image_positions(markdown)
+    replacements: list[tuple[int, int, str]] = []
+    line_starts = _line_starts(markdown)
+    ordinal = 0
+    for token in tokens:
+        if token.type != "inline" or token.map is None or token.children is None:
+            continue
+        source_map = _inline_source_map(markdown, token, line_starts)
+        for child in token.children:
+            if child.type != "image":
+                continue
+            if ordinal >= len(destinations):
+                raise ValueError("Markdown 图片数量与替换地址不一致")
+            start = child.meta.get("destination_start")
+            end = child.meta.get("destination_end")
+            if not isinstance(start, int) or not isinstance(end, int):
+                raise ValueError("Markdown 图片缺少 destination 源位置")
+            replacements.append((source_map.absolute(start), source_map.absolute(end), destinations[ordinal]))
+            ordinal += 1
+    if ordinal != len(destinations):
+        raise ValueError("Markdown 图片数量与替换地址不一致")
+    return _apply_replacements(markdown, replacements)
+
+
 def build_snapshot(
     markdown: str,
     *,

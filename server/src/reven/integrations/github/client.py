@@ -6,7 +6,7 @@ import socket
 from html.parser import HTMLParser
 from types import TracebackType
 from typing import Any, Self, cast
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 
 import httpx
 
@@ -123,6 +123,11 @@ class GitHubClient:
             ),
         )
 
+    async def get_pull(self, number: int) -> dict[str, Any]:
+        if number <= 0:
+            raise ValueError("PR number 无效")
+        return cast(dict[str, Any], await self._json("GET", f"{self._repo_path}/pulls/{number}"))
+
     async def required_contexts(self, branch: str) -> tuple[Any, ...]:
         from reven.publishing.blog.publisher import RequiredCheck
 
@@ -222,17 +227,20 @@ class GitHubClient:
         current = expected
         for redirect in range(MAX_REDIRECTS + 1):
             pinned_ip = await self._article_ip(current)
-            async with self.article_requester.stream(current, pinned_ip) as response:
-                body = await _bounded_body(response)
-                if response.is_redirect:
-                    if redirect == MAX_REDIRECTS:
-                        raise ValueError("文章重定向次数超限")
-                    current = urljoin(current, response.headers.get("location", ""))
-                    if _origin(current) != _origin(self.site_url):
-                        raise ValueError("文章重定向越过固定站点 origin")
-                    continue
-                response.raise_for_status()
-                break
+            try:
+                async with self.article_requester.stream(current, pinned_ip) as response:
+                    body = await _bounded_body(response)
+                    if response.is_redirect:
+                        if redirect == MAX_REDIRECTS:
+                            raise ValueError("文章重定向次数超限")
+                        current = urljoin(current, response.headers.get("location", ""))
+                        if _origin(current) != _origin(self.site_url):
+                            raise ValueError("文章重定向越过固定站点 origin")
+                        continue
+                    _raise_for_status(response, "GET")
+                    break
+            except (httpx.TimeoutException, httpx.NetworkError, OSError) as exc:
+                raise GitHubTransientError("文章站点网络请求失败") from exc
         else:
             raise ValueError("文章重定向次数超限")
         parser = _Text()
@@ -245,7 +253,14 @@ class GitHubClient:
         parsed = urlsplit(url)
         if _origin(url) != _origin(self.site_url):
             raise ValueError("文章 URL 越过固定站点 origin")
-        addresses = await self.article_resolver(parsed.hostname or "", parsed.port or 443, type=socket.SOCK_STREAM)
+        try:
+            addresses = await self.article_resolver(
+                parsed.hostname or "",
+                parsed.port or 443,
+                type=socket.SOCK_STREAM,
+            )
+        except (OSError, ValueError) as exc:
+            raise GitHubTransientError("文章站点 DNS 解析失败") from exc
         ips = [str(item[-1][0]) for item in addresses if item and isinstance(item[-1], tuple)]
         if not ips or any(_is_unsafe_address(ip) for ip in ips):
             raise ValueError("文章站点解析到内部网络")
@@ -267,33 +282,34 @@ class GitHubClient:
         container: str | None = None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
-        next_url: str | None = path
-        seen: set[str] = set()
-        first = True
-        while next_url is not None:
-            if next_url in seen or len(seen) >= MAX_PAGES:
+        page = 1
+        seen: set[int] = set()
+        while page:
+            if page in seen or len(seen) >= MAX_PAGES:
                 raise GitHubError("GitHub 分页链接循环或超过页数上限")
-            seen.add(next_url)
-            payload, next_url = await self._json_with_next(next_url, params=params if first else None)
-            first = False
-            page = payload.get(container, []) if container and isinstance(payload, dict) else payload
-            if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
+            seen.add(page)
+            request_params = {**params, "page": str(page)}
+            payload, next_page = await self._json_with_next(path, params=request_params, current_page=page)
+            page_items = payload.get(container, []) if container and isinstance(payload, dict) else payload
+            if not isinstance(page_items, list) or any(not isinstance(item, dict) for item in page_items):
                 raise GitHubError("GitHub 分页响应格式无效")
-            items.extend(cast(list[dict[str, Any]], page))
+            items.extend(cast(list[dict[str, Any]], page_items))
             if len(items) > MAX_ITEMS:
                 raise GitHubError("GitHub 分页结果超过数量上限")
+            page = next_page or 0
         return items
 
     async def _json_with_next(
         self,
         path: str,
         *,
-        params: dict[str, str] | None,
-    ) -> tuple[Any, str | None]:
+        params: dict[str, str],
+        current_page: int,
+    ) -> tuple[Any, int | None]:
         response, body = await self._request("GET", path, params=params)
         _raise_for_status(response, "GET")
         payload = _decode_json(body)
-        return payload, _next_link(response.headers.get("link"), self._repo_path)
+        return payload, _next_page(response.headers.get("link"), path, current_page)
 
     async def _json(self, method: str, path: str, *, allow_not_found: bool = False, **kwargs: Any) -> Any:
         response, body = await self._request(method, path, **kwargs)
@@ -351,7 +367,7 @@ def _decode_json(body: bytes) -> Any:
     return json.loads(body)
 
 
-def _next_link(header: str | None, repo_path: str) -> str | None:
+def _next_page(header: str | None, endpoint_path: str, current_page: int) -> int | None:
     if not header:
         return None
     match = re.search(r'<([^>]+)>;\s*rel="next"', header)
@@ -359,9 +375,15 @@ def _next_link(header: str | None, repo_path: str) -> str | None:
         return None
     url = match.group(1)
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != "api.github.com" or not parsed.path.startswith(repo_path + "/"):
+    if parsed.scheme != "https" or parsed.hostname != "api.github.com" or parsed.path != endpoint_path:
         raise GitHubError("GitHub 分页链接越界")
-    return url
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if set(query) - {"page", "per_page"} or not query.get("page", "").isdigit():
+        raise GitHubError("GitHub 分页参数无效")
+    page = int(query["page"])
+    if page <= current_page:
+        raise GitHubError("GitHub 分页页码重复或倒退")
+    return page
 
 
 def validate_site_url(url: str) -> str:

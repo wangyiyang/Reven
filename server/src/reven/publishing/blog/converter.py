@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from reven.publishing.assets import MaterializedAssets
-from reven.publishing.snapshot import ContentSnapshot, image_urls
+from reven.publishing.snapshot import ContentSnapshot, image_urls, replace_image_destinations
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ASCII_WORD = re.compile(r"[A-Za-z0-9]+")
@@ -140,12 +140,7 @@ def replace_image_sources(markdown: str, public_urls: tuple[str, ...]) -> str:
     expected = tuple(f"reven-asset://image/{ordinal}" for ordinal in range(1, len(public_urls) + 1))
     if image_urls(markdown) != expected:
         raise ValueError("正文图片素材 URI 未严格一一映射")
-    output = markdown
-    for placeholder, public_url in zip(expected, public_urls, strict=True):
-        source = f"({placeholder})"
-        if output.count(source) != 1:
-            raise ValueError("正文图片素材 URI 结构无效")
-        output = output.replace(source, f"({public_url})", 1)
+    output = replace_image_destinations(markdown, public_urls)
     final = image_urls(output)
     if final != public_urls or any(url.startswith("reven-asset:") for url in final):
         raise ValueError("正文图片素材替换失败")

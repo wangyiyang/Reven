@@ -93,6 +93,26 @@ async def test_pull_requests_follow_link_pagination_and_include_exact_base() -> 
     assert pulls[-1]["number"] == 101
     assert route.calls[0].request.url.params["head"] == "acme:reven/branch"
     assert route.calls[0].request.url.params["base"] == "trunk"
+    assert route.calls[1].request.url.params["head"] == "acme:reven/branch"
+    assert route.calls[1].request.url.params["base"] == "trunk"
+    assert route.calls[1].request.url.params["page"] == "2"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_pagination_rejects_cross_endpoint_link() -> None:
+    respx.get("https://api.github.com/repos/acme/blog/pulls").mock(
+        return_value=httpx.Response(
+            200,
+            json=[],
+            headers={
+                "link": '<https://api.github.com/repos/acme/blog/issues?page=2>; rel="next"',
+            },
+        )
+    )
+    async with GitHubClient("acme", "blog", "secret") as client:
+        with pytest.raises(Exception, match="分页"):
+            await client.pull_requests("reven/branch", base="trunk")
 
 
 @pytest.mark.anyio
@@ -103,6 +123,17 @@ async def test_pages_latest_uses_latest_endpoint() -> None:
     )
     async with GitHubClient("acme", "blog", "secret") as client:
         assert (await client.latest_pages_build())["id"] == 9
+    assert route.called
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_get_pull_uses_exact_number_endpoint() -> None:
+    route = respx.get("https://api.github.com/repos/acme/blog/pulls/7").mock(
+        return_value=httpx.Response(200, json={"number": 7, "state": "open"})
+    )
+    async with GitHubClient("acme", "blog", "secret") as client:
+        assert (await client.get_pull(7))["number"] == 7
     assert route.called
 
 
@@ -139,6 +170,46 @@ async def test_article_dns_private_address_is_rejected_before_request() -> None:
     ) as client:
         with pytest.raises(ValueError, match="内部网络"):
             await client.verify_article("/post/", "标题")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (500, GitHubTransientError),
+        (403, GitHubBlockedError),
+        (404, GitHubPermanentError),
+    ],
+)
+async def test_article_http_errors_use_github_classification(status: int, error: type[Exception]) -> None:
+    async def resolver(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return [(None, None, None, None, ("93.184.216.34", 443))]
+
+    class Requester:
+        @asynccontextmanager
+        async def stream(self, url, pinned_ip):  # type: ignore[no-untyped-def]
+            yield httpx.Response(status, request=httpx.Request("GET", url))
+
+    async with GitHubClient(
+        "acme",
+        "blog",
+        "secret",
+        article_resolver=resolver,
+        article_requester=Requester(),  # type: ignore[arg-type]
+    ) as client:
+        with pytest.raises(error):
+            await client.verify_article("/post/", "标题")
+
+
+@pytest.mark.anyio
+async def test_article_network_failure_is_transient() -> None:
+    async def resolver(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise OSError("secret DNS detail")
+
+    async with GitHubClient("acme", "blog", "secret", article_resolver=resolver) as client:
+        with pytest.raises(GitHubTransientError) as caught:
+            await client.verify_article("/post/", "标题")
+    assert "secret DNS detail" not in str(caught.value)
 
 
 @pytest.mark.anyio

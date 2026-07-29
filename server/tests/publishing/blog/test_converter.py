@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from reven.publishing.assets import MaterializedAsset, MaterializedAssets
 from reven.publishing.blog.converter import BlogArticle, BlogConverter, replace_image_sources
-from reven.publishing.snapshot import build_snapshot
+from reven.publishing.snapshot import build_snapshot, image_urls
 
 
 def test_converter_matches_blog_contract_and_copies_frozen_assets(tmp_path: Path) -> None:
@@ -71,7 +71,24 @@ def test_image_sources_reject_unknown_malformed_external_and_duplicate(markdown:
 
 
 def test_image_source_replacement_does_not_touch_code_literal() -> None:
-    markdown = "`reven-asset://image/1`\n\n![x](reven-asset://image/1)"
+    markdown = (
+        "`![fake](reven-asset://image/1)`\n\n"
+        "```\n![fake](reven-asset://image/1)\n```\n\n"
+        "<div>\n![fake](reven-asset://image/1)\n</div>\n\n"
+        "![x](reven-asset://image/1)"
+    )
     output = replace_image_sources(markdown, ("https://www.wangyiyang.cc/images/posts/x/01.png",))
-    assert output.startswith("`reven-asset://image/1`")
+    assert output.count("reven-asset://image/1") == 3
     assert output.count("https://www.wangyiyang.cc/images/posts/x/01.png") == 1
+
+
+def test_image_source_replacement_uses_parser_spans_in_nested_multiline_content() -> None:
+    markdown = (
+        "> lead ![one](reven-asset://image/1) and\n"
+        "> ![two](reven-asset://image/2)\n\n"
+        "- ![three](reven-asset://image/3) ![four](reven-asset://image/4)\n"
+    )
+    urls = tuple(f"https://www.wangyiyang.cc/images/posts/x/{index:02d}.png" for index in range(1, 5))
+    output = replace_image_sources(markdown, urls)
+    assert image_urls(output) == urls
+    assert "> lead ![one](https://www.wangyiyang.cc/images/posts/x/01.png)" in output
