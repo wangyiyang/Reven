@@ -148,15 +148,23 @@ class PublicationJobService:
     ) -> _PersistedPreparation:
         if assets.cover is None:
             raise PublicationPreparationError("校验器错误地放行了缺少封面的快照")
-        snapshot = build_snapshot(
-            markdown,
-            image_sha256=tuple(asset.sha256 for asset in assets.images),
-            cover_sha256=assets.cover.sha256,
-            title=mapped.title,
-            summary=mapped.summary,
-            categories=tuple(mapped.categories),
-            image_paths=tuple(asset.path for asset in assets.images),
-        )
+        try:
+            snapshot = build_snapshot(
+                markdown,
+                image_sha256=tuple(asset.sha256 for asset in assets.images),
+                cover_sha256=assets.cover.sha256,
+                title=mapped.title,
+                summary=mapped.summary,
+                categories=tuple(mapped.categories),
+                image_paths=tuple(asset.path for asset in assets.images),
+            )
+        except ValueError:
+            issue = ValidationError(
+                "snapshot_conversion_failed",
+                "正文图片无法安全转换，请检查 Markdown 图片语法",
+                "markdown",
+            )
+            return _persist_blocked(job, article, ValidationResult((issue,)))
         existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels)
         if existing is not None:
             job.overall_status = JobStatus.CANCELLED

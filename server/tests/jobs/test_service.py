@@ -398,3 +398,23 @@ async def test_non_target_integrity_error_is_not_treated_as_idempotency(
         await PublicationJobService(factory, FakeNotion(_page()), FakeMaterializer()).prepare(job.id)
 
     assert type(caught.value).__name__ == "IntegrityError"
+
+
+@pytest.mark.anyio
+async def test_unmappable_parser_image_blocks_instead_of_silently_dropping(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+
+    def fail_snapshot(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("source positions unavailable")
+
+    monkeypatch.setattr(service_module, "build_snapshot", fail_snapshot)
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    result = await PublicationJobService(factory, FakeNotion(_page()), FakeMaterializer()).prepare(job.id)
+
+    assert result.validation is not None
+    assert {error.code for error in result.validation.errors} == {"snapshot_conversion_failed"}
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.BLOCKED

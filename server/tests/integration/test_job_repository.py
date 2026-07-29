@@ -76,3 +76,31 @@ async def test_concurrent_claimants_cannot_take_same_job(db_session) -> None:  #
 
     winners = [claimed.id for claimed in (first, second) if claimed is not None]
     assert winners == [job.id]
+
+
+@pytest.mark.anyio
+async def test_pending_notion_write_uses_preparation_queue_not_execution_queue(db_session) -> None:  # type: ignore[no-untyped-def]
+    article = _new_article()
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="a" * 64,
+        target_channels=["个人博客"],
+        scheduled_at=datetime.now(tz=UTC) - timedelta(minutes=1),
+    )
+    job.snapshot_metadata = {"notion_write_pending": True}
+    await db_session.commit()
+
+    assert await repository.claim_next(lease_seconds=120) is None
+    preparation = await repository.claim_next_preparation_pending()
+    assert preparation is not None
+    assert preparation.id == job.id
+    assert preparation.overall_status == JobStatus.WAITING
+
+    preparation.snapshot_metadata = {}
+    await db_session.commit()
+    executable = await repository.claim_next(lease_seconds=120)
+    assert executable is not None
+    assert executable.id == job.id
