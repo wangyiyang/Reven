@@ -25,7 +25,7 @@ class JobRepository:
         self.session = session
 
     async def _database_now(self) -> datetime:
-        now = await self.session.scalar(select(func.current_timestamp()))
+        now = await self.session.scalar(select(func.clock_timestamp()))
         if not isinstance(now, datetime):
             raise RuntimeError("数据库未返回有效时间")
         return now

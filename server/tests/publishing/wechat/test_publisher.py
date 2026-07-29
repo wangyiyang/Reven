@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import sys
 from copy import deepcopy
@@ -12,6 +13,7 @@ from reven.integrations.models import Integration
 from reven.integrations.notion.mapper import map_notion_page
 from reven.integrations.wechat.models import WeChatPermanentError, WeChatTransientError
 from reven.jobs.errors import BlockedPublishError, TransientPublishError
+from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim, JobRepository
 from reven.publishing.assets import MaterializedAsset, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot
@@ -20,9 +22,14 @@ from reven.publishing.wechat.images import (
     SnapshotAssetRecoverer,
     _repair_existing_snapshot,
 )
-from reven.publishing.wechat.publisher import LeaseLost, WeChatPublisher
+from reven.publishing.wechat.publisher import (
+    LeaseLost,
+    WeChatPublisher,
+    load_snapshot_assets,
+)
 from reven.publishing.wechat.store import SqlAlchemyWeChatResultStore
 from reven.security.secrets import SecretBox
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
@@ -131,7 +138,9 @@ def assets(tmp_path: Path) -> tuple[MaterializedAssets, dict[str, object]]:
 
 @pytest.mark.anyio
 async def test_publish_uploads_body_images_before_creating_draft(tmp_path: Path) -> None:
-    materialized, metadata = assets(tmp_path)
+    snapshot_dir = tmp_path / "snapshot"
+    snapshot_dir.mkdir()
+    materialized, metadata = assets(snapshot_dir)
     store = FakeStore(metadata)
     wechat = FakeWeChat()
     publisher = WeChatPublisher(wechat, FakeRenderer(), store, assets_loader=lambda _: materialized)
@@ -151,7 +160,9 @@ async def test_publish_uploads_body_images_before_creating_draft(tmp_path: Path)
 
 @pytest.mark.anyio
 async def test_token_prefetch_uses_domain_error_mapping(tmp_path: Path) -> None:
-    materialized, metadata = assets(tmp_path)
+    production_snapshot = tmp_path / "production-snapshot"
+    production_snapshot.mkdir()
+    materialized, metadata = assets(production_snapshot)
 
     class TokenTimeout(FakeWeChat):
         async def get_token(self) -> str:
@@ -327,6 +338,56 @@ async def test_definite_failure_clears_own_operation_after_lease_loss(
     with pytest.raises(Exception):
         await publisher.publish(JobClaim(uuid4(), uuid4()))
     assert store.result["operations_in_flight"] == {}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("phase", ["body", "cover", "draft"])
+async def test_uncertain_post_failure_keeps_operation_and_blocks_new_worker(
+    tmp_path: Path,
+    phase: str,
+) -> None:
+    materialized, metadata = assets(tmp_path)
+    saved: dict[str, object] = {}
+    if phase in {"cover", "draft"}:
+        saved["uploaded_images"] = {"a" * 64: "https://mmbiz.qpic.cn/body"}
+    if phase == "draft":
+        saved["thumb_media_id"] = "thumb-id"
+    store = FakeStore(metadata, saved)
+
+    class UncertainFailure(FakeWeChat):
+        async def upload_body_image(self, path: Path) -> str:
+            if phase == "body":
+                raise WeChatTransientError("http_408", "超时", outcome_uncertain=True)
+            return await super().upload_body_image(path)
+
+        async def upload_cover_material(self, path: Path) -> str:
+            if phase == "cover":
+                raise WeChatTransientError("-1", "系统繁忙", outcome_uncertain=True)
+            return await super().upload_cover_material(path)
+
+        async def create_draft(self, payload: dict[str, object]) -> str:
+            if phase == "draft":
+                raise WeChatTransientError("http_408", "超时", outcome_uncertain=True)
+            return await super().create_draft(payload)
+
+    with pytest.raises((TransientPublishError, BlockedPublishError)):
+        await WeChatPublisher(
+            UncertainFailure(),
+            FakeRenderer(),
+            store,
+            assets_loader=lambda _: materialized,
+        ).publish(JobClaim(uuid4(), uuid4()))
+    assert store.result["operations_in_flight"]
+
+    next_client = FakeWeChat()
+    with pytest.raises(BlockedPublishError):
+        await WeChatPublisher(
+            next_client,
+            FakeRenderer(),
+            store,
+            assets_loader=lambda _: materialized,
+        ).publish(JobClaim(uuid4(), uuid4()))
+    assert next_client.calls == []
 
 
 @pytest.mark.anyio
@@ -518,6 +579,22 @@ def test_recovery_compares_fresh_mapped_page_and_downloaded_cover_with_frozen_sn
             operation()
 
 
+def test_snapshot_manifest_rejects_extra_files(tmp_path: Path) -> None:
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    materialized, metadata = assets(snapshot)
+    assert materialized.cover is not None
+    image_sha = hashlib.sha256(materialized.images[0].path.read_bytes()).hexdigest()
+    cover_sha = hashlib.sha256(materialized.cover.path.read_bytes()).hexdigest()
+    metadata["images"][0]["sha256"] = image_sha  # type: ignore[index]
+    metadata["cover"]["sha256"] = cover_sha  # type: ignore[index]
+    metadata["cover_sha256"] = cover_sha
+    (snapshot / "unexpected.tmp").write_bytes(b"extra")
+
+    with pytest.raises(BlockedPublishError):
+        load_snapshot_assets(metadata)
+
+
 @pytest.mark.anyio
 async def test_configured_publisher_loads_encrypted_integrations_and_closes_http(
     db_session,
@@ -556,7 +633,9 @@ async def test_configured_publisher_loads_encrypted_integrations_and_closes_http
         target_channels=["微信公众号"],
         scheduled_at=now - timedelta(seconds=1),
     )
-    materialized, metadata = assets(tmp_path)
+    factory_snapshot = tmp_path / "factory-snapshot"
+    factory_snapshot.mkdir()
+    materialized, metadata = assets(factory_snapshot)
     image_sha = hashlib.sha256(materialized.images[0].path.read_bytes()).hexdigest()
     cover_sha = hashlib.sha256(materialized.cover.path.read_bytes()).hexdigest()  # type: ignore[union-attr]
     metadata["images"][0]["sha256"] = image_sha  # type: ignore[index]
@@ -662,6 +741,131 @@ async def test_operation_scoped_cleanup_ignores_lease_and_preserves_other_result
     await db_session.commit()
     draft_op = job.wechat_result["operations_in_flight"]["draft"]["operation_id"]
     assert not await store.clear_inflight_if_operation_matches(job.id, "draft", draft_op)
+
+
+@pytest.mark.anyio
+async def test_concurrent_result_patches_do_not_lose_updates(
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    now = datetime.now(tz=UTC)
+    article = Article(
+        notion_page_id=str(uuid4()),
+        notion_url="https://notion.so/page",
+        title="title",
+        notion_status="待发布",
+        notion_last_edited_at=now,
+        last_synced_at=now,
+    )
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="9" * 64,
+        target_channels=["微信公众号"],
+        scheduled_at=now - timedelta(seconds=1),
+    )
+    await db_session.commit()
+    claim = await repository.claim_next(lease_seconds=120)
+    await db_session.commit()
+    assert claim is not None
+    store = SqlAlchemyWeChatResultStore(async_sessionmaker(db_session.bind, expire_on_commit=False))
+
+    assert all(
+        await asyncio.gather(
+            store.save_result(claim, {"first": "a"}),
+            store.save_result(claim, {"second": "b"}),
+        )
+    )
+    await db_session.refresh(job)
+    assert job.wechat_result["first"] == "a"
+    assert job.wechat_result["second"] == "b"
+
+
+@pytest.mark.anyio
+async def test_old_operation_clear_cannot_delete_new_marker_racing_on_row_lock(
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    now = datetime.now(tz=UTC)
+    article = Article(
+        notion_page_id=str(uuid4()),
+        notion_url="https://notion.so/page",
+        title="title",
+        notion_status="待发布",
+        notion_last_edited_at=now,
+        last_synced_at=now,
+    )
+    db_session.add(article)
+    await db_session.flush()
+    job = await JobRepository(db_session).create_waiting(
+        article_id=article.id,
+        content_hash="8" * 64,
+        target_channels=["微信公众号"],
+        scheduled_at=now,
+    )
+    old_id, new_id, sha256 = str(uuid4()), str(uuid4()), "a" * 64
+    job.wechat_result = {
+        "operations_in_flight": {
+            f"body:{sha256}": {
+                "operation_id": old_id,
+                "phase": "body",
+                "asset_sha": sha256,
+            }
+        }
+    }
+    await db_session.commit()
+    session_factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    store = SqlAlchemyWeChatResultStore(session_factory)
+    async with session_factory.begin() as blocker:
+        locked = await blocker.scalar(select(PublicationJob).where(PublicationJob.id == job.id).with_for_update())
+        assert locked is not None
+        cleanup = asyncio.create_task(store.clear_inflight_if_operation_matches(job.id, f"body:{sha256}", old_id))
+        await asyncio.sleep(0.05)
+        locked.wechat_result = {
+            "operations_in_flight": {
+                f"body:{sha256}": {
+                    "operation_id": new_id,
+                    "phase": "body",
+                    "asset_sha": sha256,
+                }
+            }
+        }
+    assert not await cleanup
+
+
+@pytest.mark.anyio
+async def test_result_write_fails_when_lease_expires_while_waiting_for_row_lock(
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    now = datetime.now(tz=UTC)
+    article = Article(
+        notion_page_id=str(uuid4()),
+        notion_url="https://notion.so/page",
+        title="title",
+        notion_status="待发布",
+        notion_last_edited_at=now,
+        last_synced_at=now,
+    )
+    db_session.add(article)
+    await db_session.flush()
+    repository = JobRepository(db_session)
+    job = await repository.create_waiting(
+        article_id=article.id,
+        content_hash="7" * 64,
+        target_channels=["微信公众号"],
+        scheduled_at=now - timedelta(seconds=1),
+    )
+    await db_session.commit()
+    claim = await repository.claim_next(lease_seconds=1)
+    await db_session.commit()
+    assert claim is not None
+    session_factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    store = SqlAlchemyWeChatResultStore(session_factory)
+    async with session_factory.begin() as blocker:
+        await blocker.scalar(select(PublicationJob).where(PublicationJob.id == job.id).with_for_update())
+        write = asyncio.create_task(store.save_result(claim, {"unsafe": True}))
+        await asyncio.sleep(1.2)
+    assert not await write
 
 
 @pytest.mark.anyio

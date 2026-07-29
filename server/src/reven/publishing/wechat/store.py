@@ -29,7 +29,7 @@ class SqlAlchemyWeChatResultStore:
 
     async def assert_lease(self, claim: JobClaim) -> bool:
         async with self.session_factory() as session:
-            now = func.current_timestamp()
+            now = func.clock_timestamp()
             statement = select(PublicationJob.id).where(
                 PublicationJob.id == claim.job_id,
                 PublicationJob.lease_token == claim.lease_token,
@@ -67,7 +67,7 @@ async def _locked_job(session: AsyncSession, job_id: UUID) -> PublicationJob | N
 
 
 async def _lease_matches(session: AsyncSession, job: PublicationJob, claim: JobClaim) -> bool:
-    now = await session.scalar(select(func.current_timestamp()))
+    now = await session.scalar(select(func.clock_timestamp()))
     return bool(
         job.lease_token == claim.lease_token
         and job.lease_expires_at is not None

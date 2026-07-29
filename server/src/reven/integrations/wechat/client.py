@@ -156,31 +156,16 @@ class WeChatClient:
                 raise WeChatBlockedError(exc.code, "微信 Token 刷新后仍无效") from exc
 
     async def _raw_request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        uncertain = method.upper() != "GET"
         try:
-            response = await self._http.request(method, path, timeout=REQUEST_TIMEOUT, **kwargs)
+            async with self._http.stream(method, path, timeout=REQUEST_TIMEOUT, **kwargs) as response:
+                return await _bounded_json(response, uncertain=uncertain)
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise WeChatTransientError("network_error", "微信网络请求失败", outcome_uncertain=True) from exc
-        if response.status_code >= 500:
             raise WeChatTransientError(
-                f"http_{response.status_code}",
-                "微信服务暂时不可用",
-                outcome_uncertain=True,
-            )
-        if response.status_code in (408, 429):
-            raise WeChatTransientError(f"http_{response.status_code}", "微信请求暂时被拒绝")
-        if not response.is_success:
-            error = WeChatBlockedError if response.status_code in (401, 403) else WeChatPermanentError
-            raise error(f"http_{response.status_code}", "微信请求被拒绝")
-        if len(response.content) > MAX_RESPONSE_BYTES:
-            raise WeChatTransientError("response_too_large", "微信响应超过大小限制", outcome_uncertain=True)
-        try:
-            payload: Any = response.json()
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise WeChatTransientError("invalid_json", "微信响应格式无效", outcome_uncertain=True) from exc
-        if not isinstance(payload, dict):
-            raise WeChatTransientError("invalid_json", "微信响应格式无效", outcome_uncertain=True)
-        _raise_business_error(payload)
-        return payload
+                "network_error",
+                "微信网络请求失败",
+                outcome_uncertain=uncertain,
+            ) from exc
 
     def _token_valid(self) -> bool:
         return self._token is not None and self._monotonic() < self._token_refresh_at
@@ -191,7 +176,76 @@ class _InvalidTokenError(Exception):
         self.code = code
 
 
-def _raise_business_error(payload: dict[str, Any]) -> None:
+async def _bounded_json(
+    response: httpx.Response,
+    *,
+    uncertain: bool,
+) -> dict[str, Any]:
+    _raise_http_status(response.status_code, uncertain=uncertain)
+    declared = response.headers.get("Content-Length")
+    if declared is not None:
+        try:
+            length = int(declared)
+        except ValueError as exc:
+            raise WeChatTransientError(
+                "invalid_content_length",
+                "微信响应长度无效",
+                outcome_uncertain=uncertain,
+            ) from exc
+        if length < 0 or length > MAX_RESPONSE_BYTES:
+            raise WeChatTransientError(
+                "response_too_large",
+                "微信响应超过大小限制",
+                outcome_uncertain=uncertain,
+            )
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+            raise WeChatTransientError(
+                "response_too_large",
+                "微信响应超过大小限制",
+                outcome_uncertain=uncertain,
+            )
+        body.extend(chunk)
+    try:
+        payload: Any = json.loads(bytes(body))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise WeChatTransientError(
+            "invalid_json",
+            "微信响应格式无效",
+            outcome_uncertain=uncertain,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise WeChatTransientError(
+            "invalid_json",
+            "微信响应格式无效",
+            outcome_uncertain=uncertain,
+        )
+    _raise_business_error(payload, uncertain=uncertain)
+    return payload
+
+
+def _raise_http_status(status: int, *, uncertain: bool) -> None:
+    if status >= 500:
+        raise WeChatTransientError(
+            f"http_{status}",
+            "微信服务暂时不可用",
+            outcome_uncertain=uncertain,
+        )
+    if status == 408:
+        raise WeChatTransientError(
+            "http_408",
+            "微信请求暂时被拒绝",
+            outcome_uncertain=uncertain,
+        )
+    if status == 429:
+        raise WeChatTransientError("http_429", "微信请求暂时被拒绝")
+    if not 200 <= status < 300:
+        error = WeChatBlockedError if status in (401, 403) else WeChatPermanentError
+        raise error(f"http_{status}", "微信请求被拒绝")
+
+
+def _raise_business_error(payload: dict[str, Any], *, uncertain: bool) -> None:
     code = payload.get("errcode")
     if code in (None, 0):
         return
@@ -201,7 +255,11 @@ def _raise_business_error(payload: dict[str, Any]) -> None:
     if code in BLOCKED_CODES:
         raise WeChatBlockedError(normalized, "微信配置、IP 白名单或接口权限无效")
     if code in TRANSIENT_CODES:
-        raise WeChatTransientError(normalized, "微信接口限流或暂时不可用")
+        raise WeChatTransientError(
+            normalized,
+            "微信接口限流或暂时不可用",
+            outcome_uncertain=uncertain,
+        )
     raise WeChatPermanentError(normalized, "微信请求参数或业务状态无效")
 
 
