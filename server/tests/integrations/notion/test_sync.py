@@ -58,6 +58,19 @@ class PartiallyInvalidNotionPages(FakeNotionPages):
         return {"results": [invalid, valid], "has_more": False, "next_cursor": None}
 
 
+class InvalidPlannedDateNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        invalid = _raw_page("待发布", suffix="1")
+        invalid["properties"]["计划发布日"]["date"] = {"start": "ntn_secret"}
+        valid = _raw_page("待发布", suffix="2")
+        return {"results": [invalid, valid], "has_more": False, "next_cursor": None}
+
+
 def _raw_page(status: str, *, suffix: str) -> dict[str, Any]:
     page_id = f"11111111-1111-1111-1111-11111111111{suffix}"
     return {
@@ -174,7 +187,7 @@ async def test_sync_does_not_modify_processing_job(
 
 
 @pytest.mark.anyio
-async def test_sync_returns_blocked_job_to_waiting_validation(
+async def test_sync_retries_blocked_job_validation_only_once(
     sync_service: NotionSyncService,
     db_session: AsyncSession,
 ) -> None:
@@ -189,7 +202,15 @@ async def test_sync_returns_blocked_job_to_waiting_validation(
     await db_session.refresh(job)
 
     assert job.overall_status == JobStatus.WAITING
-    assert job.notification_state == {"fingerprint": "missing-cover"}
+    assert job.notification_state["fingerprint"] == "missing-cover"
+
+    job.overall_status = JobStatus.BLOCKED
+    await db_session.commit()
+    await sync_service.sync_once()
+    await db_session.refresh(job)
+
+    assert job.overall_status == JobStatus.BLOCKED
+    assert job.notification_state["fingerprint"] == "missing-cover"
 
 
 @pytest.mark.anyio
@@ -220,3 +241,20 @@ async def test_sync_records_invalid_page_and_continues(
     error = await db_session.get(SystemState, "notion_sync_error:11111111-1111-1111-1111-111111111111")
     assert error is not None
     assert "标题" in str(error.value["error"])
+
+
+@pytest.mark.anyio
+async def test_sync_isolates_page_processing_error_and_redacts_details(
+    db_session: AsyncSession,
+) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, InvalidPlannedDateNotionPages(), "data-source")
+
+    result = await service.sync_once()
+
+    assert result.created == 1
+    assert result.failed == 1
+    error = await db_session.get(SystemState, "notion_sync_error:11111111-1111-1111-1111-111111111111")
+    assert error is not None
+    assert "ValueError" in str(error.value["error"])
+    assert "ntn_secret" not in str(error.value)

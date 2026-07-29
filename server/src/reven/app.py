@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from reven.api.routes.sync import router as sync_router
+
 
 def create_app(*, start_background_tasks: bool = True) -> FastAPI:
     @asynccontextmanager
@@ -11,6 +13,7 @@ def create_app(*, start_background_tasks: bool = True) -> FastAPI:
         yield
 
     app = FastAPI(title="Reven", lifespan=lifespan)
+    app.include_router(sync_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
