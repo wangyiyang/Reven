@@ -87,6 +87,7 @@ class WeChatPublisher:
         if isinstance(media_id, str) and media_id:
             return WeChatPublishResult(media_id, _optional_string(context.result.get("content")))
         _reject_uncertain_draft(context.result)
+        _reject_uncertain_uploads(context.result)
         await self._assert_lease(claim)
         assets = await self._load_assets(claim, context)
         html = await self.renderer.render(context.markdown)
@@ -116,15 +117,30 @@ class WeChatPublisher:
         placeholders: tuple[Any, ...],
     ) -> dict[int, str]:
         persisted = _uploaded_images(result)
+        in_flight = _uploads_in_flight(result)
         urls: dict[int, str] = {}
         for placeholder in placeholders:
             sha256 = placeholder.asset.sha256
             url = persisted.get(sha256)
             if url is None:
                 await self._assert_lease(claim)
-                url = await self._external(self.client.upload_body_image(placeholder.asset.path))
+                in_flight[sha256] = "body"
+                await self._save(claim, {"uploads_in_flight": in_flight})
+                try:
+                    url = await self._external(self.client.upload_body_image(placeholder.asset.path))
+                except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
+                    await self._clear_definite_upload(claim, in_flight, sha256, exc)
+                    raise
                 persisted[sha256] = url
-                await self._save(claim, {"uploaded_images": persisted})
+                completed_in_flight = dict(in_flight)
+                completed_in_flight.pop(sha256, None)
+                await self._save(
+                    claim,
+                    {
+                        "uploaded_images": persisted,
+                        "uploads_in_flight": completed_in_flight,
+                    },
+                )
             urls[placeholder.ordinal] = url
         return urls
 
@@ -140,8 +156,24 @@ class WeChatPublisher:
         if cover is None:
             raise BlockedPublishError("微信草稿缺少冻结封面")
         await self._assert_lease(claim)
-        media_id = await self._external(self.client.upload_cover_material(cover.path))
-        await self._save(claim, {"thumb_media_id": media_id, "cover_sha256": cover.sha256})
+        in_flight = _uploads_in_flight(result)
+        in_flight[cover.sha256] = "cover"
+        await self._save(claim, {"uploads_in_flight": in_flight})
+        try:
+            media_id = await self._external(self.client.upload_cover_material(cover.path))
+        except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
+            await self._clear_definite_upload(claim, in_flight, cover.sha256, exc)
+            raise
+        completed_in_flight = dict(in_flight)
+        completed_in_flight.pop(cover.sha256, None)
+        await self._save(
+            claim,
+            {
+                "thumb_media_id": media_id,
+                "cover_sha256": cover.sha256,
+                "uploads_in_flight": completed_in_flight,
+            },
+        )
         return media_id
 
     async def _create_draft(
@@ -151,21 +183,37 @@ class WeChatPublisher:
         content: str,
         thumb_media_id: str,
     ) -> str:
+        payload = _draft_payload(context, content, thumb_media_id)
         await self._assert_lease(claim)
         await self._save(claim, {"draft_creation_started": True})
         await self._assert_lease(claim)
-        payload = _draft_payload(context, content, thumb_media_id)
         try:
             media_id = await self._external(self.client.create_draft(payload))
-        except TransientPublishError:
-            await self._mark_uncertain(claim)
-            raise BlockedPublishError("微信草稿创建结果不确定，请人工核验后处理") from None
+        except (BlockedPublishError, PermanentPublishError, TransientPublishError) as exc:
+            if _outcome_uncertain(exc):
+                await self._mark_uncertain(claim)
+                raise BlockedPublishError("微信草稿创建结果不确定，请人工核验后处理") from None
+            await self._save(claim, {"draft_creation_started": False})
+            raise
         await self._save(claim, {"media_id": media_id, "content": content, "draft_creation_started": False})
         return media_id
 
     async def _mark_uncertain(self, claim: JobClaim) -> None:
         if await self.store.assert_lease(claim):
             await self._save(claim, {"draft_creation_uncertain": True})
+
+    async def _clear_definite_upload(
+        self,
+        claim: JobClaim,
+        in_flight: dict[str, str],
+        sha256: str,
+        error: Exception,
+    ) -> None:
+        if _outcome_uncertain(error):
+            return
+        cleared = dict(in_flight)
+        cleared.pop(sha256, None)
+        await self._save(claim, {"uploads_in_flight": cleared})
 
     async def _assert_lease(self, claim: JobClaim) -> None:
         if not await self.store.assert_lease(claim):
@@ -182,14 +230,22 @@ class WeChatPublisher:
         except WeChatBlockedError as exc:
             raise BlockedPublishError(str(exc)) from exc
         except WeChatTransientError as exc:
-            raise TransientPublishError(str(exc)) from exc
+            error = TransientPublishError(str(exc))
+            setattr(error, "outcome_uncertain", exc.outcome_uncertain)
+            raise error from exc
         except WeChatPermanentError as exc:
             raise PermanentPublishError(str(exc)) from exc
 
 
 class SqlAlchemyWeChatResultStore:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        author: str = "",
+    ) -> None:
         self.session_factory = session_factory
+        self.author = author
 
     async def load(self, claim: JobClaim) -> dict[str, object]:
         async with self.session_factory() as session:
@@ -202,7 +258,7 @@ class SqlAlchemyWeChatResultStore:
             if pair is None:
                 raise LeaseLost("publication job missing")
             job, article = pair
-            return _job_data(job, article)
+            return _job_data(job, article, self.author)
 
     async def assert_lease(self, claim: JobClaim) -> bool:
         async with self.session_factory() as session:
@@ -324,6 +380,25 @@ def _reject_uncertain_draft(result: dict[str, object]) -> None:
         raise BlockedPublishError("微信草稿创建结果不确定，请人工核验后处理")
 
 
+def _reject_uncertain_uploads(result: dict[str, object]) -> None:
+    if _uploads_in_flight(result):
+        raise BlockedPublishError("微信素材上传结果不确定，请人工核验后处理")
+
+
+def _uploads_in_flight(result: dict[str, object]) -> dict[str, str]:
+    raw = result.get("uploads_in_flight", {})
+    valid = isinstance(raw, dict) and all(
+        isinstance(key, str) and len(key) == 64 and value in {"body", "cover"} for key, value in raw.items()
+    )
+    if not valid:
+        raise BlockedPublishError("微信素材上传阶段记录无效")
+    return dict(cast(dict[str, str], raw))
+
+
+def _outcome_uncertain(error: Exception) -> bool:
+    return bool(getattr(error, "outcome_uncertain", False))
+
+
 async def _lease_matches(session: AsyncSession, job: PublicationJob, claim: JobClaim) -> bool:
     now = await session.scalar(select(func.current_timestamp()))
     return (
@@ -334,7 +409,7 @@ async def _lease_matches(session: AsyncSession, job: PublicationJob, claim: JobC
     )
 
 
-def _job_data(job: PublicationJob, article: Article) -> dict[str, object]:
+def _job_data(job: PublicationJob, article: Article, author: str) -> dict[str, object]:
     metadata = job.snapshot_metadata
     notion = article.notion_metadata
     return {
@@ -342,7 +417,7 @@ def _job_data(job: PublicationJob, article: Article) -> dict[str, object]:
         "snapshot_metadata": metadata,
         "wechat_result": job.wechat_result,
         "title": metadata.get("title", article.title),
-        "author": notion.get("author", ""),
+        "author": author or notion.get("author", ""),
         "digest": metadata.get("summary", ""),
         "content_source_url": article.notion_url,
     }

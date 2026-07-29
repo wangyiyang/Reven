@@ -30,6 +30,7 @@ BLOCKED_CODES = {
     50001,
 }
 TRANSIENT_CODES = {-1, 45009}
+WECHAT_IMAGE_HOSTS = frozenset({"mmbiz.qpic.cn"})
 
 
 class WeChatClient:
@@ -78,7 +79,13 @@ class WeChatClient:
     async def upload_body_image(self, path: Path) -> str:
         payload = await self._multipart("/cgi-bin/media/uploadimg", path)
         url = payload.get("url")
-        if not isinstance(url, str) or not _valid_wechat_image_url(url):
+        if not isinstance(url, str):
+            raise WeChatTransientError(
+                "invalid_upload_response",
+                "微信正文图片响应无效",
+                outcome_uncertain=True,
+            )
+        if not _valid_wechat_image_url(url):
             raise WeChatPermanentError("invalid_upload_response", "微信正文图片响应无效")
         return url
 
@@ -86,14 +93,22 @@ class WeChatClient:
         payload = await self._multipart("/cgi-bin/material/add_material", path, params={"type": "image"})
         media_id = payload.get("media_id")
         if not isinstance(media_id, str) or not media_id:
-            raise WeChatPermanentError("invalid_material_response", "微信封面素材响应无效")
+            raise WeChatTransientError(
+                "invalid_material_response",
+                "微信封面素材响应无效",
+                outcome_uncertain=True,
+            )
         return media_id
 
     async def create_draft(self, payload: dict[str, object]) -> str:
         response = await self._authenticated_request("POST", "/cgi-bin/draft/add", json=payload)
         media_id = response.get("media_id")
         if not isinstance(media_id, str) or not media_id:
-            raise WeChatPermanentError("invalid_draft_response", "微信草稿响应无效")
+            raise WeChatTransientError(
+                "invalid_draft_response",
+                "微信草稿响应无效",
+                outcome_uncertain=True,
+            )
         return media_id
 
     async def _multipart(
@@ -144,20 +159,26 @@ class WeChatClient:
         try:
             response = await self._http.request(method, path, timeout=REQUEST_TIMEOUT, **kwargs)
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise WeChatTransientError("network_error", "微信网络请求失败") from exc
+            raise WeChatTransientError("network_error", "微信网络请求失败", outcome_uncertain=True) from exc
         if response.status_code >= 500:
-            raise WeChatTransientError(f"http_{response.status_code}", "微信服务暂时不可用")
+            raise WeChatTransientError(
+                f"http_{response.status_code}",
+                "微信服务暂时不可用",
+                outcome_uncertain=True,
+            )
+        if response.status_code in (408, 429):
+            raise WeChatTransientError(f"http_{response.status_code}", "微信请求暂时被拒绝")
         if not response.is_success:
             error = WeChatBlockedError if response.status_code in (401, 403) else WeChatPermanentError
             raise error(f"http_{response.status_code}", "微信请求被拒绝")
         if len(response.content) > MAX_RESPONSE_BYTES:
-            raise WeChatTransientError("response_too_large", "微信响应超过大小限制")
+            raise WeChatTransientError("response_too_large", "微信响应超过大小限制", outcome_uncertain=True)
         try:
             payload: Any = response.json()
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise WeChatTransientError("invalid_json", "微信响应格式无效") from exc
+            raise WeChatTransientError("invalid_json", "微信响应格式无效", outcome_uncertain=True) from exc
         if not isinstance(payload, dict):
-            raise WeChatTransientError("invalid_json", "微信响应格式无效")
+            raise WeChatTransientError("invalid_json", "微信响应格式无效", outcome_uncertain=True)
         _raise_business_error(payload)
         return payload
 
@@ -211,4 +232,13 @@ def _mime_for(path: Path) -> str:
 
 def _valid_wechat_image_url(value: str) -> bool:
     parsed = urlsplit(value)
-    return parsed.scheme == "https" and bool(parsed.hostname) and parsed.username is None and parsed.password is None
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in WECHAT_IMAGE_HOSTS
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and parsed.path.startswith("/")
+        and len(parsed.path) > 1
+    )

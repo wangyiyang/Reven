@@ -4,8 +4,9 @@ from dataclasses import dataclass
 class WeChatError(Exception):
     """只包含固定分类信息的微信请求错误。"""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, outcome_uncertain: bool = False) -> None:
         self.code = code
+        self.outcome_uncertain = outcome_uncertain
         super().__init__(f"{message}（code={code}）")
 
 
