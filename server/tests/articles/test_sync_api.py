@@ -1,4 +1,6 @@
+import asyncio
 import base64
+import os
 from uuid import uuid4
 
 import pytest
@@ -55,10 +57,7 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
     monkeypatch: pytest.MonkeyPatch,
     db_session,  # type: ignore[no-untyped-def]
 ) -> None:
-    monkeypatch.setenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://reven_test:reven_test@127.0.0.1:55432/reven_test",
-    )
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv(
         "REVEN_MASTER_KEY",
         base64.urlsafe_b64encode(b"t" * 32).decode(),
@@ -75,10 +74,10 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
     get_settings.cache_clear()
 
 
-def test_app_lifespan_reuses_factory_and_disposes_engine(
+def test_app_lifespan_does_not_dispose_injected_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine("postgresql+asyncpg://reven_test:reven_test@127.0.0.1:55432/reven_test")
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     disposed = False
     original_dispose = AsyncEngine.dispose
@@ -105,4 +104,46 @@ def test_app_lifespan_reuses_factory_and_disposes_engine(
 
     assert first.json() == {"same": True}
     assert second.json() == {"same": True}
-    assert disposed is True
+    assert disposed is False
+    asyncio.run(engine.dispose())
+
+
+def test_app_lifespan_disposes_internally_created_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv(
+        "REVEN_MASTER_KEY",
+        base64.urlsafe_b64encode(b"t" * 32).decode(),
+    )
+    get_settings.cache_clear()
+    disposed = 0
+    original_dispose = AsyncEngine.dispose
+
+    async def track_dispose(target: AsyncEngine) -> None:
+        nonlocal disposed
+        disposed += 1
+        await original_dispose(target)
+
+    monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
+    with TestClient(create_app(start_background_tasks=False)):
+        pass
+
+    assert disposed == 1
+    get_settings.cache_clear()
+
+
+def test_database_settings_accept_ci_test_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ci_url = "postgresql+asyncpg://reven_test:reven_test@127.0.0.1:5432/reven_test"
+    monkeypatch.setenv("TEST_DATABASE_URL", ci_url)
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv(
+        "REVEN_MASTER_KEY",
+        base64.urlsafe_b64encode(b"t" * 32).decode(),
+    )
+    get_settings.cache_clear()
+
+    assert get_settings().database_url.get_secret_value() == ci_url
+    get_settings.cache_clear()

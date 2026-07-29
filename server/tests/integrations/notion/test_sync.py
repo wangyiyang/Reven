@@ -115,6 +115,18 @@ class InvalidResultItemNotionPages(FakeNotionPages):
         return {"results": ["not-a-page"], "has_more": False, "next_cursor": None}
 
 
+class SingleInvalidPageNotionPages(FakeNotionPages):
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        invalid = _raw_page("待发布", suffix="1")
+        invalid["properties"].pop("标题")
+        return {"results": [invalid], "has_more": False, "next_cursor": None}
+
+
 def _raw_page(status: str, *, suffix: str) -> dict[str, Any]:
     page_id = f"11111111-1111-1111-1111-11111111111{suffix}"
     return {
@@ -394,3 +406,40 @@ async def test_sync_rejects_non_object_result_items(
         await service.sync_once()
 
     assert await db_session.get(SystemState, "notion_sync") is None
+
+
+@pytest.mark.anyio
+async def test_concurrent_invalid_page_syncs_share_one_error_state(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: AsyncSession,
+) -> None:
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    first = NotionSyncService(factory, SingleInvalidPageNotionPages(), "data-source")
+    second = NotionSyncService(factory, SingleInvalidPageNotionPages(), "data-source")
+    original_record_error = NotionSyncService._record_page_error
+    both_ready = asyncio.Event()
+    ready_count = 0
+
+    async def synchronize_error_writes(
+        service: NotionSyncService,
+        page_id: str,
+        error: str,
+    ) -> None:
+        nonlocal ready_count
+        ready_count += 1
+        if ready_count == 2:
+            both_ready.set()
+        await both_ready.wait()
+        await original_record_error(service, page_id, error)
+
+    monkeypatch.setattr(
+        NotionSyncService,
+        "_record_page_error",
+        synchronize_error_writes,
+    )
+
+    results = await asyncio.gather(first.sync_once(), second.sync_once())
+
+    assert [result.failed for result in results] == [1, 1]
+    errors = await db_session.scalars(select(SystemState).where(SystemState.key.like("notion_sync_error:%")))
+    assert len(list(errors)) == 1
