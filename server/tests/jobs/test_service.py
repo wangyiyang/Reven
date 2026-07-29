@@ -1,15 +1,18 @@
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
+import reven.jobs.service as service_module
 from reven.articles.models import Article
 from reven.domain import JobStatus
 from reven.integrations.models import Integration
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import compute_target_channels_hash
-from reven.jobs.service import PublicationJobService
-from reven.publishing.assets import MaterializedAsset, MaterializedAssets
+from reven.jobs.service import NotionStatusWriteError, PublicationJobService
+from reven.publishing.assets import AssetDownloadError, MaterializedAsset, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -68,6 +71,17 @@ class FailingUpdateNotion(FakeNotion):
         raise RuntimeError("secret=https://signed.example/?token=sensitive")
 
 
+class RecoveringUpdateNotion(FakeNotion):
+    def __init__(self, page: dict[str, Any]) -> None:
+        super().__init__(page)
+        self.fail = True
+
+    async def update_page(self, page_id: str, *, properties: dict[str, Any]) -> dict[str, Any]:
+        if self.fail:
+            raise RuntimeError("token=sensitive")
+        return await super().update_page(page_id, properties=properties)
+
+
 class FailingRetrieveNotion(FakeNotion):
     async def retrieve_page(self, page_id: str) -> dict[str, Any]:
         del page_id
@@ -75,10 +89,31 @@ class FailingRetrieveNotion(FakeNotion):
 
 
 class FakeMaterializer:
-    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str) -> MaterializedAssets:
-        del job_id, image_urls, cover_url
-        cover = MaterializedAsset("cover", Path("/tmp/cover.png"), "b" * 64, "image/png", 10)
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
+        self.calls += 1
+        del job_id, image_urls
+        cover = (
+            MaterializedAsset("cover", Path("/tmp/cover.png"), "b" * 64, "image/png", 10)
+            if cover_url is not None
+            else None
+        )
         return MaterializedAssets((), cover)
+
+
+class FailingBodyMaterializer(FakeMaterializer):
+    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
+        del job_id, image_urls
+        assert cover_url is None
+        raise AssetDownloadError("url_unsafe", "正文图片地址不安全", field="images")
+
+
+class FilesystemFailingMaterializer(FakeMaterializer):
+    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets:
+        del job_id, image_urls, cover_url
+        raise AssetDownloadError("filesystem_error", "素材文件写入失败", field="assets")
 
 
 async def _seed_job(db_session) -> PublicationJob:  # type: ignore[no-untyped-def]
@@ -150,18 +185,105 @@ async def test_prepare_missing_cover_blocks_job_and_writes_reason(db_session) ->
 
 
 @pytest.mark.anyio
-async def test_notion_write_failure_rolls_back_freeze_without_leaking_detail(db_session) -> None:  # type: ignore[no-untyped-def]
+async def test_processing_write_failure_keeps_frozen_pending_and_retry_only_writes_status(db_session) -> None:  # type: ignore[no-untyped-def]
     job = await _seed_job(db_session)
-    notion = FailingUpdateNotion(_page())
+    notion = RecoveringUpdateNotion(_page())
+    materializer = FakeMaterializer()
     factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
 
-    with pytest.raises(Exception) as caught:
+    with pytest.raises(NotionStatusWriteError) as caught:
+        await PublicationJobService(factory, notion, materializer).prepare(job.id)
+
+    assert "sensitive" not in str(caught.value)
+    await db_session.refresh(job)
+    assert job.content_hash is not None
+    assert job.overall_status == JobStatus.WAITING
+    assert job.snapshot_metadata["notion_write_pending"] is True
+    assert materializer.calls == 1
+
+    notion.fail = False
+    result = await PublicationJobService(factory, notion, materializer).prepare(job.id)
+
+    assert result.job_id == job.id
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.PROCESSING
+    assert "notion_write_pending" not in job.snapshot_metadata
+    assert materializer.calls == 1
+
+
+@pytest.mark.anyio
+async def test_retry_repeats_idempotent_notion_write_after_second_transaction_crash(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    notion = FakeNotion(_page())
+    materializer = FakeMaterializer()
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = PublicationJobService(factory, notion, materializer)
+    original_mark = service._mark_processing
+
+    async def crash(job_id: Any) -> None:
+        del job_id
+        raise RuntimeError("simulated process crash")
+
+    monkeypatch.setattr(service, "_mark_processing", crash)
+    with pytest.raises(RuntimeError, match="simulated"):
+        await service.prepare(job.id)
+    await db_session.refresh(job)
+    assert job.snapshot_metadata["notion_write_pending"] is True
+    assert len(notion.updates) == 1
+
+    monkeypatch.setattr(service, "_mark_processing", original_mark)
+    await service.prepare(job.id)
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.PROCESSING
+    assert len(notion.updates) == 2
+    assert materializer.calls == 1
+
+
+@pytest.mark.anyio
+async def test_blocked_write_failure_keeps_local_blocked(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    notion = FailingUpdateNotion(_page(cover=False))
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    with pytest.raises(NotionStatusWriteError) as caught:
         await PublicationJobService(factory, notion, FakeMaterializer()).prepare(job.id)
 
     assert "sensitive" not in str(caught.value)
     await db_session.refresh(job)
     assert job.content_hash is None
-    assert job.overall_status == JobStatus.WAITING
+    assert job.overall_status == JobStatus.BLOCKED
+
+
+@pytest.mark.anyio
+async def test_missing_cover_still_reports_body_materialization_failure(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    notion = FakeNotion(_page(cover=False))
+    notion.retrieve_page_markdown = lambda page_id: _async_value("![坏图](https://127.0.0.1/a.png)")  # type: ignore[method-assign]
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    result = await PublicationJobService(factory, notion, FailingBodyMaterializer()).prepare(job.id)
+
+    assert result.validation is not None
+    assert {error.code for error in result.validation.errors} >= {"cover_missing", "url_unsafe"}
+
+
+@pytest.mark.anyio
+async def test_filesystem_failure_persists_blocked_job(db_session) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    result = await PublicationJobService(factory, FakeNotion(_page()), FilesystemFailingMaterializer()).prepare(job.id)
+
+    assert result.validation is not None
+    assert "filesystem_error" in {error.code for error in result.validation.errors}
+    await db_session.refresh(job)
+    assert job.overall_status == JobStatus.BLOCKED
+
+
+async def _async_value(value: str) -> str:
+    return value
 
 
 @pytest.mark.anyio
@@ -210,3 +332,69 @@ async def test_source_refresh_failure_blocks_with_redacted_reason(db_session) ->
     await db_session.refresh(job)
     assert job.overall_status == JobStatus.BLOCKED
     assert "sensitive" not in str(result.validation)
+
+
+@pytest.mark.anyio
+async def test_concurrent_prepare_returns_single_frozen_winner(db_session, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    first = await _seed_job(db_session)
+    second = PublicationJob(
+        article_id=first.article_id,
+        content_hash=None,
+        target_channels=["个人博客"],
+        target_channels_hash=compute_target_channels_hash(["个人博客"]),
+        overall_status=JobStatus.FAILED,
+        blog_status="待处理",
+        wechat_status="待处理",
+        scheduled_at=datetime.now(tz=UTC),
+    )
+    db_session.add(second)
+    await db_session.commit()
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    notion = FakeNotion(_page())
+    original_lookup = service_module._existing_frozen
+    ready = asyncio.Event()
+    lookup_count = 0
+
+    async def synchronized_lookup(*args: Any, **kwargs: Any) -> PublicationJob | None:
+        nonlocal lookup_count
+        with args[0].no_autoflush:
+            result = await original_lookup(*args, **kwargs)
+        lookup_count += 1
+        if lookup_count < 2:
+            await ready.wait()
+        else:
+            ready.set()
+        return result
+
+    monkeypatch.setattr(service_module, "_existing_frozen", synchronized_lookup)
+
+    first_result, second_result = await asyncio.gather(
+        PublicationJobService(factory, notion, FakeMaterializer()).prepare(first.id),
+        PublicationJobService(factory, notion, FakeMaterializer()).prepare(second.id),
+    )
+
+    assert first_result.job_id == second_result.job_id
+    assert first_result.reused != second_result.reused
+    await db_session.refresh(first)
+    await db_session.refresh(second)
+    assert {first.overall_status, second.overall_status} == {JobStatus.PROCESSING, JobStatus.CANCELLED}
+
+
+@pytest.mark.anyio
+async def test_non_target_integrity_error_is_not_treated_as_idempotency(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    job = await _seed_job(db_session)
+    original_freeze = service_module._freeze
+
+    def corrupt_foreign_key(*args: Any, **kwargs: Any) -> None:
+        original_freeze(*args, **kwargs)
+        args[0].article_id = uuid4()
+
+    monkeypatch.setattr(service_module, "_freeze", corrupt_foreign_key)
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+
+    with pytest.raises(Exception) as caught:
+        await PublicationJobService(factory, FakeNotion(_page()), FakeMaterializer()).prepare(job.id)
+
+    assert type(caught.value).__name__ == "IntegrityError"

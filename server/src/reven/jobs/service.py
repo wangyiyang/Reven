@@ -33,6 +33,10 @@ class PublicationPreparationError(Exception):
     """Preparation could not complete and remains safe to retry."""
 
 
+class NotionStatusWriteError(PublicationPreparationError):
+    """Local state is durable, but the idempotent Notion status write must be retried."""
+
+
 class _FreezeConflictError(Exception):
     def __init__(self, article_id: UUID, content_hash: str, channels: tuple[TargetChannel, ...]) -> None:
         self.article_id = article_id
@@ -49,7 +53,7 @@ class NotionPreparationClient(Protocol):
 
 
 class Materializer(Protocol):
-    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str) -> MaterializedAssets: ...
+    async def materialize(self, job_id: str, image_urls: list[str], cover_url: str | None) -> MaterializedAssets: ...
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,14 @@ class PrepareResult:
     reused: bool = False
     blocked: bool = False
     validation: ValidationResult | None = None
+
+
+@dataclass(frozen=True)
+class _PersistedPreparation:
+    result: PrepareResult
+    page_id: str | None = None
+    status: AutomationStatus | None = None
+    reason: str | None = None
 
 
 class PublicationJobService:
@@ -73,17 +85,35 @@ class PublicationJobService:
 
     async def prepare(self, job_id: UUID) -> PrepareResult:
         try:
-            return await self._prepare_transaction(job_id)
+            persisted = await self._persist_preparation(job_id)
         except _FreezeConflictError as conflict:
             return await self._resolve_unique_conflict(job_id, conflict)
+        if persisted.status is None or persisted.page_id is None:
+            return persisted.result
+        try:
+            await self._write_notion(persisted.page_id, persisted.status, persisted.reason)
+        except NotionStatusWriteError as exc:
+            await self._record_status_write_failure(job_id, str(exc))
+            raise
+        if persisted.status == AutomationStatus.PROCESSING:
+            await self._mark_processing(job_id)
+        return persisted.result
 
-    async def _prepare_transaction(self, job_id: UUID) -> PrepareResult:
+    async def _persist_preparation(self, job_id: UUID) -> _PersistedPreparation:
         async with self.session_factory.begin() as session:
             job = await _locked_job(session, job_id)
             if job is None:
                 raise PublicationPreparationError("发布任务不存在")
             if job.content_hash is not None:
-                return PrepareResult(job.id)
+                if job.snapshot_metadata.get("notion_write_pending") is True:
+                    job.overall_status = JobStatus.WAITING
+                    article = await session.get(Article, job.article_id)
+                    if article is None:
+                        raise PublicationPreparationError("发布任务关联的稿件不存在")
+                    return _PersistedPreparation(
+                        PrepareResult(job.id), article.notion_page_id, AutomationStatus.PROCESSING
+                    )
+                return _PersistedPreparation(PrepareResult(job.id))
             article = await session.get(Article, job.article_id)
             if article is None:
                 raise PublicationPreparationError("发布任务关联的稿件不存在")
@@ -93,8 +123,7 @@ class PublicationJobService:
                 mapped = map_notion_page(raw_page)
             except Exception as exc:
                 validation = _source_failure(type(exc).__name__)
-                await self._block(job, article, validation)
-                return PrepareResult(job.id, blocked=True, validation=validation)
+                return _persist_blocked(job, article, validation)
             selection = parse_target_channels(mapped.target_channels)
             channels = tuple(channel for channel in TargetChannel if channel in selection.channels)
             assets, asset_errors = await self._materialize(job, markdown, mapped.cover.url if mapped.cover else None)
@@ -104,8 +133,7 @@ class PublicationJobService:
             validation = validate_candidate(candidate)
             _refresh_article(article, mapped)
             if not validation.is_valid or assets is None:
-                await self._block(job, article, validation)
-                return PrepareResult(job.id, blocked=True, validation=validation)
+                return _persist_blocked(job, article, validation)
             return await self._freeze_validated(session, job, article, mapped, markdown, channels, assets)
 
     async def _freeze_validated(
@@ -117,7 +145,9 @@ class PublicationJobService:
         markdown: str,
         channels: tuple[TargetChannel, ...],
         assets: MaterializedAssets,
-    ) -> PrepareResult:
+    ) -> _PersistedPreparation:
+        if assets.cover is None:
+            raise PublicationPreparationError("校验器错误地放行了缺少封面的快照")
         snapshot = build_snapshot(
             markdown,
             image_sha256=tuple(asset.sha256 for asset in assets.images),
@@ -130,37 +160,29 @@ class PublicationJobService:
         existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels)
         if existing is not None:
             job.overall_status = JobStatus.CANCELLED
-            return PrepareResult(existing.id, reused=True)
+            return _PersistedPreparation(PrepareResult(existing.id, reused=True))
         metadata = _snapshot_metadata(snapshot.metadata(), assets)
         _freeze(job, snapshot.content_hash, snapshot.markdown, metadata, channels)
-        article.automation_status = AutomationStatus.PROCESSING
+        article.automation_status = AutomationStatus.WAITING
         article.last_error = None
+        article_id = article.id
         try:
             await session.flush()
         except IntegrityError as exc:
-            raise _FreezeConflictError(article.id, snapshot.content_hash, channels) from exc
-        await self._write_notion(article.notion_page_id, AutomationStatus.PROCESSING, None)
-        return PrepareResult(job.id)
+            if _is_idempotency_conflict(exc):
+                raise _FreezeConflictError(article_id, snapshot.content_hash, channels) from exc
+            raise
+        return _PersistedPreparation(PrepareResult(job.id), article.notion_page_id, AutomationStatus.PROCESSING)
 
     async def _materialize(
         self, job: PublicationJob, markdown: str, cover_url: str | None
     ) -> tuple[MaterializedAssets | None, tuple[ValidationError, ...]]:
-        if cover_url is None:
-            return None, ()
         try:
             assets = await self.materializer.materialize(str(job.id), list(image_urls(markdown)), cover_url)
             return assets, ()
         except AssetDownloadError as exc:
             issue = ValidationError(exc.code, str(exc), exc.field)
             return None, (issue,)
-
-    async def _block(self, job: PublicationJob, article: Article, validation: ValidationResult) -> None:
-        reason = _error_summary(validation)
-        job.overall_status = JobStatus.BLOCKED
-        job.lease_expires_at = None
-        article.automation_status = AutomationStatus.BLOCKED
-        article.last_error = reason
-        await self._write_notion(article.notion_page_id, AutomationStatus.BLOCKED, reason)
 
     async def _write_notion(self, page_id: str, status: AutomationStatus, reason: str | None) -> None:
         properties: dict[str, Any] = {"自动化状态": {"select": {"name": status.value}}}
@@ -169,7 +191,31 @@ class PublicationJobService:
         try:
             await self.notion.update_page(page_id, properties=properties)
         except Exception as exc:
-            raise PublicationPreparationError(f"Notion 状态回写失败（{type(exc).__name__}），可重试") from exc
+            raise NotionStatusWriteError(f"Notion 状态回写失败（{type(exc).__name__}），可重试") from exc
+
+    async def _record_status_write_failure(self, job_id: UUID, error: str) -> None:
+        async with self.session_factory.begin() as session:
+            job = await _locked_job(session, job_id)
+            if job is None:
+                return
+            article = await session.get(Article, job.article_id)
+            if article is not None:
+                article.last_error = error
+
+    async def _mark_processing(self, job_id: UUID) -> None:
+        async with self.session_factory.begin() as session:
+            job = await _locked_job(session, job_id)
+            if job is None or job.snapshot_metadata.get("notion_write_pending") is not True:
+                return
+            metadata = dict(job.snapshot_metadata)
+            metadata.pop("notion_write_pending", None)
+            job.snapshot_metadata = metadata
+            job.overall_status = JobStatus.PROCESSING
+            job.started_at = utc_now()
+            article = await session.get(Article, job.article_id)
+            if article is not None:
+                article.automation_status = AutomationStatus.PROCESSING
+                article.last_error = None
 
     async def _resolve_unique_conflict(self, job_id: UUID, conflict: _FreezeConflictError) -> PrepareResult:
         async with self.session_factory.begin() as session:
@@ -232,7 +278,7 @@ async def _candidate(
         markdown=markdown,
         summary=mapped.summary,
         author=author,
-        cover=mapped.cover,
+        cover=assets.cover if assets else None,
         image_count=count,
         materialized_image_count=len(assets.images) if assets else 0,
         channels=channels,
@@ -264,13 +310,15 @@ def _freeze(
     job.target_channels = values
     job.target_channels_hash = compute_target_channels_hash(values)
     job.source_markdown = markdown
+    metadata["notion_write_pending"] = True
     job.snapshot_metadata = metadata
-    job.overall_status = JobStatus.PROCESSING
+    job.overall_status = JobStatus.WAITING
     job.lease_expires_at = None
-    job.started_at = utc_now()
 
 
 def _snapshot_metadata(metadata: dict[str, object], assets: MaterializedAssets) -> dict[str, object]:
+    if assets.cover is None:
+        raise PublicationPreparationError("缺少封面时不能生成快照元数据")
     metadata["cover"] = {
         "original_url": assets.cover.original_url,
         "path": str(assets.cover.path),
@@ -304,6 +352,24 @@ async def _existing_frozen(
 
 def _error_summary(validation: ValidationResult) -> str:
     return "；".join(f"{error.field}：{error.message}" for error in validation.errors)[:1000]
+
+
+def _persist_blocked(job: PublicationJob, article: Article, validation: ValidationResult) -> _PersistedPreparation:
+    reason = _error_summary(validation)
+    job.overall_status = JobStatus.BLOCKED
+    job.lease_expires_at = None
+    article.automation_status = AutomationStatus.BLOCKED
+    article.last_error = reason
+    result = PrepareResult(job.id, blocked=True, validation=validation)
+    return _PersistedPreparation(result, article.notion_page_id, AutomationStatus.BLOCKED, reason)
+
+
+def _is_idempotency_conflict(exc: IntegrityError) -> bool:
+    original = exc.orig
+    cause = getattr(original, "__cause__", None)
+    constraint = getattr(cause, "constraint_name", None) or getattr(original, "constraint_name", None)
+    sqlstate = getattr(cause, "sqlstate", None) or getattr(original, "sqlstate", None)
+    return constraint == "uq_job_article_version_channels" and sqlstate == "23505"
 
 
 def _source_failure(error_type: str) -> ValidationResult:

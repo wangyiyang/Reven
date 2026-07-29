@@ -49,6 +49,22 @@ class EmptyChannelsNotionPages(FakeNotionPages):
         return {"results": [page], "has_more": False, "next_cursor": None}
 
 
+class MutableChannelsNotionPages(FakeNotionPages):
+    def __init__(self) -> None:
+        super().__init__()
+        self.channels = ["个人博客"]
+
+    async def query_data_source(
+        self,
+        _data_source_id: str,
+        *,
+        start_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        page = _raw_page("待发布", suffix="1")
+        page["properties"]["目标渠道"]["multi_select"] = [{"name": value} for value in self.channels]
+        return {"results": [page], "has_more": False, "next_cursor": None}
+
+
 class PartiallyInvalidNotionPages(FakeNotionPages):
     async def query_data_source(
         self,
@@ -281,6 +297,27 @@ async def test_sync_uses_default_channels_when_notion_selection_is_empty(
     job = await db_session.scalar(select(PublicationJob).limit(1))
     assert job is not None
     assert set(job.target_channels) == {"个人博客", "微信公众号"}
+
+
+@pytest.mark.anyio
+async def test_sync_does_not_modify_frozen_waiting_job(db_session: AsyncSession) -> None:
+    notion = MutableChannelsNotionPages()
+    factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    service = NotionSyncService(factory, notion, "data-source")
+    await service.sync_once()
+    job = await db_session.scalar(select(PublicationJob).limit(1))
+    assert job is not None
+    job.content_hash = "a" * 64
+    job.snapshot_metadata = {"notion_write_pending": True}
+    original_hash = job.target_channels_hash
+    await db_session.commit()
+    notion.channels = ["微信公众号"]
+
+    await service.sync_once()
+    await db_session.refresh(job)
+
+    assert job.target_channels == ["个人博客"]
+    assert job.target_channels_hash == original_hash
 
 
 @pytest.mark.anyio
