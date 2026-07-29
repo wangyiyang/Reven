@@ -4,6 +4,8 @@ import { baseCSSContent, themeMap } from "@md/shared/configs/theme";
 import juice from "juice";
 import sanitizeHtml from "sanitize-html";
 
+import { sanitizeInlineStyle } from "./css-sanitizer";
+
 const renderer = initRenderer({
   citeStatus: true,
   countStatus: false,
@@ -26,6 +28,43 @@ section { font-family: var(--md-font-family); font-size: var(--md-font-size); li
 h1 { padding: 0 1em; border-bottom: 2px solid var(--md-primary-color); font-weight: bold; }
 `;
 
+const assetPattern = /^reven-asset:\/\/image\/[1-9][0-9]*$/;
+const protectedAssetPattern = /^https:\/\/reven\.invalid\/assets\/([A-Za-z0-9_-]+)$/;
+
+function protectAssetSources(markdown: string): string {
+  return markdown.replace(/reven-asset:\/\/image\/[1-9][0-9]*/g, (source) => {
+    const encoded = Buffer.from(source).toString("base64url");
+    return `https://reven.invalid/assets/${encoded}`;
+  });
+}
+
+function restoreAssetSource(source: string): string {
+  const match = protectedAssetPattern.exec(source);
+  if (!match) {
+    return source;
+  }
+  try {
+    const decoded = Buffer.from(match[1], "base64url").toString("utf8");
+    return assetPattern.test(decoded) ? decoded : source;
+  } catch {
+    return source;
+  }
+}
+
+function transformTag(tagName: string, attributes: sanitizeHtml.Attributes) {
+  const transformed = { ...attributes };
+  const style = transformed.style ? sanitizeInlineStyle(transformed.style) : undefined;
+  if (style) {
+    transformed.style = style;
+  } else {
+    delete transformed.style;
+  }
+  if (tagName === "img" && transformed.src) {
+    transformed.src = restoreAssetSource(transformed.src);
+  }
+  return { tagName, attribs: transformed };
+}
+
 const sanitizeOptions: sanitizeHtml.IOptions = {
   allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "figure", "figcaption"]),
   allowedAttributes: {
@@ -36,18 +75,13 @@ const sanitizeOptions: sanitizeHtml.IOptions = {
   allowedSchemes: ["http", "https", "mailto", "tel", "reven-asset"],
   allowProtocolRelative: false,
   disallowedTagsMode: "discard",
+  transformTags: {
+    "*": transformTag,
+  },
 };
 
 export function renderWechatHtml(markdown: string): string {
-  const placeholders = new Map<string, string>();
-  const protectedMarkdown = markdown.replace(
-    /reven-asset:\/\/[A-Za-z0-9/_-]+/g,
-    (source) => {
-      const token = `https://reven.invalid/assets/${placeholders.size}`;
-      placeholders.set(token, source);
-      return token;
-    },
-  );
+  const protectedMarkdown = protectAssetSources(markdown);
   renderer.reset({});
   const rendered = modifyHtmlContent(protectedMarkdown, renderer);
   const css = `${cssVariables}\n${baseCSSContent}\n${themeMap.default}\n${wechatBaseCSS}`;
@@ -57,9 +91,5 @@ export function renderWechatHtml(markdown: string): string {
     preserveMediaQueries: false,
     resolveCSSVariables: true,
   });
-  const safeHtml = sanitizeHtml(styled, sanitizeOptions);
-  return [...placeholders].reduce(
-    (html, [token, source]) => html.replaceAll(token, source),
-    safeHtml,
-  );
+  return sanitizeHtml(styled, sanitizeOptions);
 }

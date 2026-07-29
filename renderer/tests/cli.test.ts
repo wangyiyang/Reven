@@ -28,6 +28,17 @@ test("CLI returns only a successful JSON object", async () => {
   expect(result.stderr).toBe("");
 });
 
+test("CLI removes active CSS while preserving safe declarations", async () => {
+  const markdown = '<p style="color:red;background:u\\\\72l(javascript:alert(1))">正文</p>';
+  const result = await runCli(JSON.stringify({ markdown }));
+  const response = JSON.parse(result.stdout) as { html: string };
+
+  expect(result.code).toBe(0);
+  expect(response.html).toContain("color:red");
+  expect(response.html.toLowerCase()).not.toContain("javascript:");
+  expect(response.html).not.toContain("u\\72l");
+});
+
 test.each(["", "{", "[]", JSON.stringify({ markdown: 1 })])(
   "CLI returns a generic failure for invalid input",
   async (input) => {

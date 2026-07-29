@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/css-tree": "^2.3.10",
     "@types/sanitize-html": "^2.16.0",
     "prettier": "2.8.8",
     "typescript": "^5.8.3",

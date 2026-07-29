@@ -25,6 +25,7 @@ git -C "$temporary_directory/upstream" sparse-checkout set \
   packages/core packages/shared packages/config patches/juice@11.1.1.patch LICENSE
 git -C "$temporary_directory/upstream" fetch --depth=1 origin "$COMMIT"
 git -C "$temporary_directory/upstream" checkout --detach FETCH_HEAD
+commit_date="$(git -C "$temporary_directory/upstream" show -s --format=%cs "$COMMIT")"
 
 rm -rf -- "$repository_root/$TARGET"
 mkdir -p "$repository_root/$TARGET/packages" "$repository_root/$TARGET/patches"
@@ -39,7 +40,7 @@ cat >"$repository_root/$TARGET/UPSTREAM.md" <<EOF
 
 - 仓库：$REPOSITORY
 - 固定提交：\`$COMMIT\`
-- 同步日期：$(date -u +%F)
+- 固定提交日期：$commit_date
 - 许可证：WTFPL v2，原文见同目录 \`LICENSE\`
 
 ## 本地适配边界

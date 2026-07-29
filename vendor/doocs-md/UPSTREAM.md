@@ -2,7 +2,7 @@
 
 - 仓库：https://github.com/doocs/md.git
 - 固定提交：`c37c1d6cc0e0a259de20305b9e4c3b59c7029da7`
-- 同步日期：2026-07-29
+- 固定提交日期：2026-05-31
 - 许可证：WTFPL v2，原文见同目录 `LICENSE`
 
 ## 本地适配边界
