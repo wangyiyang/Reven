@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from reven.publishing.assets import MaterializedAssets
@@ -52,10 +53,22 @@ class BlogConverter:
         stem = f"{date}-{slug}"
         relative_post = Path("_posts") / f"{stem}.md"
         image_dir = Path("images/posts") / stem
-        body, image_paths = self._body(root.resolve(), article, image_dir)
         post_path = _new_path(root, relative_post)
-        post_path.parent.mkdir(parents=True, exist_ok=True)
-        post_path.write_text(_frontmatter(article.snapshot, instant) + body, encoding="utf-8")
+        final_image_dir = _new_path(root, image_dir)
+        stage = root / f".reven-stage-{uuid4()}"
+        stage.mkdir(mode=0o700)
+        try:
+            body, image_paths = self._body(stage.resolve(), article, image_dir)
+            staged_post = _new_path(stage, relative_post)
+            staged_post.parent.mkdir(parents=True, exist_ok=True)
+            staged_post.write_text(_frontmatter(article.snapshot, instant) + body, encoding="utf-8")
+            if image_paths:
+                final_image_dir.parent.mkdir(parents=True, exist_ok=True)
+                (stage / image_dir).replace(final_image_dir)
+            post_path.parent.mkdir(parents=True, exist_ok=True)
+            staged_post.replace(post_path)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
         return ConversionOutput(post_path, (relative_post, *image_paths), f"/{date[:4]}/{date[5:7]}/{date[8:]}/{slug}/")
 
     def _body(self, root: Path, article: BlogArticle, image_dir: Path) -> tuple[str, tuple[Path, ...]]:

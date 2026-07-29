@@ -83,3 +83,31 @@ async def test_cancellation_kills_spawned_child_process_group(tmp_path: Path) ->
     child_pid = int(pid_file.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+@pytest.mark.anyio
+async def test_command_environment_excludes_service_and_cloud_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secrets = {
+        "DATABASE_URL": "postgres-secret",
+        "TEST_DATABASE_URL": "test-secret",
+        "REVEN_MASTER_KEY": "master-secret",
+        "GITHUB_TOKEN": "github-secret",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+    }
+    for key, value in secrets.items():
+        monkeypatch.setenv(key, value)
+    result = await CommandRunner().run([sys.executable, "-c", "import json,os; print(json.dumps(dict(os.environ)))"])
+    assert all(value not in result.stdout for value in secrets.values())
+    assert "HOME" in result.stdout
+    assert "TMPDIR" in result.stdout
+
+
+@pytest.mark.anyio
+async def test_large_dual_pipe_output_is_retained_with_fixed_bounds() -> None:
+    script = "import os;chunk=b'x'*65536;[(os.write(1,chunk),os.write(2,chunk)) for _ in range(64)]"
+    result = await CommandRunner(max_output_bytes=1024, timeout=5).run([sys.executable, "-c", script])
+    assert len(result.stdout.encode()) <= 1024
+    assert len(result.stderr.encode()) <= 1024
+    assert result.truncated

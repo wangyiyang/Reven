@@ -155,9 +155,10 @@ def test_remote_branch_must_equal_fenced_local_commit() -> None:
 
 def test_pages_latest_never_accepts_historical_or_other_commit() -> None:
     assert pages_state({"commit": "other", "status": "built"}, "merge") == "pending"
+    assert pages_state({"commit": "other", "status": "errored"}, "merge") == "pending"
     assert pages_state({"commit": "merge", "status": "built"}, "merge") == "success"
     with pytest.raises(BlockedPublishError, match="Pages"):
-        pages_state({"commit": "other", "status": "errored"}, "merge")
+        pages_state({"commit": "merge", "status": "errored"}, "merge")
 
 
 @pytest.mark.anyio
@@ -181,6 +182,11 @@ async def test_merge_response_lost_recovers_only_from_merged_pr_query() -> None:
             raise GitHubTransientError("lost", uncertain=True)
 
     class Store:
+        async def begin_operation_if_absent(self, claim, phase):  # type: ignore[no-untyped-def]
+            operation_id = "operation"
+            result["operation"] = {"id": operation_id, "phase": phase}
+            return operation_id
+
         async def save_result(self, claim, patch):  # type: ignore[no-untyped-def]
             result.update(patch)
             return True
@@ -218,6 +224,11 @@ async def test_merge_lost_does_not_recover_historical_pr_for_same_head() -> None
             return [{"number": 6, "merged_at": "old", "merge_commit_sha": "wrong"}]
 
     class Store:
+        async def begin_operation_if_absent(self, claim, phase):  # type: ignore[no-untyped-def]
+            operation_id = "operation"
+            result["operation"] = {"id": operation_id, "phase": phase}
+            return operation_id
+
         async def save_result(self, claim, patch):  # type: ignore[no-untyped-def]
             result.update(patch)
             return True

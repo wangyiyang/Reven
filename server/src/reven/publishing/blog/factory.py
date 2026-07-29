@@ -39,16 +39,20 @@ class ConfiguredBlogPublisher:
     async def publish(self, claim: JobClaim):  # type: ignore[no-untyped-def]
         config = await self._configuration()
         remote = f"https://github.com/{config.owner}/{config.repo}.git"
+        workspace = BlogWorkspace(self.data_root / "jobs", CommandRunner())
         async with GitHubClient(config.owner, config.repo, config.token, site_url=config.site_url) as client:
             publisher = BlogPublisher(
                 client,
-                BlogWorkspace(self.data_root / "jobs", CommandRunner()),
+                workspace,
                 BlogConverter(config.site_url),
                 SqlAlchemyBlogResultStore(self.session_factory),
                 remote_url=remote,
                 token=config.token,
             )
-            return await publisher.publish(claim)
+            try:
+                return await publisher.publish(claim)
+            finally:
+                workspace.cleanup(str(claim.job_id))
 
     async def _configuration(self) -> _Configuration:
         async with self.session_factory() as session:
