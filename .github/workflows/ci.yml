@@ -7,11 +7,29 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: reven_test
+          POSTGRES_USER: reven_test
+          POSTGRES_PASSWORD: reven_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reven_test -d reven_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://reven_test:reven_test@127.0.0.1:5432/reven_test
+      TEST_DATABASE_URL: postgresql+asyncpg://reven_test:reven_test@127.0.0.1:5432/reven_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages
+      - run: uv run alembic -c server/migrations/alembic.ini upgrade head
       - run: uv run ruff check server
       - run: uv run ruff format --check server
       - run: uv run mypy server/src

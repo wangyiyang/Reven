@@ -5,10 +5,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from ci_gate import is_test_database_missing_in_ci
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def require_database_url_in_ci() -> None:
+    if is_test_database_missing_in_ci(os.environ):
+        raise pytest.UsageError("CI 必须配置 TEST_DATABASE_URL，禁止静默跳过数据库测试")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    del session
+    require_database_url_in_ci()
 
 
 @pytest.fixture(scope="session")
