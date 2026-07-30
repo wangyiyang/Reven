@@ -14,6 +14,7 @@ from reven.api.routes.system import router as system_router
 from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.jobs.runner import build_background_runner
+from reven.security.csrf import CsrfOriginMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ def create_app(
     start_background_tasks: bool = True,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     runner: RunnerProtocol | None = None,
+    public_base_url: str | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(current_app: FastAPI) -> AsyncIterator[None]:
@@ -74,6 +76,7 @@ def create_app(
                 raise cleanup_error
 
     app = FastAPI(title="Reven", lifespan=lifespan)
+    app.add_middleware(CsrfOriginMiddleware, public_base_url=public_base_url)
     app.include_router(articles_router)
     app.include_router(integrations_router)
     app.include_router(sync_router)

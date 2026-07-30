@@ -57,3 +57,11 @@ def test_rejects_mutable_or_malformed_image_references(image: str) -> None:
 
     assert result.returncode != 0
     assert "REVEN_IMAGE must be" in result.stderr
+
+
+def test_container_ci_never_executes_dotenv_as_shell() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert ". ./.env" not in workflow
+    assert "REVEN_IMAGE=ghcr.io/reven/ci@sha256:" in workflow
+    assert "./scripts/validate_reven_image.sh" in workflow

@@ -9,9 +9,13 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase()
+  const headers = new Headers(init?.headers)
+  headers.set("Content-Type", "application/json")
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-Reven-CSRF", "1")
   const response = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
   })
   const text = await response.text()
   const body = parseJson(text)

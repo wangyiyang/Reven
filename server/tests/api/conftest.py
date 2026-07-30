@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
+WRITE_HEADERS = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
 
 
 class _FakePreview:
@@ -82,8 +83,12 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
             )
 
     asyncio.run(reset())
-    app = create_app(start_background_tasks=False, session_factory=factory)
+    app = create_app(
+        start_background_tasks=False,
+        session_factory=factory,
+        public_base_url="https://dev.wangyiyang.cc",
+    )
     app.state.wechat_preview_service = _FakePreview()
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=WRITE_HEADERS) as test_client:
         yield test_client, factory
     asyncio.run(engine.dispose())
