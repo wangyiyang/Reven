@@ -110,10 +110,8 @@ jobs:
       - name: Validate Compose and Caddy
         run: |
           cp .env.example .env
-          set -a
-          . ./.env
-          set +a
-          ./scripts/validate_reven_image.sh
+          REVEN_IMAGE=ghcr.io/reven/ci@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            ./scripts/validate_reven_image.sh
           docker compose --env-file .env -f infra/compose/docker-compose.yml config >/dev/null
           docker run --rm \
             -e REVEN_BASIC_AUTH_USER=smoke \

@@ -66,7 +66,8 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
     )
     get_settings.cache_clear()
 
-    with TestClient(create_app(start_background_tasks=False)) as client:
+    headers = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
+    with TestClient(create_app(start_background_tasks=False), headers=headers) as client:
         response = client.post("/api/sync/notion")
         paths = client.get("/openapi.json").json()["paths"]
 

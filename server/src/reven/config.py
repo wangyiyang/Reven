@@ -1,6 +1,7 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,12 +10,33 @@ class Settings(BaseSettings):
 
     database_url: SecretStr
     reven_master_key: SecretStr
-    public_base_url: str = "https://dev.wangyiyang.cc"
+    public_base_url: str = Field(
+        default="https://dev.wangyiyang.cc",
+        validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
+    )
     sync_interval_seconds: int = 60
     scheduler_interval_seconds: int = 5
     job_lease_seconds: int = Field(default=120, ge=3)
     job_data_dir: str = "/data/jobs"
     renderer_command: str = "node /app/renderer/dist/cli.mjs"
+
+    @field_validator("public_base_url")
+    @classmethod
+    def validate_public_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        localhost = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        valid_scheme = parsed.scheme == "https" or (parsed.scheme == "http" and localhost)
+        if (
+            not valid_scheme
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("PUBLIC_BASE_URL 必须是 HTTPS origin；仅 localhost 测试可使用 HTTP")
+        return value.rstrip("/")
 
 
 @lru_cache

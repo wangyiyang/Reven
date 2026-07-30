@@ -137,6 +137,10 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml up -d
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 ```
 
+直接调用写接口的受控运维客户端必须同时发送
+`Origin: <PUBLIC_BASE_URL>` 与 `X-Reven-CSRF: 1`。浏览器和脚本缺少任一请求头时，
+服务会拒绝 POST、PUT、PATCH、DELETE；不要通过 Caddy 伪造或覆盖客户端的 `Origin`。
+
 把同一个 `ghcr.io/...@sha256:...` 值写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、
 `latest` 或本地构建名称。
 

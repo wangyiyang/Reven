@@ -1,3 +1,5 @@
+import pytest
+from pydantic import ValidationError
 from reven.config import Settings
 
 
@@ -11,3 +13,29 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
     assert settings.public_base_url == "https://dev.wangyiyang.cc"
     assert "notion" not in Settings.model_fields
     assert "wechat_app_secret" not in Settings.model_fields
+
+
+def test_public_base_url_accepts_https_and_localhost_http(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
+    monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", "http://localhost:3000")
+
+    assert Settings(_env_file=None).public_base_url == "http://localhost:3000"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://example.com",
+        "https://example.com/path",
+        "https://user@example.com",
+        "javascript:alert(1)",
+    ],
+)
+def test_public_base_url_rejects_unsafe_origins(monkeypatch, value: str) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
+    monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
