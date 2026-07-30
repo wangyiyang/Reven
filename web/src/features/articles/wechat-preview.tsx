@@ -38,28 +38,40 @@ export function WechatPreview({ articleId, title }: { articleId: string; title: 
         {preview.isPending ? <LoaderCircle aria-hidden className="animate-spin" size={15} /> : <Eye aria-hidden size={15} />}
         生成微信预览
       </Button>
-      <Dialog.Root onOpenChange={setOpen} open={open}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto border border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[10px_10px_0_var(--ink)]">
-            <Dialog.Title className="font-display text-3xl">微信富文本预览</Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">临时读取最新 Notion 内容，不上传素材、不创建草稿、不修改稿件状态。</Dialog.Description>
-            <div className="mt-4 flex justify-end gap-2">
-              <Dialog.Close asChild><Button size="sm" variant="ghost">关闭</Button></Dialog.Close>
-              <Button onClick={copy} size="sm"><Copy aria-hidden size={14} />复制富文本</Button>
-            </div>
-            {preview.data && (
-              <iframe
-                className="mt-4 h-[65vh] w-full border border-[var(--line)] bg-white"
-                sandbox=""
-                srcDoc={preview.data.html}
-                title={`${title}的微信预览`}
-              />
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <PreviewDialog html={preview.data?.html} onCopy={copy} onOpenChange={setOpen} open={open} title={title} />
     </>
+  )
+}
+
+function PreviewDialog(props: {
+  html: string | undefined
+  onCopy: () => void
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  title: string
+}) {
+  return (
+    <Dialog.Root onOpenChange={props.onOpenChange} open={props.open}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto border border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[10px_10px_0_var(--ink)]">
+          <Dialog.Title className="font-display text-3xl">微信富文本预览</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">临时读取最新 Notion 内容，不上传素材、不创建草稿、不修改稿件状态。</Dialog.Description>
+          <div className="mt-4 flex justify-end gap-2">
+            <Dialog.Close asChild><Button size="sm" variant="ghost">关闭</Button></Dialog.Close>
+            <Button onClick={props.onCopy} size="sm"><Copy aria-hidden size={14} />复制富文本</Button>
+          </div>
+          {props.html && (
+            <iframe
+              className="mt-4 h-[65vh] w-full border border-[var(--line)] bg-white"
+              sandbox=""
+              srcDoc={props.html}
+              title={`${props.title}的微信预览`}
+            />
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
