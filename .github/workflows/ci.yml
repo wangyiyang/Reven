@@ -104,6 +104,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # ubuntu-24.04 内核默认通过 AppArmor 拦截非特权 user namespace，bwrap 需要放行
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: docker build --pull --no-cache -f infra/docker/Dockerfile -t reven:test .
       - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
       - run: docker run --rm reven:test ruby --version
@@ -126,6 +128,7 @@ jobs:
           docker run --rm \
             --cap-drop=ALL \
             --security-opt=no-new-privileges:true \
+            --security-opt=apparmor=unconfined \
             --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
             reven:test \
             python -c "import asyncio; from pathlib import Path; \
@@ -137,6 +140,7 @@ jobs:
           docker volume create reven-ci-security
           docker run --rm --cap-drop=ALL \
             --security-opt=no-new-privileges:true \
+            --security-opt=apparmor=unconfined \
             --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
             --memory=2g --cpus=2 --pids-limit=128 --tmpfs /tmp:size=256m \
             -v reven-ci-security:/data \
@@ -152,6 +156,7 @@ jobs:
             ln -s releases/old /srv/reven/current'
           if docker run --rm --read-only --tmpfs /tmp:size=256m \
             --cap-drop=ALL --security-opt=no-new-privileges:true \
+            --security-opt=apparmor=unconfined \
             --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
             -v reven-ci-static:/srv/reven -v reven-ci-security-data:/data \
             -e DATABASE_URL=postgresql+asyncpg://invalid:invalid@127.0.0.1:1/invalid \
