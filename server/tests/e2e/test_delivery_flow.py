@@ -67,7 +67,7 @@ class E2ESystem:
             count = await session.scalar(select(func.count()).select_from(Integration))
             if count:
                 return
-            tested_at = datetime(2026, 7, 29, tzinfo=UTC)
+            tested_at = datetime.now(tz=UTC)
             session.add_all(
                 [
                     Integration(
