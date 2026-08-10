@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
@@ -11,6 +10,7 @@ from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, 
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobRepository
+from reven.scheduling import database_now
 
 
 @dataclass
@@ -33,7 +33,7 @@ class ArticleActionService:
             _reset_channels(job, channels)
             job.snapshot_metadata = _retry_metadata(job.snapshot_metadata)
             job.overall_status = JobStatus.WAITING
-            job.scheduled_at = await _database_now(session)
+            job.scheduled_at = await database_now(session)
             job.finished_at = None
             article.automation_status = AutomationStatus.WAITING
             article.last_error = None
@@ -41,7 +41,7 @@ class ArticleActionService:
     async def cancel(self, article_id: UUID, job_id: UUID) -> None:
         async with self.factory.begin() as session:
             article, job = await _locked_pair(session, article_id, job_id)
-            now = await _database_now(session)
+            now = await database_now(session)
             active_lease = (
                 job.lease_token is not None and job.lease_expires_at is not None and job.lease_expires_at >= now
             )
@@ -111,10 +111,3 @@ def _retry_metadata(metadata: dict[str, object]) -> dict[str, object]:
         for key, value in metadata.items()
         if key not in {"delivery_finalization", "delivery_notification_events"}
     }
-
-
-async def _database_now(session: AsyncSession):  # type: ignore[no-untyped-def]
-    now = await session.scalar(select(func.clock_timestamp()))
-    if now is None:
-        raise RuntimeError("数据库未返回有效时间")
-    return now

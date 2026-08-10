@@ -16,6 +16,7 @@ from reven.jobs.errors import BlockedPublishError, PublishError
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.notification_outbox import enqueue_preparation_notification
+from reven.scheduling import database_now
 
 
 def compute_target_channels_hash(target_channels: list[str]) -> str:
@@ -28,10 +29,7 @@ class JobRepository:
         self.session = session
 
     async def _database_now(self) -> datetime:
-        now = await self.session.scalar(select(func.clock_timestamp()))
-        if not isinstance(now, datetime):
-            raise RuntimeError("数据库未返回有效时间")
-        return now
+        return await database_now(self.session)
 
     async def create_waiting(
         self,

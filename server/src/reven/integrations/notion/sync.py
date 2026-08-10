@@ -15,7 +15,7 @@ from reven.integrations.notion.mapper import map_notion_page
 from reven.integrations.notion.models import NotionSchemaError
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobRepository, compute_target_channels_hash
-from reven.scheduling import utc_now
+from reven.scheduling import database_now, utc_now
 from reven.system.models import SystemState
 
 _ACTIVE_STATUSES = (JobStatus.WAITING, JobStatus.PROCESSING, JobStatus.BLOCKED, JobStatus.FAILED)
@@ -157,7 +157,7 @@ async def _reconcile_job(session: AsyncSession, article: Article) -> None:
             article_id=article.id,
             content_hash=None,
             target_channels=channels,
-            scheduled_at=article.planned_at or utc_now(),
+            scheduled_at=article.planned_at or await database_now(session),
             used_default=article.notion_metadata.get("target_channels_used_default") is True,
         )
         article.automation_status = AutomationStatus.WAITING
