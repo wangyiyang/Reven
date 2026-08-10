@@ -12,6 +12,40 @@ class ApiError(BaseModel):
     message: str
 
 
+class CurrentSnapshotSummary(BaseModel):
+    id: UUID
+    synced_at: datetime
+    source_last_edited_at: datetime
+    content_hash: str
+    character_count: int
+    media_count: int
+
+
+class ContentSyncRunSummary(BaseModel):
+    id: UUID
+    status: str
+    stage: str
+    progress_current: int
+    progress_total: int
+    current_media: str | None
+    error_stage: str | None
+    error_code: str | None
+    error_message: str | None
+    error_media: str | None
+    retryable: bool
+    attempt_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContentSyncSummary(BaseModel):
+    status: str
+    outputs_enabled: bool
+    error: str | None
+    current_snapshot: CurrentSnapshotSummary | None
+    latest_run: ContentSyncRunSummary | None
+
+
 class ArticleSummary(BaseModel):
     id: UUID
     title: str
@@ -23,6 +57,7 @@ class ArticleSummary(BaseModel):
     notion_last_edited_at: datetime
     last_synced_at: datetime
     cover_valid: bool
+    content_sync: ContentSyncSummary
     blog_status: str | None = None
     wechat_status: str | None = None
 

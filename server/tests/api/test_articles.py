@@ -32,6 +32,13 @@ def test_list_articles_supports_filters_sorting_and_pagination(workbench) -> Non
     assert response.json()["items"][0]["title"] == "测试稿件"
     assert response.json()["items"][0]["cover_valid"] is True
     assert response.json()["items"][0]["last_synced_at"] is not None
+    assert response.json()["items"][0]["content_sync"] == {
+        "status": "未同步",
+        "outputs_enabled": False,
+        "error": None,
+        "current_snapshot": None,
+        "latest_run": None,
+    }
 
 
 def test_detail_exposes_only_safe_results_and_wechat_html_only_on_job(workbench) -> None:  # type: ignore[no-untyped-def]
@@ -110,7 +117,7 @@ def test_preview_uses_injected_latest_source_service_without_state_write(workben
     response = client.post(f"/api/articles/{article.id}/preview/wechat")
 
     assert response.status_code == 200
-    assert response.json() == {"html": f"<p>{article.notion_page_id}</p>"}
+    assert response.json() == {"html": f"<p>{article.id}</p>"}
 
 
 def test_article_detail_bounds_recent_job_history(workbench) -> None:  # type: ignore[no-untyped-def]

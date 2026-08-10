@@ -9,7 +9,7 @@ import { apiRequest } from "@/lib/api"
 import { copyRichHtml } from "@/lib/clipboard"
 import { parsePreview } from "./response-parsers"
 
-export function WechatPreview({ articleId, title }: { articleId: string; title: string }) {
+export function WechatPreview({ articleId, title, enabled }: { articleId: string; title: string; enabled: boolean }) {
   const [open, setOpen] = useState(false)
   const lock = useRef(false)
   const preview = useMutation({
@@ -34,7 +34,7 @@ export function WechatPreview({ articleId, title }: { articleId: string; title: 
   }
   return (
     <>
-      <Button disabled={preview.isPending} onClick={runPreview} type="button" variant="outline">
+      <Button disabled={preview.isPending || !enabled} onClick={runPreview} title={enabled ? undefined : "请先完成最新内容同步"} type="button" variant="outline">
         {preview.isPending ? <LoaderCircle aria-hidden className="animate-spin" size={15} /> : <Eye aria-hidden size={15} />}
         生成微信预览
       </Button>
@@ -56,7 +56,7 @@ function PreviewDialog(props: {
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto border border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[10px_10px_0_var(--ink)]">
           <Dialog.Title className="font-display text-3xl">微信富文本预览</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">临时读取最新 Notion 内容，不上传素材、不创建草稿、不修改稿件状态。</Dialog.Description>
+          <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">使用最近一次有效内容快照，不重新读取 Notion 正文、不上传素材、不创建草稿。</Dialog.Description>
           <div className="mt-4 flex justify-end gap-2">
             <Dialog.Close asChild><Button size="sm" variant="ghost">关闭</Button></Dialog.Close>
             <Button onClick={props.onCopy} size="sm"><Copy aria-hidden size={14} />复制富文本</Button>

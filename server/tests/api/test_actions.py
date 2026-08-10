@@ -46,6 +46,21 @@ def test_retry_resets_only_failed_target_and_increments_revision(workbench) -> N
     assert "_preparation_terminal_marker" not in stored.notification_state
 
 
+def test_retry_explicitly_resumes_a_preparation_blocked_job(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    article, job = asyncio.run(_seed_pair(factory, status=JobStatus.BLOCKED, blog_status="待处理"))
+
+    response = client.post(
+        f"/api/articles/{article.id}/jobs/{job.id}/retry",
+        json={"channels": ["个人博客"]},
+    )
+
+    assert response.status_code == 200
+    stored = asyncio.run(_load_job(factory, job.id))
+    assert stored.overall_status == JobStatus.WAITING
+    assert stored.scheduled_at >= job.scheduled_at
+
+
 async def _persist_job(factory, job) -> None:  # type: ignore[no-untyped-def]
     async with factory.begin() as session:
         await session.merge(job)

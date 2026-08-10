@@ -1,77 +1,72 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
+from reven.content_sync.gate import CurrentSnapshotView, SnapshotAssetView
 from reven.publishing.wechat.preview import (
     MAX_PREVIEW_IMAGES,
     MAX_PREVIEW_MARKDOWN_BYTES,
     PreviewValidationError,
-    _canonical_with_current_urls,
+    _snapshot_body_with_public_urls,
 )
 
 
-def test_preview_replaces_internal_asset_placeholders_with_current_signed_urls() -> None:
-    signed = "https://prod-files-secure.s3.us-west-2.amazonaws.com/image.png?X-Amz-Signature=current"
-    markdown = f"![图]({signed})"
+def test_preview_replaces_snapshot_placeholders_with_permanent_urls() -> None:
+    snapshot = _snapshot("![图](reven-asset://sha256/" + "a" * 64 + ")", 1)
 
-    result = _canonical_with_current_urls(markdown)
+    result = _snapshot_body_with_public_urls(snapshot)
 
-    assert signed in result
+    assert result == "![图](https://assets.example/1)"
     assert "reven-asset://" not in result
 
 
-def test_preview_handles_reference_images_without_downloading_them() -> None:
-    signed = "https://file.notion.so/image.png?signature=current"
-    markdown = f"![图][asset]\n\n[asset]: <{signed}>"
-
-    result = _canonical_with_current_urls(markdown)
-
-    assert signed in result
-    assert "reven-asset://" not in result
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "http://prod-files-secure.s3.amazonaws.com/a.png",
-        "data:image/png;base64,AAAA",
-        "https://127.0.0.1/a.png",
-        "https://localhost/a.png",
-        "https://user:pass@prod-files-secure.s3.amazonaws.com/a.png",
-        "https://prod-files-secure.s3.amazonaws.com:8443/a.png",
-        "https://prod-files-secure.s3.amazonaws.com/a.png#fragment",
-        "https://amazonaws.com.evil.example/a.png",
-        "https://attacker-bucket.s3.amazonaws.com/a.png",
-        "https://d111111abcdef8.cloudfront.net/a.png",
-        "https://evil.notion.so/a.png",
-    ],
-)
-def test_preview_rejects_unsafe_image_urls(url: str) -> None:
-    with pytest.raises(PreviewValidationError, match="不安全"):
-        _canonical_with_current_urls(f"![图]({url})")
-
-
-def test_preview_rejects_oversized_markdown_before_parsing() -> None:
-    markdown = "a" * (MAX_PREVIEW_MARKDOWN_BYTES + 1)
+def test_preview_rejects_oversized_snapshot_markdown() -> None:
+    snapshot = _snapshot("a" * (MAX_PREVIEW_MARKDOWN_BYTES + 1), 0)
 
     with pytest.raises(PreviewValidationError, match="大小"):
-        _canonical_with_current_urls(markdown)
+        _snapshot_body_with_public_urls(snapshot)
 
 
-def test_preview_rejects_too_many_images() -> None:
-    url = "https://prod-files-secure.s3.amazonaws.com/a.png"
-    markdown = "\n".join(f"![{index}]({url})" for index in range(MAX_PREVIEW_IMAGES + 1))
+def test_preview_rejects_too_many_snapshot_images() -> None:
+    snapshot = _snapshot("正文", MAX_PREVIEW_IMAGES + 1)
 
     with pytest.raises(PreviewValidationError, match="图片数量"):
-        _canonical_with_current_urls(markdown)
+        _snapshot_body_with_public_urls(snapshot)
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://prod-files-secure.s3.us-west-2.amazonaws.com/workspace/page/image.png?X-Amz-Signature=current",
-        "https://prod-files-secure.s3.amazonaws.com/workspace/page/image.png?X-Amz-Signature=current",
-        "https://secure.notion-static.com/workspace/image.png",
-        "https://file.notion.so/workspace/image.png",
-        "https://files.notion.so/workspace/image.png",
-    ],
-)
-def test_preview_accepts_explicit_notion_media_hosts(url: str) -> None:
-    assert url in _canonical_with_current_urls(f"![图]({url})")
+def test_preview_rejects_unresolved_internal_asset() -> None:
+    snapshot = _snapshot("![图](reven-asset://sha256/" + "f" * 64 + ")", 0)
+
+    with pytest.raises(PreviewValidationError, match="未解析"):
+        _snapshot_body_with_public_urls(snapshot)
+
+
+def _snapshot(markdown: str, image_count: int) -> CurrentSnapshotView:
+    now = datetime.now(tz=UTC)
+    assets = tuple(
+        SnapshotAssetView(
+            ordinal=index,
+            kind="图片",
+            embedded=True,
+            storage_key=f"assets/{index}",
+            public_url=f"https://assets.example/{index}",
+            sha256="a" * 64 if index == 1 else f"{index:064x}",
+            mime_type="image/png",
+            byte_size=1,
+            filename=None,
+            alt_text=None,
+        )
+        for index in range(1, image_count + 1)
+    )
+    return CurrentSnapshotView(
+        uuid4(),
+        uuid4(),
+        now,
+        now,
+        "标题",
+        markdown,
+        f"# 标题\n\n{markdown}",
+        "b" * 64,
+        {},
+        assets,
+    )

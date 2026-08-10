@@ -102,6 +102,16 @@ async def test_archive_rejects_existing_object_with_unverified_metadata() -> Non
 
 
 @pytest.mark.anyio
+async def test_verify_rejects_missing_archived_object() -> None:
+    store = TencentCosAssetStore(FakeClient(), _configuration())
+
+    with pytest.raises(AssetArchiveError) as captured:
+        await store.verify("assets/missing", sha256="a" * 64, mime_type="image/png", size=7)
+
+    assert captured.value.code == "object_missing"
+
+
+@pytest.mark.anyio
 async def test_archive_rejects_digest_mismatch_before_network_request() -> None:
     client = FakeClient()
 

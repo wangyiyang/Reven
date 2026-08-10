@@ -1,5 +1,41 @@
 export type ChannelName = "个人博客" | "微信公众号"
 
+export interface ContentSyncRun {
+  id: string
+  article_id: string
+  status: string
+  stage: string
+  progress_current: number
+  progress_total: number
+  current_media: string | null
+  error_stage: string | null
+  error_code: string | null
+  error_message: string | null
+  error_media: string | null
+  retryable: boolean
+  attempt_count: number
+  created_at: string
+  updated_at: string
+  created: boolean | null
+}
+
+export interface CurrentSnapshotSummary {
+  id: string
+  synced_at: string
+  source_last_edited_at: string
+  content_hash: string
+  character_count: number
+  media_count: number
+}
+
+export interface ContentSyncSummary {
+  status: string
+  outputs_enabled: boolean
+  error: string | null
+  current_snapshot: CurrentSnapshotSummary | null
+  latest_run: ContentSyncRun | null
+}
+
 export interface ArticleSummary {
   id: string
   title: string
@@ -11,6 +47,7 @@ export interface ArticleSummary {
   notion_last_edited_at: string
   last_synced_at: string
   cover_valid: boolean
+  content_sync: ContentSyncSummary
   blog_status: string | null
   wechat_status: string | null
 }

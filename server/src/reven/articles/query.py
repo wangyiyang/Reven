@@ -6,6 +6,7 @@ from sqlalchemy import Select, func, literal, nullslast, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.articles.models import Article
+from reven.content_sync.models import ContentSnapshot, ContentSyncRun
 from reven.jobs.models import PublicationJob
 
 ARTICLE_DETAIL_JOB_LIMIT = 50
@@ -62,6 +63,33 @@ class ArticleQuery:
         )
         rows = await self.session.execute(statement)
         return {(job.article_id, channel): job for job, channel in rows}
+
+    async def latest_sync_runs(self, article_ids: list[UUID]) -> dict[UUID, ContentSyncRun]:
+        if not article_ids:
+            return {}
+        ranked = (
+            select(
+                ContentSyncRun.id.label("run_id"),
+                func.row_number()
+                .over(
+                    partition_by=ContentSyncRun.article_id,
+                    order_by=(ContentSyncRun.created_at.desc(), ContentSyncRun.id.desc()),
+                )
+                .label("position"),
+            )
+            .where(ContentSyncRun.article_id.in_(article_ids))
+            .subquery()
+        )
+        runs = await self.session.scalars(
+            select(ContentSyncRun).join(ranked, ranked.c.run_id == ContentSyncRun.id).where(ranked.c.position == 1)
+        )
+        return {run.article_id: run for run in runs}
+
+    async def current_snapshots(self, snapshot_ids: list[UUID]) -> dict[UUID, ContentSnapshot]:
+        if not snapshot_ids:
+            return {}
+        snapshots = await self.session.scalars(select(ContentSnapshot).where(ContentSnapshot.id.in_(snapshot_ids)))
+        return {snapshot.id: snapshot for snapshot in snapshots}
 
     def _ranked_channel_jobs(
         self,

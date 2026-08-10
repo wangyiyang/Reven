@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import sys
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -608,11 +607,6 @@ async def test_configured_publisher_loads_encrypted_integrations_and_closes_http
                 public_config={"app_id": "appid", "author": "作者"},
                 encrypted_secret=key_box.encrypt({"app_secret": "secret"}),
             ),
-            Integration(
-                provider="notion",
-                public_config={"data_source_id": str(uuid4())},
-                encrypted_secret=key_box.encrypt({"token": "notion-token"}),
-            ),
         ]
     )
     now = datetime.now(tz=UTC)
@@ -669,14 +663,12 @@ async def test_configured_publisher_loads_encrypted_integrations_and_closes_http
 
     session_factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     wechat_transport = TrackingTransport(wechat_handler)
-    notion_transport = TrackingTransport(lambda _request: httpx.Response(500))
     configured = ConfiguredWeChatPublisher(
         session_factory,
         key_box,
         tmp_path,
         f"{sys.executable} {script}",
         wechat_transport=wechat_transport,
-        notion_transport=notion_transport,
         sandbox_executable=None,
     )
 
@@ -684,7 +676,6 @@ async def test_configured_publisher_loads_encrypted_integrations_and_closes_http
 
     assert result.media_id == "draft"
     assert wechat_transport.closed
-    assert notion_transport.closed
 
 
 @pytest.mark.anyio
@@ -867,104 +858,3 @@ async def test_result_write_fails_when_lease_expires_while_waiting_for_row_lock(
         write = asyncio.create_task(store.save_result(claim, {"unsafe": True}))
         await asyncio.sleep(1.2)
     assert not await write
-
-
-@pytest.mark.anyio
-async def test_recovery_source_uses_fresh_page_cover_and_stable_page_markdown_page(
-    db_session,
-    load_fixture,
-    tmp_path: Path,  # type: ignore[no-untyped-def]
-) -> None:
-    now = datetime.now(tz=UTC)
-    article = Article(
-        notion_page_id=str(uuid4()),
-        notion_url="https://notion.so/page",
-        title="old",
-        notion_status="待发布",
-        cover_metadata={"url": "https://old.example/cover.png"},
-        notion_last_edited_at=now,
-        last_synced_at=now,
-    )
-    db_session.add(article)
-    await db_session.flush()
-    repository = JobRepository(db_session)
-    job = await repository.create_waiting(
-        article_id=article.id,
-        content_hash="d" * 64,
-        target_channels=["微信公众号"],
-        scheduled_at=now,
-    )
-    await db_session.commit()
-    page = load_fixture("notion/page.json")
-    page["properties"]["封面"]["files"][0]["file"]["url"] = "https://fresh.example/cover.png"
-    calls: list[str] = []
-
-    class FakeNotion:
-        async def retrieve_page(self, page_id: str):  # type: ignore[no-untyped-def]
-            calls.append("page")
-            return deepcopy(page)
-
-        async def retrieve_page_markdown(self, page_id: str) -> str:
-            calls.append("markdown")
-            return "# fresh"
-
-    configured = ConfiguredWeChatPublisher(
-        async_sessionmaker(db_session.bind, expire_on_commit=False),
-        SecretBox(b"k" * 32),
-        tmp_path,
-        "node cli.mjs",
-    )
-    markdown, mapped = await configured._source(job.id, FakeNotion())  # type: ignore[arg-type]
-
-    assert calls == ["page", "markdown", "page"]
-    assert markdown == "# fresh"
-    assert mapped.cover is not None
-    assert mapped.cover.url == "https://fresh.example/cover.png"
-
-
-@pytest.mark.anyio
-async def test_recovery_source_retries_when_page_changes_during_read(
-    db_session,
-    load_fixture,
-    tmp_path: Path,  # type: ignore[no-untyped-def]
-) -> None:
-    now = datetime.now(tz=UTC)
-    article = Article(
-        notion_page_id=str(uuid4()),
-        notion_url="https://notion.so/page",
-        title="title",
-        notion_status="待发布",
-        notion_last_edited_at=now,
-        last_synced_at=now,
-    )
-    db_session.add(article)
-    await db_session.flush()
-    job = await JobRepository(db_session).create_waiting(
-        article_id=article.id,
-        content_hash="c" * 64,
-        target_channels=["微信公众号"],
-        scheduled_at=now,
-    )
-    await db_session.commit()
-    page = load_fixture("notion/page.json")
-    changed = deepcopy(page)
-    changed["last_edited_time"] = "2026-07-30T12:00:00+00:00"
-
-    class ChangingNotion:
-        count = 0
-
-        async def retrieve_page(self, page_id: str):  # type: ignore[no-untyped-def]
-            self.count += 1
-            return deepcopy(page if self.count == 1 else changed)
-
-        async def retrieve_page_markdown(self, page_id: str) -> str:
-            return "# mixed"
-
-    configured = ConfiguredWeChatPublisher(
-        async_sessionmaker(db_session.bind, expire_on_commit=False),
-        SecretBox(b"k" * 32),
-        tmp_path,
-        "node cli.mjs",
-    )
-    with pytest.raises(TransientPublishError):
-        await configured._source(job.id, ChangingNotion())  # type: ignore[arg-type]

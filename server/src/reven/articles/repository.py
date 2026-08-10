@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.articles.models import Article
+from reven.content_sync.domain import ContentSyncStatus
 from reven.domain import parse_target_channels
 from reven.integrations.notion.models import MappedNotionPage
 from reven.scheduling import resolve_scheduled_at, utc_now
@@ -33,21 +34,29 @@ class ArticleRepository:
         if article is None:
             article = Article(notion_page_id=page.page_id)
             self.session.add(article)
-        article.notion_url = page.url
-        article.title = page.title
-        article.notion_status = page.status
-        article.target_channels = page.target_channels
-        article.planned_at = resolve_scheduled_at(page.planned_raw) if page.planned_raw else None
-        article.cover_metadata = _cover_metadata(page)
-        article.notion_metadata = {
-            "categories": page.categories,
-            "summary": page.summary,
-            "target_channels_used_default": parse_target_channels(page.target_channels).used_default,
-        }
-        article.notion_last_edited_at = page.last_edited_at
-        article.last_synced_at = utc_now()
+        refresh_from_notion(article, page)
         await self.session.flush()
         return article
+
+
+def refresh_from_notion(article: Article, page: MappedNotionPage) -> None:
+    source_changed = article.notion_last_edited_at is not None and article.notion_last_edited_at != page.last_edited_at
+    if source_changed and article.content_sync_status == ContentSyncStatus.SYNCED:
+        article.content_sync_status = ContentSyncStatus.STALE
+        article.content_sync_error = "Notion 内容已发生变化"
+    article.notion_url = page.url
+    article.title = page.title
+    article.notion_status = page.status
+    article.target_channels = page.target_channels
+    article.planned_at = resolve_scheduled_at(page.planned_raw) if page.planned_raw else None
+    article.cover_metadata = _cover_metadata(page)
+    article.notion_metadata = {
+        "categories": page.categories,
+        "summary": page.summary,
+        "target_channels_used_default": parse_target_channels(page.target_channels).used_default,
+    }
+    article.notion_last_edited_at = page.last_edited_at
+    article.last_synced_at = utc_now()
 
 
 def _cover_metadata(page: MappedNotionPage) -> dict[str, object]:

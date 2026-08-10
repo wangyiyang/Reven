@@ -5,6 +5,8 @@ import type {
   ArticleSummary,
   ChannelName,
   ChannelResult,
+  ContentSyncRun,
+  ContentSyncSummary,
   JobDetail,
   JobSummary,
   ValidationItem,
@@ -64,18 +66,25 @@ export function parseAction(value: unknown): { ok: boolean; job_id: string } {
   return { ok: boolean(data.ok, "任务操作"), job_id: string(data.job_id, "任务操作") }
 }
 
-export function parseSync(value: unknown): {
-  created: number
-  updated: number
-  failed: number
-  duration_ms: number
-} {
+export function parseSyncRun(value: unknown): ContentSyncRun {
   const data = record(value, "同步操作")
   return {
-    created: integer(data.created, "同步操作"),
-    updated: integer(data.updated, "同步操作"),
-    failed: integer(data.failed, "同步操作"),
-    duration_ms: integer(data.duration_ms, "同步操作"),
+    id: string(data.id, "同步操作"),
+    article_id: string(data.article_id, "同步操作"),
+    status: string(data.status, "同步操作"),
+    stage: string(data.stage, "同步操作"),
+    progress_current: integer(data.progress_current, "同步操作"),
+    progress_total: integer(data.progress_total, "同步操作"),
+    current_media: nullableString(data.current_media, "同步操作"),
+    error_stage: nullableString(data.error_stage, "同步操作"),
+    error_code: nullableString(data.error_code, "同步操作"),
+    error_message: nullableError(data.error_message, "同步操作"),
+    error_media: nullableString(data.error_media, "同步操作"),
+    retryable: boolean(data.retryable, "同步操作"),
+    attempt_count: integer(data.attempt_count, "同步操作"),
+    created_at: dateTime(data.created_at, "同步操作"),
+    updated_at: dateTime(data.updated_at, "同步操作"),
+    created: data.created === undefined ? null : nullableBoolean(data.created, "同步操作"),
   }
 }
 
@@ -92,8 +101,28 @@ function parseArticleSummary(value: unknown): ArticleSummary {
     notion_last_edited_at: dateTime(data.notion_last_edited_at, "稿件"),
     last_synced_at: dateTime(data.last_synced_at, "稿件"),
     cover_valid: boolean(data.cover_valid, "稿件"),
+    content_sync: parseContentSync(data.content_sync),
     blog_status: nullableString(data.blog_status, "稿件"),
     wechat_status: nullableString(data.wechat_status, "稿件"),
+  }
+}
+
+function parseContentSync(value: unknown): ContentSyncSummary {
+  const data = record(value, "内容同步状态")
+  const current = data.current_snapshot === null ? null : record(data.current_snapshot, "内容快照")
+  return {
+    status: string(data.status, "内容同步状态"),
+    outputs_enabled: boolean(data.outputs_enabled, "内容同步状态"),
+    error: nullableError(data.error, "内容同步状态"),
+    current_snapshot: current === null ? null : {
+      id: string(current.id, "内容快照"),
+      synced_at: dateTime(current.synced_at, "内容快照"),
+      source_last_edited_at: dateTime(current.source_last_edited_at, "内容快照"),
+      content_hash: string(current.content_hash, "内容快照"),
+      character_count: integer(current.character_count, "内容快照"),
+      media_count: integer(current.media_count, "内容快照"),
+    },
+    latest_run: data.latest_run === null ? null : parseSyncRun(data.latest_run),
   }
 }
 
@@ -201,6 +230,11 @@ function dateTime(value: unknown, name: string): string {
 function boolean(value: unknown, name: string): boolean {
   if (typeof value !== "boolean") invalid(name)
   return value
+}
+
+function nullableBoolean(value: unknown, name: string): boolean | null {
+  if (value === null) return null
+  return boolean(value, name)
 }
 
 function invalid(name: string): never {

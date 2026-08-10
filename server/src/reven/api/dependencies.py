@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from typing import Annotated, Protocol
+from uuid import UUID
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -26,7 +27,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 class WechatPreviewService(Protocol):
-    async def render_latest(self, notion_page_id: str) -> str: ...
+    async def render_current(self, article_id: UUID) -> str: ...
 
 
 def get_preview_service(request: Request) -> WechatPreviewService:

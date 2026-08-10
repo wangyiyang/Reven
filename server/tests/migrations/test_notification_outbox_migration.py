@@ -327,6 +327,7 @@ def test_upgrade_preserves_legacy_notification_and_finalization_state(
         _run(_seed_legacy_state(database_url))
 
         command.upgrade(config, "0004")
+        command.upgrade(config, "head")
         _run(_assert_migrated_state(database_url))
 
         command.downgrade(config, "0003")

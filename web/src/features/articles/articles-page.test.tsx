@@ -22,6 +22,13 @@ const article = {
   notion_last_edited_at: "2026-07-30T00:00:00Z",
   last_synced_at: "2026-07-30T00:01:00Z",
   cover_valid: true,
+  content_sync: {
+    status: "未同步",
+    outputs_enabled: false,
+    error: null,
+    current_snapshot: null,
+    latest_run: null,
+  },
   blog_status: "待处理",
   wechat_status: "草稿已生成",
 }
@@ -67,8 +74,9 @@ describe("ArticlesPage", () => {
       http.post("/api/articles/:id/sync", async () => {
         calls += 1
         await new Promise((resolve) => setTimeout(resolve, 80))
-        return HttpResponse.json({ created: 0, updated: 1, failed: 0, duration_ms: 1 })
+        return HttpResponse.json(syncRun())
       }),
+      http.get("/api/articles/:id/sync-runs/:runId", () => HttpResponse.json(syncRun())),
     )
     renderPage("/articles")
     const buttons = await screen.findAllByRole("button", { name: /同步/ })
@@ -144,4 +152,25 @@ function renderPage(initialEntry: string) {
 function Location() {
   const location = useLocation()
   return <output data-testid="location">{location.search}</output>
+}
+
+function syncRun() {
+  return {
+    id: "33333333-3333-4333-8333-333333333333",
+    article_id: article.id,
+    status: "等待中",
+    stage: "等待同步",
+    progress_current: 0,
+    progress_total: 0,
+    current_media: null,
+    error_stage: null,
+    error_code: null,
+    error_message: null,
+    error_media: null,
+    retryable: false,
+    attempt_count: 0,
+    created_at: "2026-07-30T00:01:00Z",
+    updated_at: "2026-07-30T00:01:00Z",
+    created: true,
+  }
 }

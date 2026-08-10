@@ -56,6 +56,12 @@ class TencentCosAssetStore:
         await self._client.put_object(key, content, normalized_mime, sha256)
         return self._result(key, sha256, normalized_mime, len(content), reused=False)
 
+    async def verify(self, key: str, *, sha256: str, mime_type: str, size: int) -> None:
+        existing = await self._client.head_object(key)
+        if existing is None:
+            raise AssetArchiveError("object_missing", "内容寻址对象不存在")
+        self._verify_existing(existing, sha256, mime_type.strip().lower(), size)
+
     @staticmethod
     def _validate(content: bytes, sha256: str, mime_type: str) -> None:
         if _SHA256_PATTERN.fullmatch(sha256) is None:

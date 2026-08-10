@@ -280,7 +280,7 @@ async def test_sync_does_not_modify_processing_job(
 
 
 @pytest.mark.anyio
-async def test_sync_retries_blocked_job_validation_only_once(
+async def test_sync_leaves_blocked_job_for_explicit_retry(
     sync_service: NotionSyncService,
     db_session: AsyncSession,
 ) -> None:
@@ -297,19 +297,11 @@ async def test_sync_retries_blocked_job_validation_only_once(
     await sync_service.sync_once()
     await db_session.refresh(job)
 
-    assert job.overall_status == JobStatus.WAITING
-    assert job.notification_state["fingerprint"] == "missing-cover"
-    assert job.notification_state["_revision"] == 1
-    assert job.blog_status == "待处理"
-    assert "delivery_failure" not in job.blog_result
-
-    job.overall_status = JobStatus.BLOCKED
-    await db_session.commit()
-    await sync_service.sync_once()
-    await db_session.refresh(job)
-
     assert job.overall_status == JobStatus.BLOCKED
     assert job.notification_state["fingerprint"] == "missing-cover"
+    assert "_revision" not in job.notification_state
+    assert job.blog_status == "失败"
+    assert "delivery_failure" in job.blog_result
 
 
 @pytest.mark.anyio

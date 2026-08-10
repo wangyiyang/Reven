@@ -3,6 +3,7 @@ import base64
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -21,8 +22,8 @@ WRITE_HEADERS = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
 
 
 class _FakePreview:
-    async def render_latest(self, notion_page_id: str) -> str:
-        return f"<p>{notion_page_id}</p>"
+    async def render_current(self, article_id: UUID) -> str:
+        return f"<p>{article_id}</p>"
 
 
 @pytest.fixture(autouse=True)

@@ -31,6 +31,7 @@ class PublicationJob(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     article_id: Mapped[UUID] = mapped_column(ForeignKey("articles.id"))
+    snapshot_id: Mapped[UUID | None] = mapped_column(ForeignKey("content_snapshots.id", ondelete="RESTRICT"))
     content_hash: Mapped[str | None] = mapped_column(String(64))
     target_channels: Mapped[list[str]] = mapped_column(JSONB)
     target_channels_hash: Mapped[str] = mapped_column(String(64))

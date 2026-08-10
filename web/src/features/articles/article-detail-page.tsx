@@ -10,6 +10,7 @@ import { apiRequest } from "@/lib/api"
 import { safeNotionUrl } from "@/lib/external-url"
 import { ArticleStatus } from "./article-status"
 import { ChannelTimeline } from "./channel-timeline"
+import { ContentSyncControl } from "./content-sync-control"
 import type { ArticleDetail, ChannelName, JobDetail, JobSummary, ValidationItem } from "./types"
 import { WechatPreview } from "./wechat-preview"
 import { parseAction, parseArticleDetail, parseJobDetail } from "./response-parsers"
@@ -47,9 +48,11 @@ function DetailContent({ article }: { article: ArticleDetail }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {notionUrl && <a className="inline-flex min-h-10 items-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold hover:border-[var(--ink)]" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={14} /></a>}
-          <WechatPreview articleId={article.id} title={article.title} />
+          <ContentSyncControl article={article} />
+          <WechatPreview articleId={article.id} enabled={article.content_sync.outputs_enabled} title={article.title} />
         </div>
       </header>
+      <ContentSyncPanel article={article} />
       <section className="grid gap-8 py-8 lg:grid-cols-[0.8fr_1.2fr]">
         <Metadata article={article} />
         <Validation errors={article.validation_errors} warnings={article.validation_warnings} />
@@ -67,10 +70,30 @@ function DetailContent({ article }: { article: ArticleDetail }) {
           <ChannelTimeline channel="微信公众号" result={job.data.wechat} />
         </>}
       </section>
-      {job.isSuccess && <JobActions articleId={article.id} job={job.data} />}
+      {job.isSuccess && <JobActions articleId={article.id} job={job.data} outputsEnabled={article.content_sync.outputs_enabled} />}
       <PublicationGuidance article={article} job={job.data ?? null} />
       <JobHistory article={article} />
     </main>
+  )
+}
+
+function ContentSyncPanel({ article }: { article: ArticleDetail }) {
+  const snapshot = article.content_sync.current_snapshot
+  return (
+    <section className="mt-8 border border-[var(--line-strong)] bg-white/25 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-3xl">内容快照</h2>
+        <ArticleStatus status={article.content_sync.status} />
+      </div>
+      <dl className="mt-5 grid gap-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <Meta label="最近成功同步" value={formatDate(snapshot?.synced_at ?? null)} />
+        <Meta label="对应 Notion 编辑" value={formatDate(snapshot?.source_last_edited_at ?? null)} />
+        <Meta label="正文字符" value={snapshot ? String(snapshot.character_count) : "—"} />
+        <Meta label="归档媒体" value={snapshot ? String(snapshot.media_count) : "—"} />
+      </dl>
+      {article.content_sync.error && <p className="mt-4 text-sm text-[var(--red)]">{article.content_sync.error}</p>}
+      {!article.content_sync.outputs_enabled && <p className="mt-2 text-xs text-[var(--muted)]">同步成功且版本校验通过后，复制与发布操作才会解锁。</p>}
+    </section>
   )
 }
 
@@ -82,8 +105,8 @@ function Metadata({ article }: { article: ArticleDetail }) {
         <Meta label="封面校验" value={article.cover_valid ? "通过" : "未通过：发布将被阻止"} danger={!article.cover_valid} />
         <Meta label="计划时间" value={formatDate(article.planned_at)} />
         <Meta label="目标渠道" value={(article.target_channels.length ? article.target_channels : ["个人博客", "微信公众号"]).join("、")} />
-        <Meta label="最近同步" value={formatDate(article.last_synced_at)} />
-        <Meta label="内容 Hash" value={article.content_hash ?? "尚未冻结"} mono />
+        <Meta label="Notion 索引刷新" value={formatDate(article.last_synced_at)} />
+        <Meta label="内容 Hash" value={article.content_sync.current_snapshot?.content_hash ?? "尚未同步"} mono />
       </dl>
     </section>
   )
@@ -106,7 +129,7 @@ function Issue({ item, tone }: { item: ValidationItem; tone: "error" | "warning"
   return <div className={tone === "error" ? "border-l-2 border-[var(--red)] bg-[var(--red-soft)] p-4" : "border-l-2 border-[#9a6712] bg-[#f3e4bd] p-4"}><p className="text-sm font-semibold">{item.message ?? item.code ?? "未知校验问题"}</p>{item.field && <p className="mt-1 text-xs opacity-70">字段：{item.field}</p>}</div>
 }
 
-function JobActions({ articleId, job }: { articleId: string; job: JobSummary | JobDetail }) {
+function JobActions({ articleId, job, outputsEnabled }: { articleId: string; job: JobSummary | JobDetail; outputsEnabled: boolean }) {
   const lock = useRef(false)
   const client = useQueryClient()
   const action = useMutation({
@@ -134,11 +157,16 @@ function JobActions({ articleId, job }: { articleId: string; job: JobSummary | J
     ...(isFailed(job.blog_status) ? ["个人博客" as const] : []),
     ...(isFailed(job.wechat_status) ? ["微信公众号" as const] : []),
   ]
+  const resumable = job.overall_status === "阻塞"
+    ? job.target_channels.filter((channel) => !isDelivered(job, channel))
+    : []
   return (
     <section className="my-8 flex flex-wrap items-center justify-between gap-4 border-y border-[var(--ink)] py-5">
       <div><p className="text-xs text-[var(--muted)]">最近任务</p><p className="mt-1 font-mono text-xs">{job.id}</p></div>
       <div className="flex flex-wrap gap-2">
-        {failed.map((channel) => <Button disabled={action.isPending} key={channel} onClick={() => runAction({ kind: "retry", channels: [channel] })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />重试{channel}</Button>)}
+        {resumable.length > 0
+          ? <Button disabled={action.isPending || !outputsEnabled} onClick={() => runAction({ kind: "retry", channels: resumable })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />恢复发布</Button>
+          : failed.map((channel) => <Button disabled={action.isPending || !outputsEnabled} key={channel} onClick={() => runAction({ kind: "retry", channels: [channel] })} size="sm" variant="danger"><RotateCcw aria-hidden size={13} />重试{channel}</Button>)}
         {job.overall_status === "等待中" && <Button disabled={action.isPending} onClick={() => runAction({ kind: "cancel" })} size="sm" variant="outline"><Ban aria-hidden size={13} />取消等待任务</Button>}
       </div>
     </section>
@@ -163,6 +191,10 @@ function Meta({ label, value, danger = false, mono = false }: { label: string; v
 
 function isFailed(status: string) {
   return /失败|阻塞/.test(status)
+}
+
+function isDelivered(job: JobSummary | JobDetail, channel: ChannelName) {
+  return channel === "个人博客" ? job.blog_status === "已上线" : job.wechat_status === "草稿已生成"
 }
 
 function formatDate(value: string | null) {
