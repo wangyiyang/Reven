@@ -15,6 +15,7 @@ from reven.articles.models import Article
 from reven.db import Base
 from reven.jobs.models import PublicationJob
 from reven.publishing.notifications import DeliveryNotifier, Notification
+from reven.scheduling import database_now
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ class NotificationOutboxTick:
 
     async def _claim(self) -> OutboxClaim | None:
         async with self.factory.begin() as session:
-            now = await _database_now(session)
+            now = await database_now(session)
             row = await session.scalar(
                 select(NotificationOutbox)
                 .where(
@@ -173,7 +174,7 @@ class NotificationOutboxTick:
 
     async def _sent(self, claim: OutboxClaim) -> None:
         async with self.factory.begin() as session:
-            now = await _database_now(session)
+            now = await database_now(session)
             await session.execute(
                 update(NotificationOutbox)
                 .where(
@@ -193,7 +194,7 @@ class NotificationOutboxTick:
 
     async def _failed(self, claim: OutboxClaim, error_type: str) -> None:
         async with self.factory.begin() as session:
-            now = await _database_now(session)
+            now = await database_now(session)
             row = await session.scalar(
                 select(NotificationOutbox).where(
                     NotificationOutbox.id == claim.id,
@@ -209,13 +210,6 @@ class NotificationOutboxTick:
             row.lease_token = None
             row.lease_expires_at = None
             row.last_error = error_type[:120]
-
-
-async def _database_now(session: AsyncSession) -> datetime:
-    now = await session.scalar(select(func.clock_timestamp()))
-    if not isinstance(now, datetime):
-        raise RuntimeError("数据库未返回有效时间")
-    return now
 
 
 def _notification(payload: dict[str, object]) -> Notification:

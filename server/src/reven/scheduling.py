@@ -1,12 +1,22 @@
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 DEFAULT_LOCAL_TIME = time(hour=8, minute=1)
 
 
 def utc_now() -> datetime:
     return datetime.now(tz=UTC)
+
+
+async def database_now(session: AsyncSession) -> datetime:
+    now = await session.scalar(select(func.clock_timestamp()))
+    if not isinstance(now, datetime):
+        raise RuntimeError("数据库未返回有效时间")
+    return now
 
 
 def resolve_scheduled_at(raw: str | None, *, now: datetime | None = None) -> datetime:
