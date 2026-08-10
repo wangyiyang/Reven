@@ -33,6 +33,28 @@ REVEN_MASTER_KEY=<BASE64_32_BYTE_MASTER_KEY>
 丢失该密钥将无法解密已保存的集成 Secret。备份应进入独立的密码管理器，
 不得进入日志、镜像或仓库。
 
+## 2.1 配置腾讯云对象存储
+
+COS Bucket 必须专用于 Reven 的公开内容资产。上传凭据使用独立子账号，最小权限只
+包含目标 Bucket 的 `cos:HeadBucket`、`cos:HeadObject` 和 `cos:PutObject`；禁止复用
+主账号长期密钥。将凭据备份至 1Password，并只通过服务器 `.env` 注入：
+
+```dotenv
+COS_BUCKET=reven-1251081768
+COS_REGION=ap-beijing
+COS_SECRET_ID=<TENCENT_CLOUD_SECRET_ID>
+COS_SECRET_KEY=<TENCENT_CLOUD_SECRET_KEY>
+COS_PUBLIC_BASE_URL=https://reven-1251081768.cos.ap-beijing.myqcloud.com
+COS_ASSET_PREFIX=assets/sha256
+```
+
+服务器 `.env` 必须保持 `600` 权限。COS SDK 根据 `COS_REGION` 生成官方 API 地址，
+不要用自定义域名发送写请求。自定义公开域名只配置在 `COS_PUBLIC_BASE_URL`。
+
+对象按 SHA-256 内容寻址并携带不可变缓存头；相同内容复用同一对象，应用不会自动
+删除或覆盖已验证的历史资产。启用可移植 Markdown 前，应为专用 Bucket 配置自定义
+公开域名、流量告警和防盗链，并将权限限制为“公有读、私有写”；禁止设置“公有读写”。
+
 ## 3. 配置独立的 Caddy Basic Auth
 
 Basic Auth 密码必须与 SSH、Supabase、Notion 等密码不同。生成哈希：

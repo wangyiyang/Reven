@@ -13,6 +13,8 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
     assert settings.public_base_url == "https://dev.wangyiyang.cc"
     assert "notion" not in Settings.model_fields
     assert "wechat_app_secret" not in Settings.model_fields
+    assert settings.cos_secret_id is None
+    assert settings.cos_secret_key is None
 
 
 def test_public_base_url_accepts_https_and_localhost_http(monkeypatch) -> None:  # type: ignore[no-untyped-def]

@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     job_lease_seconds: int = Field(default=120, ge=3)
     job_data_dir: str = "/data/jobs"
     renderer_command: str = "node /app/renderer/dist/cli.mjs"
+    cos_bucket: str | None = None
+    cos_region: str | None = None
+    cos_secret_id: SecretStr | None = None
+    cos_secret_key: SecretStr | None = None
+    cos_public_base_url: str | None = None
+    cos_asset_prefix: str = "assets/sha256"
 
     @field_validator("public_base_url")
     @classmethod
