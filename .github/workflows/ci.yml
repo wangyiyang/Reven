@@ -43,6 +43,7 @@ jobs:
       - run: uv run ruff check server
       - run: uv run ruff format --check server
       - run: uv run mypy server/src
+      - run: uv run alembic -c server/migrations/alembic.ini upgrade head
       - run: uv run pytest server/tests --cov=reven --cov-report=term-missing --cov-fail-under=80
 
   migration:
