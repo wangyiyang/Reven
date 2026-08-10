@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,5 +27,12 @@ class Article(Base):
     notion_last_edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    content_sync_status: Mapped[str] = mapped_column(String(32), index=True, default="未同步")
+    content_sync_error: Mapped[str | None] = mapped_column(Text)
+    current_snapshot_id: Mapped[UUID | None] = mapped_column(ForeignKey("content_snapshots.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+# 注册 Article 的跨聚合快照外键目标，避免仅导入文章模型时元数据不完整。
+from reven.content_sync import models as content_sync_models  # noqa: E402,F401

@@ -16,9 +16,9 @@ const tones: Record<Tone, string> = {
 function toneFor(status: string | null): Tone {
   if (!status || /未开始/.test(status)) return "neutral"
   if (/等待|计划|待处理|待发布/.test(status)) return "waiting"
-  if (/处理|上传|构建|发布中|合并中|准备/.test(status)) return "working"
-  if (/阻塞|失败|异常|取消/.test(status)) return "failed"
-  if (/完成|成功|上线|草稿已生成|已交付|已发布/.test(status)) return "done"
+  if (/同步中|处理|上传|构建|发布中|合并中|准备/.test(status)) return "working"
+  if (/过期|阻塞|失败|异常|取消/.test(status)) return "failed"
+  if (/已同步|完成|成功|上线|草稿已生成|已交付|已发布/.test(status)) return "done"
   return "neutral"
 }
 

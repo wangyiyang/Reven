@@ -14,6 +14,9 @@ from reven.api.schemas.articles import (
     ArticleList,
     ArticleSummary,
     ChannelResult,
+    ContentSyncRunSummary,
+    ContentSyncSummary,
+    CurrentSnapshotSummary,
     JobDetail,
     JobSummary,
     PreviewResponse,
@@ -22,6 +25,9 @@ from reven.api.schemas.articles import (
 from reven.articles.actions import ActionConflictError, ArticleActionService
 from reven.articles.models import Article
 from reven.articles.query import ArticleQuery
+from reven.content_sync.domain import ContentSyncStatus
+from reven.content_sync.gate import SnapshotUnavailableError
+from reven.content_sync.models import ContentSnapshot, ContentSyncRun
 from reven.domain import TargetChannel
 from reven.integrations.notion.configuration import IntegrationConfigurationError
 from reven.integrations.notion.models import NotionResponseTooLargeError
@@ -50,13 +56,21 @@ async def list_articles(
         channel=channel.value if channel else None,
         query=query,
     )
-    latest_jobs = await ArticleQuery(session).latest_channel_jobs([item.id for item in items])
+    query_service = ArticleQuery(session)
+    article_ids = [item.id for item in items]
+    latest_jobs = await query_service.latest_channel_jobs(article_ids)
+    latest_runs = await query_service.latest_sync_runs(article_ids)
+    snapshots = await query_service.current_snapshots(
+        [item.current_snapshot_id for item in items if item.current_snapshot_id is not None]
+    )
     return ArticleList(
         items=[
             _article_summary(
                 item,
                 latest_jobs.get((item.id, "个人博客")),
                 latest_jobs.get((item.id, "微信公众号")),
+                latest_runs.get(item.id),
+                snapshots.get(item.current_snapshot_id) if item.current_snapshot_id else None,
             )
             for item in items
         ],
@@ -74,7 +88,16 @@ async def get_article(article_id: UUID, session: SessionDep) -> ArticleDetail | 
         return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
     jobs, jobs_total = await query.jobs(article_id)
     latest = jobs[0] if jobs else None
-    return _article_detail(article, jobs, jobs_total, latest)
+    latest_runs = await query.latest_sync_runs([article.id])
+    snapshots = await query.current_snapshots([article.current_snapshot_id] if article.current_snapshot_id else [])
+    return _article_detail(
+        article,
+        jobs,
+        jobs_total,
+        latest,
+        latest_runs.get(article.id),
+        snapshots.get(article.current_snapshot_id) if article.current_snapshot_id else None,
+    )
 
 
 @router.get("/{article_id}/jobs/{job_id}", response_model=JobDetail)
@@ -95,7 +118,9 @@ async def preview_wechat(
     if article is None:
         return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
     try:
-        html = await service.render_latest(article.notion_page_id)
+        html = await service.render_current(article.id)
+    except SnapshotUnavailableError as exc:
+        return _error(409, exc.code, exc.message)
     except IntegrationConfigurationError:
         return _error(409, "NOTION_NOT_CONFIGURED", "Notion 集成尚未正确配置")
     except PreviewConflictError:
@@ -150,6 +175,8 @@ def _article_summary(
     article: Article,
     latest_blog: PublicationJob | None = None,
     latest_wechat: PublicationJob | None = None,
+    latest_sync_run: ContentSyncRun | None = None,
+    current_snapshot: ContentSnapshot | None = None,
 ) -> ArticleSummary:
     return ArticleSummary.model_validate(
         {
@@ -163,6 +190,7 @@ def _article_summary(
             "notion_last_edited_at": article.notion_last_edited_at,
             "last_synced_at": article.last_synced_at,
             "cover_valid": bool(article.cover_metadata.get("name")),
+            "content_sync": _content_sync_summary(article, latest_sync_run, current_snapshot),
             "blog_status": latest_blog.blog_status if latest_blog else None,
             "wechat_status": latest_wechat.wechat_status if latest_wechat else None,
         }
@@ -174,8 +202,10 @@ def _article_detail(
     jobs: list[PublicationJob],
     jobs_total: int,
     latest: PublicationJob | None,
+    latest_sync_run: ContentSyncRun | None,
+    current_snapshot: ContentSnapshot | None,
 ) -> ArticleDetail:
-    summary = _article_summary(article, latest, latest).model_dump()
+    summary = _article_summary(article, latest, latest, latest_sync_run, current_snapshot).model_dump()
     errors = _validation_items(latest, "errors")
     if article.last_error and not errors:
         errors = [{"code": "publication_blocked", "message": _safe_error(article.last_error), "field": "job"}]
@@ -193,6 +223,44 @@ def _article_detail(
         jobs_total=jobs_total,
         jobs_has_more=jobs_total > len(jobs),
     )
+
+
+def _content_sync_summary(
+    article: Article,
+    latest_run: ContentSyncRun | None,
+    current_snapshot: ContentSnapshot | None,
+) -> ContentSyncSummary:
+    current_is_valid = (
+        article.content_sync_status == ContentSyncStatus.SYNCED
+        and current_snapshot is not None
+        and current_snapshot.source_last_edited_at == article.notion_last_edited_at
+    )
+    snapshot_summary = None
+    if current_snapshot is not None:
+        metadata = current_snapshot.snapshot_metadata
+        snapshot_summary = CurrentSnapshotSummary(
+            id=current_snapshot.id,
+            synced_at=current_snapshot.synced_at,
+            source_last_edited_at=current_snapshot.source_last_edited_at,
+            content_hash=current_snapshot.content_hash,
+            character_count=_metadata_count(metadata, "character_count"),
+            media_count=_metadata_count(metadata, "media_count"),
+        )
+    run_summary = None
+    if latest_run is not None:
+        run_summary = ContentSyncRunSummary.model_validate(latest_run, from_attributes=True)
+    return ContentSyncSummary(
+        status=article.content_sync_status,
+        outputs_enabled=current_is_valid,
+        error=_safe_error(article.content_sync_error),
+        current_snapshot=snapshot_summary,
+        latest_run=run_summary,
+    )
+
+
+def _metadata_count(metadata: dict[str, object], key: str) -> int:
+    value = metadata.get(key)
+    return value if isinstance(value, int) and value >= 0 else 0
 
 
 def _job_summary(job: PublicationJob) -> JobSummary:

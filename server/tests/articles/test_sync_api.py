@@ -1,15 +1,18 @@
 import asyncio
 import base64
 import os
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from reven.api.routes.integrations import get_session_factory
-from reven.api.routes.sync import get_notion_sync_service, router
+from reven.api.routes.sync import get_content_sync_request_service, get_notion_sync_service, router
 from reven.app import create_app
 from reven.config import get_settings
+from reven.content_sync.domain import SyncRunStatus, SyncStage
+from reven.content_sync.requests import SyncRequestResult, SyncRunView
 from reven.integrations.notion.sync import SyncResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -23,9 +26,19 @@ class FakeSyncService:
     async def sync_once(self) -> SyncResult:
         return SyncResult(created=1, updated=55, failed=0, duration_ms=842)
 
-    async def sync_page(self, article_id):  # type: ignore[no-untyped-def]
+
+class FakeContentSyncRequestService:
+    def __init__(self) -> None:
+        self.article_id = None
+        self.run = _run_view()
+
+    async def request(self, article_id):  # type: ignore[no-untyped-def]
         self.article_id = article_id
-        return SyncResult(created=0, updated=1, failed=0, duration_ms=12)
+        self.run = SyncRunView(**{**self.run.__dict__, "article_id": article_id})
+        return SyncRequestResult(run=self.run, created=True)
+
+    async def get_run(self, article_id, run_id):  # type: ignore[no-untyped-def]
+        return self.run if self.run.article_id == article_id and self.run.id == run_id else None
 
 
 def test_notion_sync_api_returns_statistics() -> None:
@@ -40,18 +53,44 @@ def test_notion_sync_api_returns_statistics() -> None:
     assert response.json() == {"created": 1, "updated": 55, "failed": 0, "duration_ms": 842}
 
 
-def test_article_sync_api_passes_article_id() -> None:
+def test_article_sync_api_starts_observable_background_run() -> None:
     article_id = uuid4()
-    service = FakeSyncService()
+    service = FakeContentSyncRequestService()
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_notion_sync_service] = lambda: service
+    app.dependency_overrides[get_content_sync_request_service] = lambda: service
 
     response = TestClient(app).post(f"/api/articles/{article_id}/sync")
 
-    assert response.status_code == 200
-    assert response.json()["updated"] == 1
+    assert response.status_code == 202
+    assert response.json()["id"] == str(service.run.id)
+    assert response.json()["status"] == SyncRunStatus.WAITING
     assert service.article_id == article_id
+
+    observed = TestClient(app).get(f"/api/articles/{article_id}/sync-runs/{service.run.id}")
+    assert observed.status_code == 200
+    assert observed.json()["stage"] == SyncStage.WAITING
+
+
+def _run_view() -> SyncRunView:
+    now = datetime.now(tz=UTC)
+    return SyncRunView(
+        id=uuid4(),
+        article_id=uuid4(),
+        status=SyncRunStatus.WAITING,
+        stage=SyncStage.WAITING,
+        progress_current=0,
+        progress_total=0,
+        current_media=None,
+        error_stage=None,
+        error_code=None,
+        error_message=None,
+        error_media=None,
+        retryable=False,
+        attempt_count=0,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 @pytest.mark.anyio
@@ -74,6 +113,7 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
     assert response.status_code == 409
     assert "/api/sync/notion" in paths
     assert "/api/articles/{article_id}/sync" in paths
+    assert "/api/articles/{article_id}/sync-runs/{run_id}" in paths
     get_settings.cache_clear()
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
+from reven.articles.actions import ArticleActionService
 from reven.articles.models import Article
 from reven.config import Settings
 from reven.domain import AutomationStatus, JobStatus, TargetChannel
@@ -115,6 +116,14 @@ class E2ESystem:
             assert job is not None
             assert now is not None
             job.scheduled_at = now - timedelta(seconds=1)
+
+    async def resume_publication(self) -> None:
+        article, job = await self.article_and_job()
+        await ArticleActionService(self.factory).retry(
+            article.id,
+            job.id,
+            [TargetChannel.BLOG, TargetChannel.WECHAT],
+        )
 
     async def article_and_job(self) -> tuple[Article, PublicationJob]:
         async with self.factory() as session:
@@ -246,6 +255,7 @@ async def test_missing_cover_blocks_all_then_sync_recovers(e2e_system: E2ESystem
 
     e2e_system.notion.replace(edited_at=datetime(2026, 7, 29, 0, 2, tzinfo=UTC), has_cover=True)
     await e2e_system.sync_once()
+    await e2e_system.resume_publication()
     await e2e_system.make_due()
     await e2e_system.run_once()
     _, recovered = await e2e_system.article_and_job()
@@ -283,6 +293,7 @@ async def test_persistent_feishu_failure_never_blocks_cover_recovery(e2e_system:
 
     e2e_system.notion.replace(edited_at=datetime(2026, 7, 29, 0, 2, tzinfo=UTC), has_cover=True)
     await e2e_system.sync_once()
+    await e2e_system.resume_publication()
     await e2e_system.make_due()
     await e2e_system.run_once()
     _, recovered = await e2e_system.article_and_job()

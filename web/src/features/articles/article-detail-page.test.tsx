@@ -24,6 +24,20 @@ const article = {
   notion_last_edited_at: "2026-07-30T00:00:00Z",
   last_synced_at: "2026-07-30T00:01:00Z",
   cover_valid: false,
+  content_sync: {
+    status: "已同步",
+    outputs_enabled: true,
+    error: null,
+    current_snapshot: {
+      id: "33333333-3333-4333-8333-333333333333",
+      synced_at: "2026-07-30T00:01:00Z",
+      source_last_edited_at: "2026-07-30T00:00:00Z",
+      content_hash: "b".repeat(64),
+      character_count: 1200,
+      media_count: 3,
+    },
+    latest_run: null,
+  },
   blog_status: "失败",
   wechat_status: "草稿已生成",
   notion_metadata: {},
@@ -68,6 +82,48 @@ describe("ArticleDetailPage", () => {
     expect(frame).toHaveAttribute("sandbox", "")
     expect(frame).toHaveAttribute("srcdoc", "<script>window.evil=true</script><h1>稿件</h1>")
     expect(document.querySelector("main script")).toBeNull()
+  })
+
+  it("keeps preview and publication retry disabled until the latest snapshot is valid", async () => {
+    useDetailHandlers({
+      articlePatch: {
+        content_sync: {
+          status: "同步失败",
+          outputs_enabled: false,
+          error: "附件下载失败",
+          current_snapshot: article.content_sync.current_snapshot,
+          latest_run: null,
+        },
+      },
+    })
+    renderPage()
+
+    expect(await screen.findByRole("button", { name: "生成微信预览" })).toBeDisabled()
+    expect(await screen.findByRole("button", { name: "重试个人博客" })).toBeDisabled()
+    expect(screen.getAllByText("附件下载失败")).toHaveLength(2)
+    expect(screen.getByRole("button", { name: "同步内容" })).toBeEnabled()
+  })
+
+  it("requires an explicit resume after snapshot preparation blocked the publication", async () => {
+    let requestedChannels: unknown = null
+    useDetailHandlers({
+      jobPatch: {
+        overall_status: "阻塞",
+        blog_status: "待处理",
+        wechat_status: "待处理",
+        blog: { status: "待处理", error: null, result: {} },
+        wechat: { status: "待处理", error: null, result: {} },
+      },
+    })
+    server.use(http.post("/api/articles/:id/jobs/:jobId/retry", async ({ request }) => {
+      requestedChannels = (await request.json() as { channels: unknown }).channels
+      return HttpResponse.json({ ok: true, job_id: jobId })
+    }))
+    renderPage()
+
+    await userEvent.click(await screen.findByRole("button", { name: "恢复发布" }))
+
+    await vi.waitFor(() => expect(requestedChannels).toEqual(["个人博客", "微信公众号"]))
   })
 
   it("reports clipboard permission failure without degrading to plain text", async () => {

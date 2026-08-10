@@ -12,6 +12,16 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import get_settings
+from reven.content_sync.configured import (
+    ConfiguredAssetIntegrityVerifier,
+    ConfiguredContentSource,
+    build_content_sync_tick,
+)
+from reven.content_sync.gate import CurrentSnapshotGate
+from reven.content_sync.publication import (
+    SnapshotPublicationMaterializer,
+    SnapshotPublicationPreparationService,
+)
 from reven.integrations.notion.client import NotionClient
 from reven.integrations.notion.configuration import (
     IntegrationConfigurationError,
@@ -19,6 +29,10 @@ from reven.integrations.notion.configuration import (
 )
 from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.integrations.notion.sync import NotionSyncService
+from reven.integrations.tencent_cos.configuration import (
+    TencentCosConfigurationError,
+    load_tencent_cos_configuration,
+)
 from reven.jobs.errors import (
     BlockedPublishError,
     PermanentPublishError,
@@ -32,9 +46,8 @@ from reven.jobs.retry import retry_delay_seconds
 from reven.jobs.service import (
     NotionStatusWriteError,
     PreparationConflictError,
-    PublicationJobService,
 )
-from reven.publishing.assets import AssetDownloadError, AssetMaterializer
+from reven.publishing.assets import AssetDownloadError
 from reven.publishing.factory import build_configured_notifier, build_configured_orchestrator
 from reven.scheduling import utc_now
 from reven.system.models import SystemState
@@ -86,15 +99,27 @@ class ConfiguredPreparationService:
         self._factory = session_factory
 
     async def prepare(self, job_id: UUID) -> PrepareResult:
-        token, _ = await load_notion_config(self._factory)
+        raise RuntimeError(f"生产发布准备必须携带租约（job_id={job_id}）")
+
+    async def prepare_claim(self, claim: JobClaim) -> PrepareResult:
         settings = get_settings()
-        async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
-            service = PublicationJobService(
+        try:
+            cos = load_tencent_cos_configuration(settings)
+        except TencentCosConfigurationError as exc:
+            raise BlockedPublishError("对象存储尚未正确配置") from exc
+        service = SnapshotPublicationPreparationService(
+            self._factory,
+            CurrentSnapshotGate(
                 self._factory,
-                NotionClient(token=token, http=http),
-                AssetMaterializer(Path(settings.job_data_dir)),
-            )
-            return await service.prepare(job_id)
+                ConfiguredContentSource(self._factory),
+                ConfiguredAssetIntegrityVerifier(settings),
+            ),
+            SnapshotPublicationMaterializer(
+                Path(settings.job_data_dir),
+                cos.public_base_url,
+            ),
+        )
+        return await service.prepare_claim(claim)
 
 
 def build_background_runner(
@@ -118,6 +143,7 @@ def build_background_runner(
             session_factory,
             notifier,
         ),
+        content_sync_tick=build_content_sync_tick(session_factory, settings),
         sync_interval=settings.sync_interval_seconds,
         job_interval=settings.scheduler_interval_seconds,
         notification_interval=settings.scheduler_interval_seconds,
@@ -164,6 +190,7 @@ class BackgroundRunner:
         job_tick: Tick,
         notification_tick: Tick | None = None,
         *,
+        content_sync_tick: Tick | None = None,
         sync_interval: float = 60,
         job_interval: float = 5,
         notification_interval: float = 5,
@@ -171,6 +198,7 @@ class BackgroundRunner:
         self._sync_tick = sync_tick
         self._job_tick = job_tick
         self._notification_tick = notification_tick
+        self._content_sync_tick = content_sync_tick
         self._sync_interval = sync_interval
         self._job_interval = job_interval
         self._notification_interval = notification_interval
@@ -192,6 +220,13 @@ class BackgroundRunner:
                 asyncio.create_task(
                     self._loop(self._notification_tick, self._notification_interval),
                     name="reven-preparation-notifications",
+                )
+            )
+        if self._content_sync_tick is not None:
+            tasks.append(
+                asyncio.create_task(
+                    self._loop(self._content_sync_tick, self._job_interval),
+                    name="reven-content-sync",
                 )
             )
         self._tasks = tuple(tasks)
@@ -289,7 +324,7 @@ class PublicationJobTick:
             await self._release(claim)
 
     async def _prepare_pending(self, claim: JobClaim) -> None:
-        result = await self._preparation.prepare(claim.job_id)
+        result = await self._prepare(claim)
         if isinstance(result, PrepareResult) and result.blocked:
             raise BlockedPublishError("准备校验未通过")
         await self._clear_preparation_attempts(claim)
@@ -314,7 +349,7 @@ class PublicationJobTick:
     async def _execute_claim(self, claim: JobClaim) -> None:
         if not await self._finalization_pending(claim):
             try:
-                result = await self._preparation.prepare(claim.job_id)
+                result = await self._prepare(claim)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -329,6 +364,12 @@ class PublicationJobTick:
             await self._executor.execute(claim)
         except Exception as exc:
             raise _ExecutionError(exc, attempt) from exc
+
+    async def _prepare(self, claim: JobClaim) -> object:
+        prepare_claim = getattr(self._preparation, "prepare_claim", None)
+        if prepare_claim is not None:
+            return await prepare_claim(claim)
+        return await self._preparation.prepare(claim.job_id)
 
     async def _finalization_pending(self, claim: JobClaim) -> bool:
         async with self._factory() as session:

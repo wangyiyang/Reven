@@ -1,8 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react"
-import { useRef } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight } from "lucide-react"
 import { Link, useSearchParams } from "react-router-dom"
-import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,7 +8,8 @@ import { apiRequest } from "@/lib/api"
 import { safeNotionUrl } from "@/lib/external-url"
 import { ArticleFilters, type ArticleFilterValues } from "./article-filters"
 import { ArticleStatus } from "./article-status"
-import { parseArticleList, parseSync } from "./response-parsers"
+import { ContentSyncControl } from "./content-sync-control"
+import { parseArticleList } from "./response-parsers"
 import type { ArticleSummary } from "./types"
 
 const PAGE_SIZE = 20
@@ -75,7 +74,7 @@ function DesktopTable({ items }: { items: ArticleSummary[] }) {
     <div className="mt-6 hidden overflow-x-auto xl:block">
       <table className="w-full min-w-[1180px] border-collapse text-left text-xs">
         <thead><tr className="border-b border-[var(--ink)] text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">
-          {["标题", "Notion 状态", "自动化状态", "封面", "目标渠道", "计划时间", "博客", "微信", "最近同步"].map((title) => <th className="px-2 py-3 font-semibold" key={title}>{title}</th>)}
+          {["标题", "Notion 状态", "自动化状态", "内容同步", "封面", "目标渠道", "计划时间", "博客", "微信", "成功同步"].map((title) => <th className="px-2 py-3 font-semibold" key={title}>{title}</th>)}
         </tr></thead>
         <tbody>{items.map((article) => <ArticleRow article={article} key={article.id} />)}</tbody>
       </table>
@@ -92,12 +91,13 @@ function ArticleRow({ article }: { article: ArticleSummary }) {
       </td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.notion_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.automation_status} /></td>
+      <td className="px-2 py-5"><ArticleStatus compact status={article.content_sync.status} /></td>
       <td className="px-2 py-5">{article.cover_valid ? "✓ 已校验" : <span className="text-[var(--red)]">! 缺失</span>}</td>
       <td className="px-2 py-5">{channelLabel(article.target_channels, " · ")}</td>
       <td className="px-2 py-5">{formatDate(article.planned_at)}</td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.blog_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.wechat_status} /></td>
-      <td className="px-2 py-5">{formatDate(article.last_synced_at)}</td>
+      <td className="px-2 py-5">{formatDate(article.content_sync.current_snapshot?.synced_at ?? null)}</td>
     </tr>
   )
 }
@@ -108,12 +108,12 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
       {items.map((article) => (
         <article aria-label={`${article.title}移动摘要`} className="border border-[var(--line-strong)] bg-white/25 p-5" key={article.id}>
           <Link className="font-display text-2xl leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
-          <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
+          <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.content_sync.status} /><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
           <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
             <Meta label="渠道" value={channelLabel(article.target_channels, "、")} />
             <Meta label="封面" value={article.cover_valid ? "已校验" : "缺失"} />
             <Meta label="计划" value={formatDate(article.planned_at)} />
-            <Meta label="最近同步" value={formatDate(article.last_synced_at)} />
+            <Meta label="成功同步" value={formatDate(article.content_sync.current_snapshot?.synced_at ?? null)} />
           </dl>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <ChannelSummary label="博客" status={article.blog_status} />
@@ -127,27 +127,11 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
 }
 
 function RowActions({ article }: { article: ArticleSummary }) {
-  const lock = useRef(false)
-  const client = useQueryClient()
-  const sync = useMutation({
-    mutationFn: async () => parseSync(await apiRequest<unknown>(`/articles/${article.id}/sync`, { method: "POST" })),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["articles"] })
-      toast.success("已读取最新 Notion 稿件")
-    },
-    onError: (error: Error) => toast.error(error.message),
-    onSettled: () => { lock.current = false },
-  })
-  const runSync = () => {
-    if (lock.current) return
-    lock.current = true
-    sync.mutate()
-  }
   const notionUrl = safeNotionUrl(article.notion_url)
   return (
     <div className="mt-3 flex flex-wrap gap-1">
       {notionUrl && <a className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5" href={notionUrl} rel="noopener noreferrer" target="_blank">Notion <ArrowUpRight aria-hidden size={12} /></a>}
-      <button className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5 disabled:opacity-45" disabled={sync.isPending} onClick={runSync} type="button"><RefreshCcw aria-hidden className={sync.isPending ? "animate-spin" : ""} size={12} />同步</button>
+      <ContentSyncControl article={article} compact />
       <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-black/5" to={`/articles/${article.id}`}>任务详情</Link>
     </div>
   )
