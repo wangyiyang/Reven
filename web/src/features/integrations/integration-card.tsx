@@ -135,7 +135,7 @@ function ConfigFields(props: {
             id={`${props.form.formId}-${field.key}`}
             onChange={(event) => props.form.setField(field.key, event.target.value)}
             placeholder={field.placeholder}
-            required
+            required={!field.optional}
             value={props.form.publicConfig[field.key] ?? ""}
           />
           {props.definition.provider === "github" && field.key === "default_branch" && (
@@ -209,18 +209,19 @@ function CardActions(props: CardActionsProps) {
   const { definition, form, integration } = props
   const secretPayload = { [definition.secretField.key]: form.secret }
   const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
+  const publicConfig = publicConfigForSave(definition, form.publicConfig)
   return (
     <footer className="mt-7">
       {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--red)]">{`请填写 ${formatFieldLabels(definition)}后保存配置。`}</p>}
       {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${definition.secretField.label} 后测试连接。`}</p>}
       <div className="flex flex-wrap items-center gap-3">
-      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, form.publicConfig)} ref={props.saveButtonRef}>
+      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, publicConfig)} ref={props.saveButtonRef}>
         <Save aria-hidden size={15} />保存配置
       </Button>
       <Button
         aria-label={`${integration?.secret_configured ? "替换" : "保存"}${definition.title}密钥`}
         disabled={props.actionsDisabled || !form.secret}
-        onClick={() => props.onReplace(definition.provider, form.publicConfig, secretPayload)}
+        onClick={() => props.onReplace(definition.provider, publicConfig, secretPayload)}
         variant="outline"
       >
         <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
@@ -235,11 +236,18 @@ function CardActions(props: CardActionsProps) {
 }
 
 function hasCompletePublicConfig(definition: ProviderDefinition, publicConfig: Record<string, string>) {
-  return definition.publicFields.every((field) => publicConfig[field.key]?.trim())
+  return definition.publicFields.every((field) => field.optional || publicConfig[field.key]?.trim())
+}
+
+function publicConfigForSave(definition: ProviderDefinition, publicConfig: Record<string, string>) {
+  return Object.fromEntries(definition.publicFields.flatMap((field) => {
+    const value = publicConfig[field.key]?.trim() ?? ""
+    return field.optional && !value ? [] : [[field.key, value]]
+  }))
 }
 
 function formatFieldLabels(definition: ProviderDefinition) {
-  const labels = definition.publicFields.map((field) => field.label)
+  const labels = definition.publicFields.filter((field) => !field.optional).map((field) => field.label)
   return labels.length > 1 ? `${labels.slice(0, -1).join("、")} 和${labels.at(-1)}` : labels[0]
 }
 

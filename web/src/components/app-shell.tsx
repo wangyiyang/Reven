@@ -1,4 +1,4 @@
-import { Activity, FileText, PlugZap, Rss } from "lucide-react"
+import { Activity, FileText, PlugZap, Rss, Sparkles } from "lucide-react"
 import type { ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 
@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils"
 
 const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
-  { to: "/rss", label: "RSS 配置", icon: Rss },
+  { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
+  { to: "/rss", label: "RSS 配置", icon: Rss, end: true },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
   { to: "/system", label: "系统状态", icon: Activity },
 ]
@@ -22,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
           <nav aria-label="内容工作台主导航" className="lg:my-auto">
             <ul className="flex gap-1 lg:flex-col lg:gap-2">
-              {navigation.map(({ to, label, icon: Icon }) => (
+              {navigation.map(({ to, label, icon: Icon, end }) => (
                 <li key={to}>
                   <NavLink
                     aria-label={label}
@@ -30,6 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       "nav-link flex min-h-11 items-center gap-3 px-3 text-sm font-semibold",
                       isActive && "active",
                     )}
+                    end={end}
                     to={to}
                   >
                     <Icon aria-hidden size={17} />
