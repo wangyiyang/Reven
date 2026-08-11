@@ -116,6 +116,18 @@ https://dev.wangyiyang.cc/api/system/egress-ip
 
 - `ALIYUN_ACR_USERNAME`：Registry 登录用户名；
 - `ALIYUN_ACR_PASSWORD`：访问凭证页面设置的 Registry 登录密码。
+- `REVEN_DEPLOY_SSH_HOST`：生产服务器主机名，不包含用户或端口；
+- `REVEN_DEPLOY_SSH_PRIVATE_KEY`：仅允许 `kk` 用户部署 Reven 的私钥；
+- `REVEN_DEPLOY_KNOWN_HOSTS`：服务器的完整 SSH host key，使用 `ssh-keyscan` 后经人工核对指纹写入；
+- `FEISHU_DEPLOY_WEBHOOK`：部署状态通知机器人 Webhook；未配置时跳过通知。
+
+`REVEN_DEPLOY_SSH_PRIVATE_KEY` 只应允许 `kk` 在 `/opt/reven` 下执行部署所需的
+Docker 操作。不要关闭 SSH host key 校验，也不要用 `StrictHostKeyChecking=no` 代替
+`REVEN_DEPLOY_KNOWN_HOSTS`。
+
+同时在 GitHub 的 `main` 分支保护中将 CI 的 `backend`、`migration`、`frontend`、
+`renderer` 与 `container` 设为 required checks；仅有 workflow 文件不能阻止未通过
+检查的 PR 被合并。
 
 不要把密码写进仓库、工作流参数或命令历史。在服务器建立项目专用 Docker 配置，
 再交互式读取密码：
@@ -137,7 +149,7 @@ Docker 会提示该文件内的凭据未加密；这是无桌面凭据助手的 
 并重新执行服务器登录；旧配置可用
 `docker --config /opt/reven/.docker logout registry.cn-hangzhou.aliyuncs.com` 清除。
 
-## 7. 在服务器部署
+## 7. 自动部署与手动回滚
 
 使用既有免密 SSH 用户登录，并在独立目录操作：
 
@@ -147,9 +159,25 @@ mkdir -p /opt/reven
 cd /opt/reven
 ```
 
-Git Tag 触发 `.github/workflows/release.yml` 后，先核对完整质量门禁、SBOM、漏洞
-扫描和 `image-digest.txt`。Tag 只是便于识别的发布标签，不具备技术上的不可变
-保证；部署只接受证据中已审核的 digest：
+首次部署前，服务器必须已具备本仓库的 `infra/compose`、`infra/caddy`、
+`infra/docker` 和 `scripts/validate_reven_image.sh`。这些文件只提供 Compose 与运行
+配置；服务器不得执行 Docker 镜像构建。后续由 workflow 上传受限部署脚本，部署脚本
+只会拉取镜像、执行容器内的幂等 Alembic migration、启动 Compose 并检查健康状态。
+
+推送到 `main` 后，`.github/workflows/release.yml` 会先执行 CI，随后构建 ACR 镜像并
+推送 `sha-<commit SHA>` 与 `latest`。生产部署只接收解析后的完整 digest，不使用任意
+Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避免并发升级。
+成功部署会记录当前与上一健康镜像，并发送一条飞书通知。
+
+通过 Actions 的 `workflow_dispatch` 可选择：
+
+- `deploy`：输入已发布镜像对应的 commit SHA；留空时使用触发 workflow 的 commit；
+- `rollback`：切换到服务器记录的上一健康镜像；只切换应用镜像，不会执行数据库降级。
+
+部署失败时 workflow 明确失败并发送失败通知；脚本会恢复 `.env` 中原有的
+`REVEN_IMAGE`，但不会伪造健康状态或执行破坏性的数据库操作。
+
+若需要在故障处置时人工核查，仍只接受完整 digest：
 
 ```bash
 REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven@sha256:<AUDITED_DIGEST>
@@ -172,9 +200,8 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 把同一个 ACR 完整 digest 写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、`latest`
 或本地构建名称。
 
-服务器不构建生产镜像。发布 workflow 只构建并推送阿里云 ACR 镜像，不执行 SSH
-或自动部署；升级仍由用户审核 release 证据后手工执行。workflow 会在推送前拒绝
-已存在的同名 Tag，但生产部署的身份依据始终是 digest。
+服务器不构建生产镜像。workflow 会拒绝覆盖已有的 `sha-<commit SHA>` 镜像标签，
+生产部署的身份依据始终是 digest。
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
 前端静态文件。迁移和静态切换共享排他锁；迁移失败时旧 `current` 保持不变。
