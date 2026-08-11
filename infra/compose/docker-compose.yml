@@ -1,6 +1,6 @@
 services:
   reven:
-    image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full GHCR sha256 digest, tags are forbidden}
+    image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full Alibaba ACR sha256 digest, tags are forbidden}
     restart: unless-stopped
     env_file:
       - ../../.env

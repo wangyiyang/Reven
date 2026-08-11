@@ -110,10 +110,12 @@ jobs:
       - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
       - run: docker run --rm reven:test ruby --version
       - run: docker run --rm reven:test bundle --version
+      - name: Test deployment image policy
+        run: ./scripts/test_validate_reven_image.sh
       - name: Validate Compose and Caddy
         run: |
           cp .env.example .env
-          REVEN_IMAGE=ghcr.io/reven/ci@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+          REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             ./scripts/validate_reven_image.sh
           docker compose --env-file .env -f infra/compose/docker-compose.yml config >/dev/null
           docker run --rm \
