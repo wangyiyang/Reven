@@ -1,47 +1,46 @@
-name: Release Image
+name: Release and Deploy
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy a commit image or roll back to the prior healthy image.
+        required: true
+        default: deploy
+        type: choice
+        options: [deploy, rollback]
+      commit_sha:
+        description: Commit SHA to deploy; defaults to the workflow commit.
+        required: false
+        type: string
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: reven-release-${{ github.ref }}
+  group: reven-production
   cancel-in-progress: false
 
-jobs:
-  provenance:
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - name: Verify tag commit belongs to origin/main
-        run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+env:
+  IMAGE: registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven
 
+jobs:
   quality-gate:
-    needs: provenance
+    if: github.event_name == 'push'
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
   image:
+    if: github.event_name == 'push'
     needs: quality-gate
-    permissions:
-      contents: read
+    outputs:
+      image: ${{ steps.push.outputs.image }}
     runs-on: ubuntu-latest
-    env:
-      IMAGE: registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Define release image tags
-        run: echo "VERSION=${GITHUB_REF_NAME}" >>"${GITHUB_ENV}"
       - name: Authenticate to Alibaba ACR
         env:
           ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
@@ -50,58 +49,119 @@ jobs:
           printf '%s' "$ACR_PASSWORD" | \
             docker login registry.cn-hangzhou.aliyuncs.com \
               --username "$ACR_USERNAME" --password-stdin
-      - name: Refuse an existing release tag
+      - name: Refuse an existing commit image tag
         run: |
-          if inspection="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" 2>&1)"; then
-            echo "Release tag already exists: ${IMAGE}:${VERSION}" >&2
-            exit 1
-          elif ! printf '%s\n' "$inspection" | grep -Fq "${IMAGE}:${VERSION}: not found"; then
-            echo "Unable to verify release tag availability: ${IMAGE}:${VERSION}" >&2
+          version="sha-${GITHUB_SHA}"
+          if docker buildx imagetools inspect "${IMAGE}:${version}" >/dev/null 2>&1; then
+            echo "Commit image tag already exists: ${IMAGE}:${version}" >&2
             exit 1
           fi
-      - name: Build release image
+      - name: Build, scan, and push production image
         run: |
+          version="sha-${GITHUB_SHA}"
           docker build --pull --no-cache \
             -f infra/docker/Dockerfile \
-            -t "${IMAGE}:${VERSION}" \
-            -t "${IMAGE}:sha-${GITHUB_SHA}" .
-      - name: Scan fixed critical vulnerabilities
-        run: |
-          docker volume create reven-release-trivy
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v reven-release-trivy:/root/.cache/trivy \
+            -t "${IMAGE}:${version}" \
+            -t "${IMAGE}:latest" .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
             image --scanners vuln --exit-code 1 --ignore-unfixed --severity CRITICAL \
-            "${IMAGE}:${VERSION}"
+            "${IMAGE}:${version}"
+          docker push "${IMAGE}:${version}"
+          docker push "${IMAGE}:latest"
       - name: Generate SBOM
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v reven-release-trivy:/root/.cache/trivy \
             -v "$PWD:/work" \
             aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
             image --scanners vuln --format cyclonedx \
-            --output /work/reven-sbom.cdx.json "${IMAGE}:${VERSION}"
-      - name: Push immutable tags and record digest
+            --output /work/reven-sbom.cdx.json "${IMAGE}:sha-${GITHUB_SHA}"
+      - id: push
+        name: Resolve immutable image digest
         run: |
-          docker push "${IMAGE}:${VERSION}"
-          docker push "${IMAGE}:sha-${GITHUB_SHA}"
-          docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
-            --format '{{json .Manifest.Digest}}' | tr -d '"' | tee image-digest.txt
-          {
-            echo "### Published image"
-            echo
-            echo "\`${IMAGE}@$(cat image-digest.txt)\`"
-          } >>"${GITHUB_STEP_SUMMARY}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          printf 'image=%s@%s\n' "$IMAGE" "$digest" >>"$GITHUB_OUTPUT"
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: reven-${{ github.ref_name }}-release-evidence
-          path: |
-            reven-sbom.cdx.json
-            image-digest.txt
-      - name: Clean scanner cache
+          name: reven-${{ github.sha }}-release-evidence
+          path: reven-sbom.cdx.json
+
+  deploy:
+    if: >-
+      always() && (
+      (github.event_name == 'push' && needs.image.result == 'success') ||
+      (github.event_name == 'workflow_dispatch'))
+    needs: [image]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Authenticate to Alibaba ACR for manual deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy'
+        env:
+          ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+          ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
+        run: |
+          printf '%s' "$ACR_PASSWORD" | \
+            docker login registry.cn-hangzhou.aliyuncs.com \
+              --username "$ACR_USERNAME" --password-stdin
+      - id: target
+        name: Resolve deployment target
+        env:
+          INPUT_COMMIT_SHA: ${{ inputs.commit_sha }}
+          OPERATION: ${{ inputs.operation || 'deploy' }}
+          PUSH_IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          if [ "$OPERATION" = rollback ]; then
+            echo 'operation=rollback' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$PUSH_IMAGE" ]; then
+            image="$PUSH_IMAGE"
+          else
+            commit_sha="${INPUT_COMMIT_SHA:-$GITHUB_SHA}"
+            digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${commit_sha}" \
+              --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            image="${IMAGE}@${digest}"
+          fi
+          printf 'operation=deploy\nimage=%s\n' "$image" >>"$GITHUB_OUTPUT"
+      - name: Configure SSH transport
+        env:
+          DEPLOY_KEY: ${{ secrets.REVEN_DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.REVEN_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Install and run restricted deployment script
+        env:
+          DEPLOY_HOST: ${{ secrets.REVEN_DEPLOY_SSH_HOST }}
+          DEPLOY_IMAGE: ${{ steps.target.outputs.image }}
+          DEPLOY_OPERATION: ${{ steps.target.outputs.operation }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "kk@${DEPLOY_HOST}" 'install -d -m 755 /opt/reven/scripts'
+          scp -i ~/.ssh/id_ed25519 scripts/deploy_reven.sh \
+            "kk@${DEPLOY_HOST}:/opt/reven/scripts/deploy_reven.sh"
+          ssh -i ~/.ssh/id_ed25519 "kk@${DEPLOY_HOST}" \
+            "chmod 755 /opt/reven/scripts/deploy_reven.sh && \
+            DEPLOY_OPERATION='${DEPLOY_OPERATION}' REVEN_IMAGE='${DEPLOY_IMAGE}' \
+            /opt/reven/scripts/deploy_reven.sh"
+      - name: Notify Feishu
         if: always()
-        run: docker volume rm reven-release-trivy || true
+        env:
+          FEISHU_DEPLOY_WEBHOOK: ${{ secrets.FEISHU_DEPLOY_WEBHOOK }}
+          DEPLOY_IMAGE: ${{ steps.target.outputs.image || 'previous healthy image' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$FEISHU_DEPLOY_WEBHOOK" ]; then
+            exit 0
+          fi
+          payload="$(jq -n --arg text "Reven production ${JOB_STATUS}: ${DEPLOY_IMAGE}\n${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{msg_type: "text", content: {text: $text}}')"
+          curl --fail-with-body --silent --show-error --retry 3 \
+            -H 'Content-Type: application/json' --data "$payload" "$FEISHU_DEPLOY_WEBHOOK"
