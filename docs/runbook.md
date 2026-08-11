@@ -260,7 +260,44 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 9
 步，并确认所有时间展示仍为上海时间。
 
-## 11. 真实发布验收（执行前必须取得用户确认）
+## 11. RSS 内容发现与 OpenClaw 切换
+
+RSS 任务每天 `06:00 Asia/Shanghai` 执行，同一自然日只创建一个运行记录并只发送一条
+飞书汇总。SiliconFlow 密钥仅写入服务器 `.env`，不得进入集成公共配置、日志或仓库：
+
+```dotenv
+SILICONFLOW_API_KEY=<SILICONFLOW_API_KEY>
+SILICONFLOW_CHAT_MODEL=Qwen/Qwen3-8B
+RSS_MODEL_REVIEW_ENABLED=true
+```
+
+在“集成设置”中为 Notion 增加 `Inbox Data Source ID`，然后执行“初始化字段”。该操作会
+在 Inbox 中补齐 `Reven ID`、来源、原文链接、发布时间、摘要，并建立 Inbox 的“关联稿件”
+与稿件库“关联素材”的双向多对多关系。Notion 集成必须同时向两个 Data Source 授权。
+
+在“RSS 配置”中录入 HTTPS Feed、正向关键词和反向关键词。需要主动重建关键词向量时，
+使用受控客户端调用：
+
+```bash
+curl --fail --user '<BASIC_AUTH_USER>:<BASIC_AUTH_PASSWORD>' \
+  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'X-Reven-CSRF: 1' \
+  -X POST https://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+```
+
+切换按以下门禁执行，任何一步失败都不得停用旧流程：
+
+1. 先把 Reven 指向专用测试 Inbox 和测试飞书群，完成一次抓取、翻译、去重、筛选、人工确认、Notion 推送的端到端验收。
+2. 连续观察至少两个 06:00 运行日：每天只有一个运行记录和一条汇总；重复 Feed item 不新增；RSS item 向量未写入数据库；异常源被记录但不阻断其他源。
+3. 核对候选工作台显示字面命中、BM25、正反向语义分数、模型状态和入选依据；反向语义高分不能单独删除候选。
+4. 将 Reven 切到生产 Notion Inbox 与飞书群，在同一维护窗口停用 OpenClaw 的 RSS 定时任务。先停旧任务，再启用生产目标，禁止两套流程同时写生产 Inbox。
+5. 次日 06:00 核对 Reven 汇总、Inbox 页面与数据库运行记录，记录脱敏证据后才宣布切换完成。
+
+回退时先停止 Reven 的 RSS 源（在工作台逐个停用），再恢复 OpenClaw 定时任务；不得让两套
+流程同时运行。应用镜像回滚不会删除 RSS 运行记录、候选或 Notion 页面。排障时只记录错误
+类型，不复制 Feed 私有内容、SiliconFlow Key、Notion Token 或飞书 Webhook。
+
+## 12. 真实发布验收（执行前必须取得用户确认）
 
 以下步骤会写入真实 Notion、GitHub、微信草稿箱和飞书。默认状态为
 **未执行**；必须由用户指定专用测试稿并逐项确认后，才可开始。不得使用生产稿件，
