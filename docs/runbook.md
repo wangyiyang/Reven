@@ -105,31 +105,37 @@ https://dev.wangyiyang.cc/api/system/egress-ip
 把响应中的固定公网 `ip` 加入微信公众号平台 IP 白名单。若云服务器出口 IP
 变化，必须先更新白名单，再恢复微信发布。
 
-## 6. 配置服务器 GHCR 只读凭据
+## 6. 配置阿里云 ACR 凭据
 
-本项目镜像包按私有 GHCR Package 管理。为服务器的专用部署用户 `kk` 创建独立、
-可撤销的只读凭据；不要复用个人日常 Token。优先使用仅授予该仓库 Package
-读取权限的 fine-grained 凭据（组织策略支持时），否则使用仅含 `read:packages`
-scope 的 classic PAT。两者都不得授予 `write:packages`、`delete:packages` 或仓库
-写权限。
+本项目镜像存放在阿里云容器镜像服务个人版的私有仓库
+`registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven`。当前项目只有一名开发者，明确
+选择不引入 RAM 用户：GitHub Actions 发布和服务器拉取共用主账号的 Registry
+登录凭据。这样维护成本最低，但任一环境泄露都需要同时轮换 CI 与服务器凭据。
 
-在服务器上建立该用户专用的 Docker 配置目录，然后交互式读取 Token。下面命令
-不会把 Token 放进命令参数或 shell history：
+在 GitHub 仓库的 Actions Secrets 中配置：
+
+- `ALIYUN_ACR_USERNAME`：Registry 登录用户名；
+- `ALIYUN_ACR_PASSWORD`：访问凭证页面设置的 Registry 登录密码。
+
+不要把密码写进仓库、工作流参数或命令历史。在服务器建立项目专用 Docker 配置，
+再交互式读取密码：
 
 ```bash
 install -d -m 700 /opt/reven/.docker
-read -r -s -p 'GHCR read token: ' GHCR_TOKEN
+read -r -s -p 'ACR registry password: ' ACR_PASSWORD
 printf '\n'
-printf '%s' "$GHCR_TOKEN" | \
-  docker --config /opt/reven/.docker login ghcr.io \
-    --username '<GHCR_USERNAME>' --password-stdin
-unset GHCR_TOKEN
+printf '%s' "$ACR_PASSWORD" | \
+  docker --config /opt/reven/.docker login registry.cn-hangzhou.aliyuncs.com \
+    --username 'wangyiyang_kk' --password-stdin
+unset ACR_PASSWORD
 chmod 600 /opt/reven/.docker/config.json
 ```
 
-凭据应定期轮换；人员、服务器或仓库权限变化时立即撤销。撤销或更换前可执行
-`docker --config /opt/reven/.docker logout ghcr.io` 清除本地凭据。所有部署命令
-都显式使用此 `--config`，避免误用其他项目共享的 Docker 登录状态。
+Docker 会提示该文件内的凭据未加密；这是无桌面凭据助手的 Linux 服务器上的预期
+行为，因此目录必须为 `700`、文件必须为 `600`。所有部署命令都显式使用此
+`--config`，避免误用用户级登录状态。轮换密码后，必须同步更新两个 GitHub Secret
+并重新执行服务器登录；旧配置可用
+`docker --config /opt/reven/.docker logout registry.cn-hangzhou.aliyuncs.com` 清除。
 
 ## 7. 在服务器部署
 
@@ -146,7 +152,7 @@ Git Tag 触发 `.github/workflows/release.yml` 后，先核对完整质量门禁
 保证；部署只接受证据中已审核的 digest：
 
 ```bash
-REVEN_IMAGE=ghcr.io/<OWNER>/<REPOSITORY>@sha256:<AUDITED_DIGEST>
+REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven@sha256:<AUDITED_DIGEST>
 export REVEN_IMAGE
 ./scripts/validate_reven_image.sh
 docker --config /opt/reven/.docker pull "$REVEN_IMAGE"
@@ -163,12 +169,12 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 `Origin: <PUBLIC_BASE_URL>` 与 `X-Reven-CSRF: 1`。浏览器和脚本缺少任一请求头时，
 服务会拒绝 POST、PUT、PATCH、DELETE；不要通过 Caddy 伪造或覆盖客户端的 `Origin`。
 
-把同一个 `ghcr.io/...@sha256:...` 值写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、
-`latest` 或本地构建名称。
+把同一个 ACR 完整 digest 写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、`latest`
+或本地构建名称。
 
-服务器不构建生产镜像。发布 workflow 只构建并推送 GHCR 镜像，不执行 SSH 或自动
-部署；升级仍由用户审核 release 证据后手工执行。workflow 会在推送前拒绝已存在
-的同名 Tag，但生产部署的身份依据始终是 digest。
+服务器不构建生产镜像。发布 workflow 只构建并推送阿里云 ACR 镜像，不执行 SSH
+或自动部署；升级仍由用户审核 release 证据后手工执行。workflow 会在推送前拒绝
+已存在的同名 Tag，但生产部署的身份依据始终是 digest。
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
 前端静态文件。迁移和静态切换共享排他锁；迁移失败时旧 `current` 保持不变。

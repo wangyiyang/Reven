@@ -35,40 +35,28 @@ jobs:
     needs: quality-gate
     permissions:
       contents: read
-      packages: write
     runs-on: ubuntu-latest
+    env:
+      IMAGE: registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Define release image tags
-        run: |
-          repository="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE=ghcr.io/${repository}" >>"${GITHUB_ENV}"
-          echo "VERSION=${GITHUB_REF_NAME}" >>"${GITHUB_ENV}"
-      - name: Authenticate to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-      - name: Refuse an existing release tag
+        run: echo "VERSION=${GITHUB_REF_NAME}" >>"${GITHUB_ENV}"
+      - name: Authenticate to Alibaba ACR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+          ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
         run: |
-          owner="${GITHUB_REPOSITORY_OWNER}"
-          package="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
-          owner_type="$(gh api "/users/${owner}" --jq '.type')"
-          if [ "$owner_type" = "Organization" ]; then
-            endpoint="/orgs/${owner}/packages/container/${package}/versions"
-          else
-            endpoint="/users/${owner}/packages/container/${package}/versions"
-          fi
-          error_file="$(mktemp)"
-          trap 'rm -f "$error_file"' EXIT
-          if versions="$(gh api --paginate --slurp "$endpoint" 2>"$error_file")"; then
-            if jq -e --arg tag "$VERSION" \
-              'add | any(.[].metadata.container.tags[]?; . == $tag)' \
-              <<<"$versions" >/dev/null; then
-              echo "Release tag already exists: ${IMAGE}:${VERSION}" >&2
-              exit 1
-            fi
-          elif ! grep -q 'HTTP 404' "$error_file"; then
-            sed 's/\\(token\\|authorization\\)[^ ]*/\\1=***/Ig' "$error_file" >&2
+          printf '%s' "$ACR_PASSWORD" | \
+            docker login registry.cn-hangzhou.aliyuncs.com \
+              --username "$ACR_USERNAME" --password-stdin
+      - name: Refuse an existing release tag
+        run: |
+          if inspection="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" 2>&1)"; then
+            echo "Release tag already exists: ${IMAGE}:${VERSION}" >&2
+            exit 1
+          elif ! printf '%s\n' "$inspection" | grep -Fq "${IMAGE}:${VERSION}: not found"; then
+            echo "Unable to verify release tag availability: ${IMAGE}:${VERSION}" >&2
             exit 1
           fi
       - name: Build release image

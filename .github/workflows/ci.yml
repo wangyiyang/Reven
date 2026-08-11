@@ -113,7 +113,7 @@ jobs:
       - name: Validate Compose and Caddy
         run: |
           cp .env.example .env
-          REVEN_IMAGE=ghcr.io/reven/ci@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+          REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             ./scripts/validate_reven_image.sh
           docker compose --env-file .env -f infra/compose/docker-compose.yml config >/dev/null
           docker run --rm \
