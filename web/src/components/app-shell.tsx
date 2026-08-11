@@ -1,4 +1,4 @@
-import { Activity, FileText, PlugZap } from "lucide-react"
+import { Activity, FileText, PlugZap, Rss } from "lucide-react"
 import type { ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 
@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 
 const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
+  { to: "/rss", label: "RSS 配置", icon: Rss },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
   { to: "/system", label: "系统状态", icon: Activity },
 ]

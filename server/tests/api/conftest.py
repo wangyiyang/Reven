@@ -80,7 +80,10 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
     async def reset() -> None:
         async with engine.begin() as connection:
             await connection.execute(
-                text("TRUNCATE publication_jobs, articles, integrations, system_state RESTART IDENTITY CASCADE")
+                text(
+                    "TRUNCATE rss_keywords, rss_sources, publication_jobs, articles, integrations, "
+                    "system_state RESTART IDENTITY CASCADE"
+                )
             )
 
     asyncio.run(reset())

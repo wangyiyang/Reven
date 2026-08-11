@@ -27,6 +27,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
       typeof error?.message === "string" ? error.message : undefined,
     )
   }
+  if (response.status === 204) return undefined as T
   if (body === undefined) throw new ApiError(response.status, "invalid_response", "服务返回了空响应")
   return body as T
 }
