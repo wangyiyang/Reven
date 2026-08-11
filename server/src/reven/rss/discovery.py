@@ -259,9 +259,7 @@ def _summary(run: RssDiscoveryRun) -> RssRunSummary:
 
 async def _enabled_sources(session: AsyncSession) -> list[RssSource]:
     return list(
-        (
-            await session.scalars(select(RssSource).where(RssSource.enabled.is_(True)).order_by(RssSource.id))
-        ).all()
+        (await session.scalars(select(RssSource).where(RssSource.enabled.is_(True)).order_by(RssSource.id))).all()
     )
 
 

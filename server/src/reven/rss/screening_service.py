@@ -69,11 +69,14 @@ class RssScreeningService:
                 ).all()
             )
         documents = tuple(ScreeningDocument(item.id, item.title_zh, item.summary_zh) for item in items)
-        keywords = tuple(KeywordSignal(
-            keyword.term,
-            keyword.kind,
-            tuple(keyword.embedding) if include_vectors and keyword.embedding is not None else None,
-        ) for keyword in keyword_rows)
+        keywords = tuple(
+            KeywordSignal(
+                keyword.term,
+                keyword.kind,
+                tuple(keyword.embedding) if include_vectors and keyword.embedding is not None else None,
+            )
+            for keyword in keyword_rows
+        )
         return documents, keywords
 
     async def _persist(

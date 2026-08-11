@@ -17,10 +17,21 @@ async def test_chat_client_localizes_entries_as_strict_ordered_json() -> None:
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"content": json.dumps({"items": [
-                    {"index": 0, "title_zh": "智能体系统", "summary_zh": "实践指南"},
-                    {"index": 1, "title_zh": "模型更新", "summary_zh": "版本说明"},
-                ]}, ensure_ascii=False)}}],
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "items": [
+                                        {"index": 0, "title_zh": "智能体系统", "summary_zh": "实践指南"},
+                                        {"index": 1, "title_zh": "模型更新", "summary_zh": "版本说明"},
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ],
             },
         )
 
@@ -28,10 +39,12 @@ async def test_chat_client_localizes_entries_as_strict_ordered_json() -> None:
         base_url="https://api.siliconflow.cn",
         transport=httpx.MockTransport(handler),
     ) as http:
-        result = await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize((
-            FeedEntry("1", "https://example.com/1", "Agent systems", "Practical guide", datetime.now(UTC)),
-            FeedEntry("2", "https://example.com/2", "Model update", "Release notes", None),
-        ))
+        result = await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize(
+            (
+                FeedEntry("1", "https://example.com/1", "Agent systems", "Practical guide", datetime.now(UTC)),
+                FeedEntry("2", "https://example.com/2", "Model update", "Release notes", None),
+            )
+        )
 
     assert [(item.title_zh, item.summary_zh) for item in result] == [
         ("智能体系统", "实践指南"),
@@ -74,6 +87,6 @@ async def test_chat_client_rejects_unstructured_model_output() -> None:
         transport=httpx.MockTransport(handler),
     ) as http:
         with pytest.raises(RuntimeError, match="响应格式无效"):
-            await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize((
-                FeedEntry("1", None, "Agent systems", "Guide", None),
-            ))
+            await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize(
+                (FeedEntry("1", None, "Agent systems", "Guide", None),)
+            )

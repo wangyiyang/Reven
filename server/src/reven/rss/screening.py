@@ -94,8 +94,10 @@ def _base_decision(
     negative_matches = tuple(keyword.term for keyword in negative if normalize_keyword(keyword.term) in text)
     positive_score = _max_similarity(item_vector, positive)
     negative_score = _max_similarity(item_vector, negative)
-    positive_signal = bool(positive_matches) or bm25_score >= BM25_CANDIDATE_THRESHOLD or (
-        positive_score >= EMBEDDING_CANDIDATE_THRESHOLD
+    positive_signal = (
+        bool(positive_matches)
+        or bm25_score >= BM25_CANDIDATE_THRESHOLD
+        or (positive_score >= EMBEDDING_CANDIDATE_THRESHOLD)
     )
     blocked_by_literal = bool(negative_matches) and not positive_matches and positive_score < 0.8
     status = "candidate" if positive_signal and not blocked_by_literal else "filtered"

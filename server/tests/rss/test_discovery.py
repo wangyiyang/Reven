@@ -22,10 +22,7 @@ class StubFeedReader:
 
 class StubLocalizer:
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
-        return tuple(
-            LocalizedEntry(entry, "智能体系统", "第一篇")
-            for entry in entries
-        )
+        return tuple(LocalizedEntry(entry, "智能体系统", "第一篇") for entry in entries)
 
 
 class RecordingNotifier:

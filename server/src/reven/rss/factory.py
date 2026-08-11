@@ -14,10 +14,11 @@ from reven.integrations.notion.models import NotionError
 from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.publishing.notifications import DeliveryNotifier
 from reven.rss.ai import SiliconFlowChatClient
-from reven.rss.discovery import FeedEntry, LocalizedEntry, RssDiscoveryService
+from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, RssDiscoveryService
 from reven.rss.embedding import (
     BGE_M3_DIMENSION,
     BGE_M3_MODEL,
+    Embedder,
     KeywordEmbeddingService,
     SiliconFlowEmbeddingClient,
 )
@@ -25,7 +26,7 @@ from reven.rss.feed import SecureFeedReader
 from reven.rss.inbox import InboxPushError, InboxPushResult, RssInboxService
 from reven.rss.models import RssDiscoveryRun
 from reven.rss.scheduler import RssScheduleTick
-from reven.rss.screening import RssScreeningEngine
+from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn"
@@ -82,6 +83,9 @@ class ConfiguredRssDiscoveryTick:
             timeout=SILICONFLOW_TIMEOUT,
             trust_env=False,
         ) as http:
+            localizer: EntryLocalizer
+            embedder: Embedder
+            judge: BoundaryJudge | None
             if api_key is None:
                 localizer = _UnavailableSiliconFlow()
                 embedder = localizer
@@ -114,9 +118,7 @@ class ConfiguredRssDiscoveryTick:
 
     async def _finalized(self, run_date: date) -> bool:
         async with self._factory() as session:
-            status = await session.scalar(
-                select(RssDiscoveryRun.status).where(RssDiscoveryRun.run_date == run_date)
-            )
+            status = await session.scalar(select(RssDiscoveryRun.status).where(RssDiscoveryRun.run_date == run_date))
         return status is not None and status not in {"running", "screening"}
 
     async def _remember_completion(self, run_date: date) -> None:

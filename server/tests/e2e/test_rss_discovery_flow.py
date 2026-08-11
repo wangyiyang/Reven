@@ -14,13 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 class Feed:
     async def fetch(self, source: RssSource) -> tuple[FeedEntry, ...]:
-        return (FeedEntry(
-            "agent-1",
-            "https://example.com/agent-1",
-            "AI agent architecture",
-            "Practical engineering patterns",
-            datetime(2026, 8, 11, 1, tzinfo=UTC),
-        ),)
+        return (
+            FeedEntry(
+                "agent-1",
+                "https://example.com/agent-1",
+                "AI agent architecture",
+                "Practical engineering patterns",
+                datetime(2026, 8, 11, 1, tzinfo=UTC),
+            ),
+        )
 
 
 class Localizer:

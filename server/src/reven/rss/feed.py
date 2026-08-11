@@ -92,9 +92,7 @@ def _parse_feed(payload: bytes) -> tuple[FeedEntry, ...]:
         return tuple(_rss_entry(item) for item in root.findall("./channel/item") if _text(item, "title"))
     if _local_name(root.tag) == "feed":
         return tuple(
-            _atom_entry(item)
-            for item in root
-            if _local_name(item.tag) == "entry" and _child_text(item, "title")
+            _atom_entry(item) for item in root if _local_name(item.tag) == "entry" and _child_text(item, "title")
         )
     raise FeedFetchError("RSS_FORMAT_UNSUPPORTED", "RSS 响应不是受支持的 RSS 或 Atom Feed")
 
