@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from reven.api.routes.articles import router as articles_router
 from reven.api.routes.integrations import router as integrations_router
+from reven.api.routes.rss import router as rss_router
 from reven.api.routes.sync import router as sync_router
 from reven.api.routes.system import router as system_router
 from reven.config import get_settings
@@ -119,6 +120,7 @@ def create_app(
     app.add_middleware(CsrfOriginMiddleware, public_base_url=public_base_url)
     app.include_router(articles_router)
     app.include_router(integrations_router)
+    app.include_router(rss_router)
     app.include_router(sync_router)
     app.include_router(system_router)
 

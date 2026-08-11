@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
+import { RssSettingsPage } from "@/features/rss/rss-settings-page"
 
 export function App() {
   return (
@@ -12,6 +13,7 @@ export function App() {
         <Route element={<ArticlesPage />} path="/articles" />
         <Route element={<ArticleDetailPage />} path="/articles/:articleId" />
         <Route element={<IntegrationsPage />} path="/integrations" />
+        <Route element={<RssSettingsPage />} path="/rss" />
         <Route element={<Placeholder eyebrow="Operations" title="系统状态" />} path="/system" />
         <Route element={<Navigate replace to="/articles" />} path="*" />
       </Routes>
