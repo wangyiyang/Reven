@@ -34,3 +34,25 @@ async def load_notion_config(
     if not token:
         raise IntegrationConfigurationError("NOTION_SECRET_NOT_CONFIGURED")
     return token, data_source_id
+
+
+async def load_notion_inbox_config(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[str, str]:
+    async with session_factory() as session:
+        integration = await IntegrationRepository(session).get_by_provider("notion")
+    if integration is None or integration.encrypted_secret is None:
+        raise IntegrationConfigurationError("NOTION_SECRET_NOT_CONFIGURED")
+    inbox_data_source_id = public_config_without_hint(integration).get("inbox_data_source_id")
+    if not isinstance(inbox_data_source_id, str) or not inbox_data_source_id:
+        raise IntegrationConfigurationError("NOTION_INBOX_DATA_SOURCE_MISSING")
+    try:
+        secrets = SecretBox.from_base64(get_settings().reven_master_key.get_secret_value()).decrypt(
+            integration.encrypted_secret
+        )
+    except SecretBoxError as exc:
+        raise IntegrationConfigurationError("INTEGRATION_SECRET_INVALID") from exc
+    token = secrets.get("token")
+    if not token:
+        raise IntegrationConfigurationError("NOTION_SECRET_NOT_CONFIGURED")
+    return token, inbox_data_source_id

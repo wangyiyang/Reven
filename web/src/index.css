@@ -93,6 +93,16 @@ button {
   width: 100%;
 }
 
+.candidate-card {
+  box-shadow: 5px 5px 0 rgb(23 23 20 / 0.12);
+  transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+.candidate-card:hover {
+  box-shadow: 8px 8px 0 rgb(182 42 29 / 0.18);
+  transform: translate(-2px, -2px);
+}
+
 .page-enter {
   animation: page-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }

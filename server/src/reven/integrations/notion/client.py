@@ -44,10 +44,13 @@ class NotionClient:
         data_source_id: str,
         *,
         start_cursor: str | None = None,
+        filter: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"page_size": 100, "result_type": "page"}
         if start_cursor:
             payload["start_cursor"] = start_cursor
+        if filter is not None:
+            payload["filter"] = filter
         return await self._request(
             "POST",
             f"/v1/data_sources/{data_source_id}/query",
@@ -72,6 +75,16 @@ class NotionClient:
 
     async def update_page(self, page_id: str, *, properties: dict[str, Any]) -> dict[str, Any]:
         return await self._request("PATCH", f"/v1/pages/{page_id}", json={"properties": properties})
+
+    async def create_page(self, data_source_id: str, *, properties: dict[str, Any]) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/pages",
+            json={
+                "parent": {"type": "data_source_id", "data_source_id": data_source_id},
+                "properties": properties,
+            },
+        )
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         try:

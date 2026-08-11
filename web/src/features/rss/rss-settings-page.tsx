@@ -59,7 +59,7 @@ function PageHeader() {
         RSS 内容发现配置
       </h1>
       <p className="mt-5 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-        维护抓取源与正反向关键词。抓取、筛选和通知由后续任务接入。
+        维护抓取源与正反向关键词。系统每天上海时间 06:00 自动抓取、筛选并发送一条汇总。
       </p>
     </header>
   )

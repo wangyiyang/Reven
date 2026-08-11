@@ -1,5 +1,5 @@
 import { apiRequest, ApiError } from "@/lib/api"
-import type { RssKeyword, RssSource } from "./types"
+import type { RssCandidate, RssInboxPushResult, RssKeyword, RssSource } from "./types"
 
 export interface RssSourceInput {
   name: string
@@ -35,6 +35,23 @@ export async function fetchRssSources(): Promise<RssSource[]> {
 export async function fetchRssKeywords(): Promise<RssKeyword[]> {
   const value = await apiRequest<unknown>("/rss/keywords")
   if (!Array.isArray(value) || !value.every(isRssKeyword)) throw invalidResponse()
+  return value
+}
+
+export async function fetchRssCandidates(): Promise<RssCandidate[]> {
+  const value = await apiRequest<unknown>("/rss/candidates")
+  if (!Array.isArray(value) || !value.every(isRssCandidate)) throw candidateInvalidResponse()
+  return value
+}
+
+export async function ignoreRssCandidate(id: string): Promise<void> {
+  const value = await apiRequest<unknown>(`/rss/candidates/${id}/ignore`, { method: "POST" })
+  if (!isRssCandidate(value) || value.status !== "ignored") throw candidateInvalidResponse()
+}
+
+export async function confirmRssCandidate(id: string): Promise<RssInboxPushResult> {
+  const value = await apiRequest<unknown>(`/rss/candidates/${id}/confirm`, { method: "POST" })
+  if (!isRssInboxPushResult(value)) throw candidateInvalidResponse()
   return value
 }
 
@@ -87,6 +104,60 @@ function isRssKeyword(value: unknown): value is RssKeyword {
     && typeof value.updated_at === "string"
 }
 
+function isRssCandidate(value: unknown): value is RssCandidate {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.source_name === "string"
+    && nullableHttpUrl(value.url)
+    && typeof value.title === "string"
+    && typeof value.summary === "string"
+    && typeof value.title_zh === "string"
+    && typeof value.summary_zh === "string"
+    && nullableString(value.published_at)
+    && typeof value.status === "string"
+    && stringArray(value.positive_literal_matches)
+    && stringArray(value.negative_literal_matches)
+    && finiteNumber(value.bm25_score)
+    && finiteNumber(value.positive_embedding_score)
+    && finiteNumber(value.negative_embedding_score)
+    && nullableString(value.embedding_model)
+    && typeof value.embedding_status === "string"
+    && typeof value.model_status === "string"
+    && nullableNumber(value.model_score)
+    && nullableString(value.reason)
+    && nullableString(value.rules_version)
+    && nullableString(value.screening_error)
+    && nullableString(value.push_error)
+    && nullableHttpUrl(value.notion_url)
+}
+
+function isRssInboxPushResult(value: unknown): value is RssInboxPushResult {
+  return isRecord(value)
+    && typeof value.item_id === "string"
+    && typeof value.notion_page_id === "string"
+    && isHttpUrl(value.notion_url)
+}
+
+function nullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string"
+}
+
+function nullableNumber(value: unknown): value is number | null {
+  return value === null || finiteNumber(value)
+}
+
+function nullableHttpUrl(value: unknown): value is string | null {
+  return value === null || isHttpUrl(value)
+}
+
+function finiteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+}
+
 function isHttpUrl(value: unknown): value is string {
   if (typeof value !== "string") return false
   try {
@@ -103,4 +174,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function invalidResponse(): ApiError {
   return new ApiError(200, "invalid_response", "RSS 配置响应格式无效")
+}
+
+function candidateInvalidResponse(): ApiError {
+  return new ApiError(200, "invalid_response", "RSS 候选响应格式无效")
 }

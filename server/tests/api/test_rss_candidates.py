@@ -1,0 +1,143 @@
+import asyncio
+import hashlib
+from datetime import UTC, date, datetime
+from uuid import UUID
+
+from fastapi.testclient import TestClient
+from reven.rss.inbox import InboxPushResult
+from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+
+class RecordingInbox:
+    def __init__(self) -> None:
+        self.item_ids: list[UUID] = []
+
+    async def push(self, item_id: UUID) -> InboxPushResult:
+        self.item_ids.append(item_id)
+        return InboxPushResult(
+            item_id,
+            UUID("55555555-5555-5555-5555-555555555555"),
+            "https://www.notion.so/material",
+        )
+
+
+class RecordingEmbeddingRefresher:
+    def __init__(self) -> None:
+        self.force_values: list[bool] = []
+
+    async def refresh(self, *, force: bool = False) -> int:
+        self.force_values.append(force)
+        return 3
+
+
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def seed_candidate(factory: async_sessionmaker[AsyncSession]) -> UUID:
+    async with factory.begin() as session:
+        source = RssSource(name="Example", feed_url="https://example.com/feed", enabled=True)
+        run = RssDiscoveryRun(run_date=date(2026, 8, 11), status="completed")
+        session.add_all([source, run])
+        await session.flush()
+        item = RssItem(
+            source_id=source.id,
+            first_seen_run_id=run.id,
+            source_name=source.name,
+            guid="one",
+            url="https://example.com/one",
+            url_key=digest("url-one"),
+            guid_key=digest("guid-one"),
+            title_key=digest("title-one"),
+            title="Agent systems",
+            summary="Original summary",
+            title_zh="智能体系统",
+            summary_zh="中文摘要",
+            published_at=datetime(2026, 8, 11, 1, tzinfo=UTC),
+            status="candidate",
+            positive_literal_matches=["agent"],
+            negative_literal_matches=[],
+            bm25_score=0.6,
+            positive_embedding_score=0.9,
+            negative_embedding_score=0.1,
+            embedding_model="BAAI/bge-m3",
+            embedding_status="completed",
+            model_status="skipped",
+            reason="正向信号达到阈值",
+            rules_version="rss-v1",
+        )
+        session.add(item)
+        await session.flush()
+        return item.id
+
+
+def test_user_can_list_and_ignore_candidates(workbench: tuple[TestClient, async_sessionmaker]) -> None:
+    client, factory = workbench
+    item_id = asyncio.run(seed_candidate(factory))
+
+    response = client.get("/api/rss/candidates")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": str(item_id),
+            "source_name": "Example",
+            "url": "https://example.com/one",
+            "title": "Agent systems",
+            "summary": "Original summary",
+            "title_zh": "智能体系统",
+            "summary_zh": "中文摘要",
+            "published_at": "2026-08-11T01:00:00Z",
+            "status": "candidate",
+            "positive_literal_matches": ["agent"],
+            "negative_literal_matches": [],
+            "bm25_score": 0.6,
+            "positive_embedding_score": 0.9,
+            "negative_embedding_score": 0.1,
+            "embedding_model": "BAAI/bge-m3",
+            "embedding_status": "completed",
+            "model_status": "skipped",
+            "model_score": None,
+            "reason": "正向信号达到阈值",
+            "rules_version": "rss-v1",
+            "screening_error": None,
+            "push_error": None,
+            "notion_url": None,
+        }
+    ]
+    ignored = client.post(f"/api/rss/candidates/{item_id}/ignore")
+    assert ignored.status_code == 200
+    assert ignored.json()["status"] == "ignored"
+    assert client.get("/api/rss/candidates").json() == []
+
+
+def test_user_can_confirm_candidate_for_notion(workbench: tuple[TestClient, async_sessionmaker]) -> None:
+    client, factory = workbench
+    item_id = asyncio.run(seed_candidate(factory))
+    inbox = RecordingInbox()
+    client.app.state.rss_inbox_service = inbox
+
+    response = client.post(f"/api/rss/candidates/{item_id}/confirm")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "item_id": str(item_id),
+        "notion_page_id": "55555555-5555-5555-5555-555555555555",
+        "notion_url": "https://www.notion.so/material",
+    }
+    assert inbox.item_ids == [item_id]
+
+
+def test_user_can_explicitly_rebuild_keyword_embeddings(
+    workbench: tuple[TestClient, async_sessionmaker],
+) -> None:
+    client, _factory = workbench
+    refresher = RecordingEmbeddingRefresher()
+    client.app.state.rss_embedding_refresher = refresher
+
+    response = client.post("/api/rss/embeddings/rebuild")
+
+    assert response.status_code == 200
+    assert response.json() == {"refreshed": 3, "model": "BAAI/bge-m3", "dimension": 1024}
+    assert refresher.force_values == [True]

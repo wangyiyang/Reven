@@ -70,10 +70,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
+def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, async_sessionmaker]]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("TEST_DATABASE_URL is not set")
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("REVEN_MASTER_KEY", TEST_MASTER_KEY)
+    get_settings.cache_clear()
     engine = create_async_engine(database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -81,7 +84,8 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
         async with engine.begin() as connection:
             await connection.execute(
                 text(
-                    "TRUNCATE rss_keywords, rss_sources, publication_jobs, articles, integrations, "
+                    "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, "
+                    "articles, integrations, "
                     "system_state RESTART IDENTITY CASCADE"
                 )
             )
@@ -96,3 +100,4 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
     with TestClient(app, headers=WRITE_HEADERS) as test_client:
         yield test_client, factory
     asyncio.run(engine.dispose())
+    get_settings.cache_clear()

@@ -15,6 +15,9 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
     assert "wechat_app_secret" not in Settings.model_fields
     assert settings.cos_secret_id is None
     assert settings.cos_secret_key is None
+    assert settings.siliconflow_api_key is None
+    assert settings.siliconflow_chat_model == "Qwen/Qwen3-8B"
+    assert settings.rss_scheduler_interval_seconds == 60
 
 
 def test_public_base_url_accepts_https_and_localhost_http(monkeypatch) -> None:  # type: ignore[no-untyped-def]

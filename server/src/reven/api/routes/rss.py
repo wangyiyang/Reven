@@ -2,15 +2,71 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
-from reven.api.dependencies import SessionDep
-from reven.api.schemas.rss import RssKeywordCreate, RssKeywordResponse, RssSourceCreate, RssSourceResponse
-from reven.rss.models import RssKeyword, RssSource
+from reven.api.dependencies import RssEmbeddingRefresherDep, RssInboxServiceDep, SessionDep
+from reven.api.schemas.rss import (
+    InboxPushResponse,
+    RssCandidateResponse,
+    RssEmbeddingRebuildResponse,
+    RssKeywordCreate,
+    RssKeywordResponse,
+    RssSourceCreate,
+    RssSourceResponse,
+)
+from reven.rss.inbox import InboxPushError, InboxPushResult
+from reven.rss.models import RssItem, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
 
 router = APIRouter(prefix="/api/rss", tags=["rss"])
+
+
+@router.post("/embeddings/rebuild", response_model=RssEmbeddingRebuildResponse)
+async def rebuild_keyword_embeddings(
+    embeddings: RssEmbeddingRefresherDep,
+) -> RssEmbeddingRebuildResponse | JSONResponse:
+    try:
+        refreshed = await embeddings.refresh(force=True)
+    except Exception:
+        return _candidate_error(503, "RSS_EMBEDDING_UNAVAILABLE", "关键词向量重建失败")
+    return RssEmbeddingRebuildResponse(refreshed=refreshed, model="BAAI/bge-m3", dimension=1024)
+
+
+@router.get("/candidates", response_model=list[RssCandidateResponse])
+async def list_candidates(
+    session: SessionDep,
+    candidate_status: str = Query("candidate", alias="status", max_length=24),
+) -> list[RssItem]:
+    result = await session.scalars(
+        select(RssItem)
+        .where(RssItem.status == candidate_status)
+        .order_by(RssItem.published_at.desc().nullslast(), RssItem.first_seen_at.desc())
+    )
+    return list(result)
+
+
+@router.post("/candidates/{item_id}/ignore", response_model=RssCandidateResponse)
+async def ignore_candidate(item_id: UUID, session: SessionDep) -> RssItem | JSONResponse:
+    item = await session.get(RssItem, item_id, with_for_update=True)
+    if item is None:
+        return _candidate_error(404, "RSS_CANDIDATE_NOT_FOUND", "RSS 候选不存在")
+    if item.status == "ignored":
+        return item
+    if item.status != "candidate":
+        return _candidate_error(409, "RSS_CANDIDATE_NOT_IGNORABLE", "RSS 候选当前状态不允许忽略")
+    item.status = "ignored"
+    await session.commit()
+    return item
+
+
+@router.post("/candidates/{item_id}/confirm", response_model=InboxPushResponse)
+async def confirm_candidate(item_id: UUID, inbox: RssInboxServiceDep) -> InboxPushResult | JSONResponse:
+    try:
+        return await inbox.push(item_id)
+    except InboxPushError as exc:
+        return _candidate_error(exc.status_code, exc.code, exc.message)
 
 
 @router.get("/sources", response_model=list[RssSourceResponse])
@@ -136,3 +192,7 @@ def _conflict_response(exc: RssSettingsConflictError) -> JSONResponse:
         status_code=409,
         content={"code": exc.code, "message": exc.message},
     )
+
+
+def _candidate_error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"code": code, "message": message})

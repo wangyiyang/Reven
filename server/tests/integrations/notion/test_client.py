@@ -51,6 +51,42 @@ async def test_query_data_source_passes_start_cursor_for_pagination() -> None:
 
 
 @pytest.mark.anyio
+async def test_query_data_source_passes_exact_filter() -> None:
+    filter_value = {"property": "Reven ID", "rich_text": {"equals": "item-1"}}
+    with respx.mock(base_url=BASE_URL) as router:
+        route = router.post(f"/v1/data_sources/{DATA_SOURCE_ID}/query").mock(
+            return_value=httpx.Response(
+                200, json={"object": "list", "results": [], "has_more": False, "next_cursor": None}
+            )
+        )
+        async with httpx.AsyncClient(base_url=BASE_URL) as http:
+            await NotionClient(token=TOKEN, http=http).query_data_source(DATA_SOURCE_ID, filter=filter_value)
+
+    assert json.loads(route.calls[0].request.content) == {
+        "page_size": 100,
+        "result_type": "page",
+        "filter": filter_value,
+    }
+
+
+@pytest.mark.anyio
+async def test_create_page_uses_data_source_parent_and_properties() -> None:
+    properties = {"名称": {"title": [{"text": {"content": "素材"}}]}}
+    with respx.mock(base_url=BASE_URL) as router:
+        route = router.post("/v1/pages").mock(
+            return_value=httpx.Response(200, json={"object": "page", "id": PAGE_ID, "url": "https://notion.so/page"})
+        )
+        async with httpx.AsyncClient(base_url=BASE_URL) as http:
+            result = await NotionClient(token=TOKEN, http=http).create_page(DATA_SOURCE_ID, properties=properties)
+
+    assert result["id"] == PAGE_ID
+    assert json.loads(route.calls[0].request.content) == {
+        "parent": {"type": "data_source_id", "data_source_id": DATA_SOURCE_ID},
+        "properties": properties,
+    }
+
+
+@pytest.mark.anyio
 async def test_retrieve_page_markdown_returns_markdown() -> None:
     with respx.mock(base_url=BASE_URL) as router:
         route = router.get(f"/v1/pages/{PAGE_ID}/markdown").mock(

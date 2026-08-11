@@ -15,6 +15,7 @@ export interface FieldDefinition {
   label: string
   placeholder?: string
   type?: "text" | "password"
+  optional?: boolean
 }
 
 export interface ProviderDefinition {
@@ -37,6 +38,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     publicFields: [
       { key: "database_id", label: "Database ID", placeholder: "3301a325-…" },
       { key: "data_source_id", label: "Data Source ID", placeholder: "4f7889bf-…" },
+      { key: "inbox_data_source_id", label: "Inbox Data Source ID", placeholder: "素材 Inbox（可选）", optional: true },
     ],
     secretField: { key: "token", label: "Token", type: "password", placeholder: "输入新 Token" },
   },

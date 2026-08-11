@@ -49,6 +49,7 @@ from reven.jobs.service import (
 )
 from reven.publishing.assets import AssetDownloadError
 from reven.publishing.factory import build_configured_notifier, build_configured_orchestrator
+from reven.rss.factory import build_configured_rss_tick
 from reven.scheduling import utc_now
 from reven.system.models import SystemState
 
@@ -129,6 +130,7 @@ def build_background_runner(
     settings = get_settings()
     orchestrator = build_configured_orchestrator(session_factory, settings)
     notifier = build_configured_notifier(session_factory, settings)
+    rss_tick = build_configured_rss_tick(session_factory, settings, notifier)
     jobs = PublicationJobTick(
         session_factory,
         ConfiguredPreparationService(session_factory),
@@ -144,9 +146,11 @@ def build_background_runner(
             notifier,
         ),
         content_sync_tick=build_content_sync_tick(session_factory, settings),
+        rss_tick=rss_tick,
         sync_interval=settings.sync_interval_seconds,
         job_interval=settings.scheduler_interval_seconds,
         notification_interval=settings.scheduler_interval_seconds,
+        rss_interval=settings.rss_scheduler_interval_seconds,
     )
 
 
@@ -191,17 +195,21 @@ class BackgroundRunner:
         notification_tick: Tick | None = None,
         *,
         content_sync_tick: Tick | None = None,
+        rss_tick: Tick | None = None,
         sync_interval: float = 60,
         job_interval: float = 5,
         notification_interval: float = 5,
+        rss_interval: float = 5,
     ) -> None:
         self._sync_tick = sync_tick
         self._job_tick = job_tick
         self._notification_tick = notification_tick
         self._content_sync_tick = content_sync_tick
+        self._rss_tick = rss_tick
         self._sync_interval = sync_interval
         self._job_interval = job_interval
         self._notification_interval = notification_interval
+        self._rss_interval = rss_interval
         self._tasks: tuple[asyncio.Task[None], ...] = ()
 
     @property
@@ -227,6 +235,13 @@ class BackgroundRunner:
                 asyncio.create_task(
                     self._loop(self._content_sync_tick, self._job_interval),
                     name="reven-content-sync",
+                )
+            )
+        if self._rss_tick is not None:
+            tasks.append(
+                asyncio.create_task(
+                    self._loop(self._rss_tick, self._rss_interval),
+                    name="reven-rss-discovery",
                 )
             )
         self._tasks = tuple(tasks)

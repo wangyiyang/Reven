@@ -6,7 +6,7 @@ import httpx
 
 from reven.integrations.notion.client import NotionClient
 from reven.integrations.notion.models import NotionConfigError, NotionError, NotionSchemaError, NotionTransientError
-from reven.integrations.notion.schema import bootstrap_data_source_schema
+from reven.integrations.notion.schema import bootstrap_data_source_schema, bootstrap_inbox_schema
 from reven.integrations.service import (
     ConnectionTestResult,
     IntegrationError,
@@ -55,7 +55,8 @@ async def bootstrap_notion_schema(service: IntegrationService) -> dict[str, Any]
         raise IntegrationError(
             status_code=500, code="INTEGRATION_SECRET_INVALID", message="集成 notion 的 Secret 密文无法解密，请重新配置"
         ) from exc
-    data_source_id = public_config_without_hint(integration).get("data_source_id")
+    public_config = public_config_without_hint(integration)
+    data_source_id = public_config.get("data_source_id")
     if data_source_id is None:
         raise IntegrationError(
             status_code=409, code="NOTION_DATA_SOURCE_MISSING", message="Notion data_source_id 未配置"
@@ -63,7 +64,13 @@ async def bootstrap_notion_schema(service: IntegrationService) -> dict[str, Any]
     try:
         async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
             client = NotionClient(token=secrets.get("token", ""), http=http)
-            return await bootstrap_data_source_schema(client, str(data_source_id))
+            article_patch = await bootstrap_data_source_schema(client, str(data_source_id))
+            combined = dict(article_patch or {})
+            inbox_data_source_id = public_config.get("inbox_data_source_id")
+            if inbox_data_source_id is not None:
+                inbox_patch = await bootstrap_inbox_schema(client, str(inbox_data_source_id), str(data_source_id))
+                combined.update({f"Inbox · {name}": value for name, value in (inbox_patch or {}).items()})
+            return combined or None
     except NotionConfigError as exc:
         raise IntegrationError(status_code=400, code="NOTION_CONFIG_INVALID", message=str(exc)) from exc
     except NotionTransientError as exc:

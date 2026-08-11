@@ -29,6 +29,7 @@ class _Strict(BaseModel):
 class NotionPublicConfig(_Strict):
     data_source_id: UUID
     database_id: UUID
+    inbox_data_source_id: UUID | None = None
 
 
 class GitHubPublicConfig(_Strict):
