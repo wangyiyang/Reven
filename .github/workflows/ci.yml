@@ -2,11 +2,17 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      full:
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: reven-ci-${{ github.event.pull_request.number || github.sha }}
@@ -16,7 +22,60 @@ env:
   UV_FROZEN: "1"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      migration: ${{ steps.filter.outputs.migration }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      renderer: ${{ steps.filter.outputs.renderer }}
+      container: ${{ steps.filter.outputs.container }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        with:
+          filters: |
+            backend:
+              - 'server/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
+            migration:
+              - 'server/migrations/**'
+              - 'server/tests/migrations/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'web/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+            renderer:
+              - 'renderer/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+            container:
+              - 'infra/**'
+              - 'scripts/**'
+              - 'server/**'
+              - 'web/**'
+              - 'renderer/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.env.example'
+              - '.github/workflows/ci.yml'
+
   backend:
+    if: inputs.full || needs.changes.outputs.backend == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -38,6 +97,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages
       - run: uv run ruff check server
@@ -47,6 +109,8 @@ jobs:
       - run: uv run pytest server/tests --cov=reven --cov-report=term-missing --cov-fail-under=80
 
   migration:
+    if: inputs.full || needs.changes.outputs.migration == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -68,12 +132,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages
       - run: uv run alembic -c server/migrations/alembic.ini upgrade head
       - run: uv run pytest server/tests/migrations/test_notification_outbox_migration.py
 
   frontend:
+    if: inputs.full || needs.changes.outputs.frontend == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -88,6 +157,8 @@ jobs:
       - run: pnpm --filter @reven/web build
 
   renderer:
+    if: inputs.full || needs.changes.outputs.renderer == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -101,6 +172,8 @@ jobs:
       - run: pnpm --filter @reven/renderer build
 
   container:
+    if: inputs.full || needs.changes.outputs.container == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
