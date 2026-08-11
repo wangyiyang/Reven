@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: reven-ci-${{ github.event.pull_request.number || github.sha }}
