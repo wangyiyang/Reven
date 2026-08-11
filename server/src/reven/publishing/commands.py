@@ -73,6 +73,7 @@ class CommandRunner:
             _kill_process_group(process_group_id)
             await process.wait()
             await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
+            await _wait_process_group_exit(process_group_id)
             if isinstance(exc, asyncio.CancelledError):
                 raise
             raise CommandError("命令执行超时") from exc
@@ -80,6 +81,7 @@ class CommandRunner:
             _kill_process_group(process_group_id)
             await process.wait()
             await asyncio.shield(asyncio.gather(*tasks, return_exceptions=True))
+            await _wait_process_group_exit(process_group_id)
             raise
         stdout, stdout_truncated = stdout_task.result()
         stderr, stderr_truncated = stderr_task.result()
@@ -114,6 +116,22 @@ def _kill_process_group(process_group_id: int) -> None:
         os.killpg(process_group_id, signal.SIGKILL)
     except ProcessLookupError:
         return
+
+
+async def _wait_process_group_exit(process_group_id: int, *, timeout: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        await asyncio.sleep(min(0.01, remaining))
 
 
 async def _read_bounded(
