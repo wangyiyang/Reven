@@ -61,6 +61,10 @@ export function parsePreview(value: unknown): { html: string } {
   return { html: string(record(value, "微信预览").html, "微信预览") }
 }
 
+export function parsePortableMarkdown(value: unknown): { markdown: string } {
+  return { markdown: string(record(value, "可移植 Markdown").markdown, "可移植 Markdown") }
+}
+
 export function parseAction(value: unknown): { ok: boolean; job_id: string } {
   const data = record(value, "任务操作")
   return { ok: boolean(data.ok, "任务操作"), job_id: string(data.job_id, "任务操作") }

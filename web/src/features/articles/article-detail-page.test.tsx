@@ -84,6 +84,74 @@ describe("ArticleDetailPage", () => {
     expect(document.querySelector("main script")).toBeNull()
   })
 
+  it("copies portable Markdown from the validated current snapshot", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true })
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+    useDetailHandlers()
+    server.use(
+      http.post("/api/articles/:id/portable-markdown", () =>
+        HttpResponse.json({ markdown: "# 测试稿件\n\n![图](https://assets.example/image.png)\n" }),
+      ),
+    )
+    renderPage()
+
+    await userEvent.click(await screen.findByRole("button", { name: "复制 Markdown" }))
+
+    await vi.waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("# 测试稿件\n\n![图](https://assets.example/image.png)\n"),
+    )
+    expect(toast.success).toHaveBeenCalledWith("已复制")
+  })
+
+  it("shows the same Markdown for manual copy when clipboard permission is unavailable", async () => {
+    const markdown = "# 测试稿件\n\n正文与 [YouTube](https://youtube.com/watch?v=1)\n"
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true })
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new DOMException("denied")) },
+    })
+    useDetailHandlers()
+    server.use(
+      http.post("/api/articles/:id/portable-markdown", () => HttpResponse.json({ markdown })),
+    )
+    renderPage()
+
+    await userEvent.click(await screen.findByRole("button", { name: "复制 Markdown" }))
+
+    expect(await screen.findByRole("dialog", { name: "手动复制 Markdown" })).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "可移植 Markdown 内容" })).toHaveValue(markdown)
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("请检查浏览器权限"))
+  })
+
+  it("refreshes and disables copying when the snapshot becomes stale during validation", async () => {
+    let stale = false
+    useDetailHandlers()
+    server.use(
+      http.get("/api/articles/:id", () => HttpResponse.json({
+        ...article,
+        content_sync: stale
+          ? { ...article.content_sync, status: "已过期", outputs_enabled: false }
+          : article.content_sync,
+      })),
+      http.post("/api/articles/:id/portable-markdown", () => {
+        stale = true
+        return HttpResponse.json(
+          { code: "SNAPSHOT_STALE", message: "Notion 内容已变化，请重新同步" },
+          { status: 409 },
+        )
+      }),
+    )
+    renderPage()
+
+    const copyButton = await screen.findByRole("button", { name: "复制 Markdown" })
+    expect(copyButton).toBeEnabled()
+    await userEvent.click(copyButton)
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("Notion 内容已变化，请重新同步"))
+    await vi.waitFor(() => expect(copyButton).toBeDisabled())
+  })
+
   it("keeps preview and publication retry disabled until the latest snapshot is valid", async () => {
     useDetailHandlers({
       articlePatch: {
@@ -98,6 +166,7 @@ describe("ArticleDetailPage", () => {
     })
     renderPage()
 
+    expect(await screen.findByRole("button", { name: "复制 Markdown" })).toBeDisabled()
     expect(await screen.findByRole("button", { name: "生成微信预览" })).toBeDisabled()
     expect(await screen.findByRole("button", { name: "重试个人博客" })).toBeDisabled()
     expect(screen.getAllByText("附件下载失败")).toHaveLength(2)
