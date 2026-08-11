@@ -55,3 +55,43 @@ class RssKeywordResponse(BaseModel):
     enabled: bool
     created_at: datetime
     updated_at: datetime
+
+
+class RssCandidateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    source_name: str
+    url: str | None
+    title: str
+    summary: str
+    title_zh: str
+    summary_zh: str
+    published_at: datetime | None
+    status: str
+    positive_literal_matches: list[str]
+    negative_literal_matches: list[str]
+    bm25_score: float
+    positive_embedding_score: float
+    negative_embedding_score: float
+    embedding_model: str | None
+    embedding_status: str
+    model_status: str
+    model_score: float | None
+    reason: str | None
+    rules_version: str | None
+    screening_error: str | None
+    push_error: str | None
+    notion_url: str | None
+
+
+class InboxPushResponse(BaseModel):
+    item_id: UUID
+    notion_page_id: UUID
+    notion_url: str
+
+
+class RssEmbeddingRebuildResponse(BaseModel):
+    refreshed: int
+    model: str
+    dimension: int

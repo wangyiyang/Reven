@@ -7,6 +7,8 @@ from uuid import UUID
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from reven.rss.inbox import InboxPushResult
+
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
     factory = getattr(request.app.state, "session_factory", None)
@@ -41,3 +43,31 @@ def get_preview_service(request: Request) -> WechatPreviewService:
 
 
 PreviewServiceDep = Annotated[WechatPreviewService, Depends(get_preview_service)]
+
+
+class RssInboxPusher(Protocol):
+    async def push(self, item_id: UUID) -> InboxPushResult: ...
+
+
+def get_rss_inbox_service(request: Request) -> RssInboxPusher:
+    service = getattr(request.app.state, "rss_inbox_service", None)
+    if service is None:
+        raise RuntimeError("RSS Notion Inbox 服务未初始化")
+    return service
+
+
+RssInboxServiceDep = Annotated[RssInboxPusher, Depends(get_rss_inbox_service)]
+
+
+class RssEmbeddingRefresher(Protocol):
+    async def refresh(self, *, force: bool = False) -> int: ...
+
+
+def get_rss_embedding_refresher(request: Request) -> RssEmbeddingRefresher:
+    service = getattr(request.app.state, "rss_embedding_refresher", None)
+    if service is None:
+        raise RuntimeError("RSS Embedding 服务未初始化")
+    return service
+
+
+RssEmbeddingRefresherDep = Annotated[RssEmbeddingRefresher, Depends(get_rss_embedding_refresher)]

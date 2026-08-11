@@ -6,11 +6,16 @@ import pytest
 import respx
 from reven.integrations.notion.client import NotionClient
 from reven.integrations.notion.models import NotionSchemaError
-from reven.integrations.notion.schema import bootstrap_data_source_schema, compute_bootstrap_patch
+from reven.integrations.notion.schema import (
+    bootstrap_data_source_schema,
+    compute_bootstrap_patch,
+    compute_inbox_patch,
+)
 
 BASE_URL = "https://api.notion.com"
 TOKEN = "ntn_test_token_0000"
 DATA_SOURCE_ID = "33333333-3333-3333-3333-333333333333"
+INBOX_DATA_SOURCE_ID = "44444444-4444-4444-4444-444444444444"
 
 EXPECTED_AUTOMATION_OPTIONS = ["未开始", "等待中", "处理中", "阻塞", "失败", "已完成"]
 
@@ -106,6 +111,63 @@ def test_select_property_without_config_key_is_treated_as_empty_options(load_fix
 def test_missing_status_property_raises_schema_error() -> None:
     with pytest.raises(NotionSchemaError, match="状态"):
         compute_bootstrap_patch({"标题": {"id": "title", "type": "title", "title": {}}})
+
+
+def test_inbox_patch_adds_material_fields_and_bidirectional_article_relation() -> None:
+    properties = {"名称": {"id": "title", "name": "名称", "type": "title", "title": {}}}
+
+    patch = compute_inbox_patch(properties, DATA_SOURCE_ID)
+
+    assert patch == {
+        "Reven ID": {"rich_text": {}},
+        "来源": {"rich_text": {}},
+        "原文链接": {"url": {}},
+        "发布时间": {"date": {}},
+        "摘要": {"rich_text": {}},
+        "关联稿件": {
+            "relation": {
+                "data_source_id": DATA_SOURCE_ID,
+                "dual_property": {"synced_property_name": "关联素材"},
+            }
+        },
+    }
+
+
+def test_inbox_patch_is_idempotent_for_existing_bidirectional_relation() -> None:
+    properties = {
+        "名称": {"id": "title", "name": "名称", "type": "title", "title": {}},
+        "Reven ID": {"id": "rid", "name": "Reven ID", "type": "rich_text", "rich_text": {}},
+        "来源": {"id": "src", "name": "来源", "type": "rich_text", "rich_text": {}},
+        "原文链接": {"id": "url", "name": "原文链接", "type": "url", "url": {}},
+        "发布时间": {"id": "date", "name": "发布时间", "type": "date", "date": {}},
+        "摘要": {"id": "sum", "name": "摘要", "type": "rich_text", "rich_text": {}},
+        "关联稿件": {
+            "id": "rel",
+            "name": "关联稿件",
+            "type": "relation",
+            "relation": {
+                "data_source_id": DATA_SOURCE_ID,
+                "dual_property": {"synced_property_id": "back", "synced_property_name": "关联素材"},
+            },
+        },
+    }
+
+    assert compute_inbox_patch(properties, DATA_SOURCE_ID) == {}
+
+
+def test_inbox_relation_to_wrong_data_source_is_rejected() -> None:
+    properties = {
+        "名称": {"id": "title", "name": "名称", "type": "title", "title": {}},
+        "关联稿件": {
+            "id": "rel",
+            "name": "关联稿件",
+            "type": "relation",
+            "relation": {"data_source_id": INBOX_DATA_SOURCE_ID, "dual_property": {}},
+        },
+    }
+
+    with pytest.raises(NotionSchemaError, match="关联稿件"):
+        compute_inbox_patch(properties, DATA_SOURCE_ID)
 
 
 @pytest.mark.anyio

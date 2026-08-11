@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 NOTION_BASE = "https://api.notion.com"
 DATA_SOURCE_ID = "33333333-3333-3333-3333-333333333333"
 DATABASE_ID = "22222222-2222-2222-2222-222222222222"
+INBOX_DATA_SOURCE_ID = "44444444-4444-4444-4444-444444444444"
 TOKEN = "ntn_0000cccc"
 
 
@@ -106,6 +107,47 @@ def test_bootstrap_schema_patches_then_becomes_noop(client: TestClient, load_fix
     assert second.status_code == 200
     assert second.json() == {"patched": False, "properties": []}
     assert len(patch_route.calls) == 1
+
+
+def test_bootstrap_schema_adds_inbox_fields_and_bidirectional_relation(client: TestClient, load_fixture) -> None:  # type: ignore[no-untyped-def]
+    response = client.put(
+        "/api/integrations/notion",
+        json={
+            "public_config": {
+                "data_source_id": DATA_SOURCE_ID,
+                "database_id": DATABASE_ID,
+                "inbox_data_source_id": INBOX_DATA_SOURCE_ID,
+            },
+            "secret": {"token": TOKEN},
+        },
+    )
+    assert response.status_code == 200
+    article = load_fixture("notion/data_source.json")
+    inbox = {"properties": {"名称": {"type": "title", "title": {}}}}
+    with respx.mock(base_url=NOTION_BASE, assert_all_called=False) as router:
+        router.get(f"/v1/data_sources/{DATA_SOURCE_ID}").mock(return_value=httpx.Response(200, json=article))
+        router.get(f"/v1/data_sources/{INBOX_DATA_SOURCE_ID}").mock(return_value=httpx.Response(200, json=inbox))
+        router.patch(f"/v1/data_sources/{DATA_SOURCE_ID}").mock(return_value=httpx.Response(200, json={}))
+        inbox_patch = router.patch(f"/v1/data_sources/{INBOX_DATA_SOURCE_ID}").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        result = client.post("/api/integrations/notion/bootstrap-schema")
+
+    assert result.status_code == 200
+    assert set(result.json()["properties"]) >= {
+        "Inbox · Reven ID",
+        "Inbox · 来源",
+        "Inbox · 原文链接",
+        "Inbox · 发布时间",
+        "Inbox · 摘要",
+        "Inbox · 关联稿件",
+    }
+    payload = json.loads(inbox_patch.calls[0].request.content)["properties"]
+    assert payload["关联稿件"]["relation"] == {
+        "data_source_id": DATA_SOURCE_ID,
+        "dual_property": {"synced_property_name": "关联素材"},
+    }
 
 
 def test_bootstrap_schema_without_integration_returns_404(client: TestClient) -> None:

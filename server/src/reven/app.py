@@ -16,6 +16,7 @@ from reven.api.routes.system import router as system_router
 from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.jobs.runner import build_background_runner
+from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher, ConfiguredRssInboxPusher
 from reven.security.csrf import CsrfOriginMiddleware
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,8 @@ async def _lifespan(
     )
     if factory is not None:
         current_app.state.session_factory = factory
+        current_app.state.rss_inbox_service = ConfiguredRssInboxPusher(factory)
+        current_app.state.rss_embedding_refresher = ConfiguredKeywordEmbeddingRefresher(factory)
     active_runner = runner
     primary_error: BaseException | None = None
     try:

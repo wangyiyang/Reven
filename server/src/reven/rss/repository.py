@@ -94,8 +94,11 @@ class RssSettingsRepository:
         keyword = await self.session.get(RssKeyword, keyword_id)
         if keyword is None:
             return None
+        normalized = normalize_keyword(term)
+        if normalized != keyword.normalized_term:
+            _clear_embedding(keyword)
         keyword.term = term
-        keyword.normalized_term = normalize_keyword(term)
+        keyword.normalized_term = normalized
         keyword.kind = kind
         keyword.enabled = enabled
         await _flush_or_conflict(
@@ -112,6 +115,15 @@ class RssSettingsRepository:
         await self.session.delete(keyword)
         await self.session.flush()
         return True
+
+
+def _clear_embedding(keyword: RssKeyword) -> None:
+    keyword.embedding = None
+    keyword.embedding_model = None
+    keyword.embedding_dimension = None
+    keyword.embedding_term_hash = None
+    keyword.embedding_generated_at = None
+    keyword.embedding_error = None
 
 
 async def _flush_or_conflict(

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     cos_secret_key: SecretStr | None = None
     cos_public_base_url: str | None = None
     cos_asset_prefix: str = "assets/sha256"
+    siliconflow_api_key: SecretStr | None = None
+    siliconflow_chat_model: str = "Qwen/Qwen3-8B"
+    rss_model_review_enabled: bool = True
+    rss_scheduler_interval_seconds: int = Field(default=60, ge=5)
 
     @field_validator("public_base_url")
     @classmethod

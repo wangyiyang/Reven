@@ -15,6 +15,17 @@ COVER_PROPERTY = "封面"
 AUTOMATION_STATUS_PROPERTY = "自动化状态"
 FAILURE_REASON_PROPERTY = "失败原因"
 STATUS_PROPERTY = "状态"
+INBOX_TITLE_PROPERTY = "名称"
+INBOX_ARTICLE_RELATION = "关联稿件"
+ARTICLE_MATERIAL_RELATION = "关联素材"
+
+INBOX_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Reven ID", "rich_text"),
+    ("来源", "rich_text"),
+    ("原文链接", "url"),
+    ("发布时间", "date"),
+    ("摘要", "rich_text"),
+)
 
 AUTOMATION_STATUS_OPTIONS: tuple[dict[str, str], ...] = (
     {"name": "未开始", "color": "gray"},
@@ -38,6 +49,39 @@ def compute_bootstrap_patch(properties: dict[str, Any]) -> dict[str, Any]:
     return patch
 
 
+def compute_inbox_patch(properties: dict[str, Any], article_data_source_id: str) -> dict[str, Any]:
+    """计算 Inbox 素材字段及指向稿件库的双向关系补丁。"""
+    title = properties.get(INBOX_TITLE_PROPERTY)
+    if title is None:
+        raise NotionSchemaError(f"Inbox 缺少必需的 {INBOX_TITLE_PROPERTY} 标题字段，请先在 Notion 中重命名")
+    _require_type(title, INBOX_TITLE_PROPERTY, "title")
+    patch: dict[str, Any] = {}
+    for name, expected in INBOX_FIELDS:
+        _ensure_typed_property(patch, properties, name, expected)
+    relation = properties.get(INBOX_ARTICLE_RELATION)
+    if relation is None:
+        patch[INBOX_ARTICLE_RELATION] = {
+            "relation": {
+                "data_source_id": article_data_source_id,
+                "dual_property": {"synced_property_name": ARTICLE_MATERIAL_RELATION},
+            }
+        }
+        return patch
+    _require_type(relation, INBOX_ARTICLE_RELATION, "relation")
+    config = relation.get("relation") if isinstance(relation, dict) else None
+    dual = config.get("dual_property") if isinstance(config, dict) else None
+    if (
+        not isinstance(config, dict)
+        or config.get("data_source_id") != article_data_source_id
+        or not isinstance(dual, dict)
+        or dual.get("synced_property_name") != ARTICLE_MATERIAL_RELATION
+    ):
+        raise NotionSchemaError(
+            f"字段 {INBOX_ARTICLE_RELATION} 必须是指向稿件库并同步为 {ARTICLE_MATERIAL_RELATION} 的双向关系"
+        )
+    return patch
+
+
 async def bootstrap_data_source_schema(client: NotionClient, data_source_id: str) -> dict[str, Any] | None:
     """读取当前数据源并只补齐缺失部分；无需变更时返回 None 且不发送 PATCH。"""
     data_source = await client.retrieve_data_source(data_source_id)
@@ -48,6 +92,22 @@ async def bootstrap_data_source_schema(client: NotionClient, data_source_id: str
     if not patch:
         return None
     await client.update_data_source(data_source_id, properties=patch)
+    return patch
+
+
+async def bootstrap_inbox_schema(
+    client: NotionClient,
+    inbox_data_source_id: str,
+    article_data_source_id: str,
+) -> dict[str, Any] | None:
+    data_source = await client.retrieve_data_source(inbox_data_source_id)
+    properties = data_source.get("properties")
+    if not isinstance(properties, dict):
+        raise NotionSchemaError("Inbox 数据源响应缺少 properties")
+    patch = compute_inbox_patch(properties, article_data_source_id)
+    if not patch:
+        return None
+    await client.update_data_source(inbox_data_source_id, properties=patch)
     return patch
 
 

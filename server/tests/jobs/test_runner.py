@@ -33,6 +33,7 @@ async def test_runner_stop_cancels_and_awaits_all_background_tasks() -> None:
         sync,
         jobs,
         notifications,
+        rss_tick=FakeJobLoop(),
         sync_interval=3600,
         job_interval=3600,
         notification_interval=3600,
@@ -43,7 +44,7 @@ async def test_runner_stop_cancels_and_awaits_all_background_tasks() -> None:
     await asyncio.sleep(0)
     await runner.stop()
 
-    assert len(tasks) == 3
+    assert len(tasks) == 4
     assert all(task.done() and task.cancelled() for task in tasks)
     assert runner.tasks == ()
 
@@ -223,6 +224,7 @@ def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
         job_lease_seconds = 120
         sync_interval_seconds = 60
         scheduler_interval_seconds = 5
+        rss_scheduler_interval_seconds = 60
         job_data_dir = "/tmp/reven-tests"
         public_base_url = "https://dev.example.com"
         renderer_command = "node /app/renderer/dist/cli.mjs"
@@ -239,11 +241,17 @@ def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
         "reven.jobs.runner.build_configured_notifier",
         lambda factory, settings: notifier,
     )
+    rss_tick = FakeJobLoop()
+    monkeypatch.setattr(
+        "reven.jobs.runner.build_configured_rss_tick",
+        lambda factory, settings, delivery_notifier: rss_tick,
+    )
     runner = build_background_runner(object())  # type: ignore[arg-type]
 
     assert isinstance(runner._job_tick, PublicationJobTick)
     assert runner._job_tick._executor is executor
     assert runner._notification_tick.notifier is notifier
+    assert runner._rss_tick is rss_tick
 
 
 @pytest.mark.parametrize(
