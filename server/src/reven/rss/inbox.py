@@ -179,6 +179,6 @@ def _page_identity(page: dict[str, object]) -> tuple[UUID, str]:
     if not isinstance(raw_url, str):
         raise InboxPushError("NOTION_INBOX_RESPONSE_INVALID", "Notion Inbox 页面 URL 无效", status_code=502)
     parsed = urlsplit(raw_url)
-    if parsed.scheme != "https" or parsed.hostname not in {"notion.so", "www.notion.so"}:
+    if parsed.scheme != "https" or parsed.hostname not in {"notion.so", "www.notion.so", "app.notion.com"}:
         raise InboxPushError("NOTION_INBOX_RESPONSE_INVALID", "Notion Inbox 页面 URL 无效", status_code=502)
     return page_id, raw_url
