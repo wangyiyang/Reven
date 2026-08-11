@@ -54,6 +54,43 @@ describe("IntegrationsPage", () => {
     expect(screen.getByLabelText("AppSecret")).toHaveValue("")
   })
 
+  it("requires every GitHub public setting before enabling save or test", async () => {
+    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
+    const user = userEvent.setup()
+    renderPage()
+
+    const saveButton = await screen.findByRole("button", { name: "保存GitHub配置" })
+    const testButton = screen.getByRole("button", { name: "测试GitHub连接" })
+
+    expect(saveButton).toBeDisabled()
+    expect(testButton).toBeDisabled()
+    expect(screen.getByText("请填写 Owner、Repo 和默认分支策略后保存配置。")).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Owner"), "wangyiyang")
+    await user.type(screen.getByLabelText("Repo"), "wangyiyang.github.io")
+    await user.type(screen.getByLabelText("默认分支策略"), "main")
+
+    expect(saveButton).toBeEnabled()
+    expect(testButton).toBeDisabled()
+  })
+
+  it("keeps GitHub connection testing unavailable until a token is configured", async () => {
+    const github = {
+      provider: "github",
+      public_config: { owner: "wangyiyang", repo: "wangyiyang.github.io", default_branch: "main" },
+      secret_configured: false,
+      secret_hint: null,
+      connection_status: "未测试",
+      last_tested_at: null,
+      last_error: null,
+    }
+    server.use(http.get("/api/integrations", () => HttpResponse.json([github])))
+    renderPage()
+
+    expect(await screen.findByRole("button", { name: "测试GitHub连接" })).toBeDisabled()
+    expect(screen.getByText("请先保存配置并设置 Token 后测试连接。")).toBeInTheDocument()
+  })
+
   it("keeps the existing secret when saving an empty secret input", async () => {
     let requestBody: unknown
     server.use(

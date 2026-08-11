@@ -208,9 +208,13 @@ interface CardActionsProps {
 function CardActions(props: CardActionsProps) {
   const { definition, form, integration } = props
   const secretPayload = { [definition.secretField.key]: form.secret }
+  const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
   return (
-    <footer className="mt-7 flex flex-wrap items-center gap-3">
-      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled} onClick={() => props.onSave(definition.provider, form.publicConfig)} ref={props.saveButtonRef}>
+    <footer className="mt-7">
+      {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--red)]">{`请填写 ${formatFieldLabels(definition)}后保存配置。`}</p>}
+      {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${definition.secretField.label} 后测试连接。`}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, form.publicConfig)} ref={props.saveButtonRef}>
         <Save aria-hidden size={15} />保存配置
       </Button>
       <Button
@@ -221,20 +225,30 @@ function CardActions(props: CardActionsProps) {
       >
         <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
       </Button>
-      <TestButton actionsDisabled={props.actionsDisabled} definition={definition} onTest={props.onTest} />
+      <TestButton actionsDisabled={props.actionsDisabled} definition={definition} integration={integration} onTest={props.onTest} />
       {definition.provider === "notion" && <Button disabled={props.actionsDisabled} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
       {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} disabled={props.actionsDisabled} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
       {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--blue)]" size={18} />}
+      </div>
     </footer>
   )
 }
 
-function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definition" | "onTest">) {
+function hasCompletePublicConfig(definition: ProviderDefinition, publicConfig: Record<string, string>) {
+  return definition.publicFields.every((field) => publicConfig[field.key]?.trim())
+}
+
+function formatFieldLabels(definition: ProviderDefinition) {
+  const labels = definition.publicFields.map((field) => field.label)
+  return labels.length > 1 ? `${labels.slice(0, -1).join("、")} 和${labels.at(-1)}` : labels[0]
+}
+
+function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definition" | "integration" | "onTest">) {
   const feishu = props.definition.provider === "feishu"
   return (
     <Button
       aria-label={feishu ? "发送飞书测试消息" : `测试${props.definition.title}连接`}
-      disabled={props.actionsDisabled}
+      disabled={props.actionsDisabled || !props.integration?.secret_configured}
       onClick={() => props.onTest(props.definition.provider)}
       variant="outline"
     >
