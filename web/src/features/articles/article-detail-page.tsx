@@ -15,6 +15,7 @@ import type { ArticleDetail, ChannelName, JobDetail, JobSummary, ValidationItem 
 import { WechatPreview } from "./wechat-preview"
 import { parseAction, parseArticleDetail, parseJobDetail } from "./response-parsers"
 import { PublicationGuidance } from "./publication-guidance"
+import { PortableMarkdownCopy } from "./portable-markdown-copy"
 
 export function ArticleDetailPage() {
   const { articleId = "" } = useParams()
@@ -49,6 +50,7 @@ function DetailContent({ article }: { article: ArticleDetail }) {
         <div className="flex flex-wrap gap-2">
           {notionUrl && <a className="inline-flex min-h-10 items-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold hover:border-[var(--ink)]" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={14} /></a>}
           <ContentSyncControl article={article} />
+          <PortableMarkdownCopy articleId={article.id} enabled={article.content_sync.outputs_enabled} />
           <WechatPreview articleId={article.id} enabled={article.content_sync.outputs_enabled} title={article.title} />
         </div>
       </header>

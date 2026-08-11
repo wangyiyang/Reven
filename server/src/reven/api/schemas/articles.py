@@ -126,3 +126,7 @@ class ActionResult(BaseModel):
 
 class PreviewResponse(BaseModel):
     html: str
+
+
+class PortableMarkdownResponse(BaseModel):
+    markdown: str

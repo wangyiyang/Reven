@@ -19,14 +19,16 @@ from reven.api.schemas.articles import (
     CurrentSnapshotSummary,
     JobDetail,
     JobSummary,
+    PortableMarkdownResponse,
     PreviewResponse,
     RetryRequest,
 )
 from reven.articles.actions import ActionConflictError, ArticleActionService
 from reven.articles.models import Article
 from reven.articles.query import ArticleQuery
+from reven.content_sync.configured import ConfiguredContentSource
 from reven.content_sync.domain import ContentSyncStatus
-from reven.content_sync.gate import SnapshotUnavailableError
+from reven.content_sync.gate import CurrentSnapshotGate, SnapshotUnavailableError
 from reven.content_sync.models import ContentSnapshot, ContentSyncRun
 from reven.domain import TargetChannel
 from reven.integrations.notion.configuration import IntegrationConfigurationError
@@ -132,6 +134,22 @@ async def preview_wechat(
     except Exception:
         return _error(502, "PREVIEW_FAILED", "微信预览生成失败，请检查集成和渲染器")
     return PreviewResponse(html=html)
+
+
+@router.post("/{article_id}/portable-markdown", response_model=PortableMarkdownResponse)
+async def get_portable_markdown(
+    article_id: UUID,
+    session: SessionDep,
+    factory: SessionFactoryDep,
+) -> PortableMarkdownResponse | JSONResponse:
+    article = await ArticleQuery(session).get(article_id)
+    if article is None:
+        return _error(404, "ARTICLE_NOT_FOUND", "稿件不存在")
+    try:
+        snapshot = await CurrentSnapshotGate(factory, ConfiguredContentSource(factory)).require(article.id)
+    except SnapshotUnavailableError as exc:
+        return _error(409, exc.code, exc.message)
+    return PortableMarkdownResponse(markdown=snapshot.portable_markdown)
 
 
 @router.post("/{article_id}/jobs/{job_id}/retry", response_model=ActionResult)
