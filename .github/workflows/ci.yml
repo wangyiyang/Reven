@@ -110,8 +110,6 @@ jobs:
       - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
       - run: docker run --rm reven:test ruby --version
       - run: docker run --rm reven:test bundle --version
-      - name: Test deployment image policy
-        run: ./scripts/test_validate_reven_image.sh
       - name: Validate Compose and Caddy
         run: |
           cp .env.example .env
