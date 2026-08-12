@@ -133,6 +133,18 @@ def test_inbox_patch_adds_material_fields_and_bidirectional_article_relation() -
     }
 
 
+def test_inbox_patch_accepts_existing_select_source_property() -> None:
+    properties = {
+        "名称": {"id": "title", "name": "名称", "type": "title", "title": {}},
+        "来源": {"id": "src", "name": "来源", "type": "select", "select": {"options": []}},
+    }
+
+    patch = compute_inbox_patch(properties, DATA_SOURCE_ID)
+
+    assert "来源" not in patch
+    assert set(patch) == {"Reven ID", "原文链接", "发布时间", "摘要", "关联稿件"}
+
+
 def test_inbox_patch_is_idempotent_for_existing_bidirectional_relation() -> None:
     properties = {
         "名称": {"id": "title", "name": "名称", "type": "title", "title": {}},

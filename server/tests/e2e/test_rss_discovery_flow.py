@@ -51,6 +51,9 @@ class Notion:
     def __init__(self) -> None:
         self.pages: list[dict[str, object]] = []
 
+    async def retrieve_data_source(self, data_source_id: str) -> dict[str, object]:
+        return {"properties": {"来源": {"type": "rich_text"}}}
+
     async def query_data_source(self, data_source_id: str, *, filter: dict[str, object]) -> dict[str, object]:
         item_id = filter["rich_text"]["equals"]  # type: ignore[index]
         matches = [page for page in self.pages if page["reven_id"] == item_id]

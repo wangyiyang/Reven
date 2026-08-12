@@ -16,12 +16,12 @@ AUTOMATION_STATUS_PROPERTY = "自动化状态"
 FAILURE_REASON_PROPERTY = "失败原因"
 STATUS_PROPERTY = "状态"
 INBOX_TITLE_PROPERTY = "名称"
+INBOX_SOURCE_PROPERTY = "来源"
 INBOX_ARTICLE_RELATION = "关联稿件"
 ARTICLE_MATERIAL_RELATION = "关联素材"
 
 INBOX_FIELDS: tuple[tuple[str, str], ...] = (
     ("Reven ID", "rich_text"),
-    ("来源", "rich_text"),
     ("原文链接", "url"),
     ("发布时间", "date"),
     ("摘要", "rich_text"),
@@ -58,6 +58,7 @@ def compute_inbox_patch(properties: dict[str, Any], article_data_source_id: str)
     patch: dict[str, Any] = {}
     for name, expected in INBOX_FIELDS:
         _ensure_typed_property(patch, properties, name, expected)
+    _ensure_inbox_source(patch, properties)
     relation = properties.get(INBOX_ARTICLE_RELATION)
     if relation is None:
         patch[INBOX_ARTICLE_RELATION] = {
@@ -117,6 +118,18 @@ def _ensure_typed_property(patch: dict[str, Any], properties: dict[str, Any], na
         patch[name] = {expected: {}}
         return
     _require_type(prop, name, expected)
+
+
+def _ensure_inbox_source(patch: dict[str, Any], properties: dict[str, Any]) -> None:
+    prop = properties.get(INBOX_SOURCE_PROPERTY)
+    if prop is None:
+        patch[INBOX_SOURCE_PROPERTY] = {"rich_text": {}}
+        return
+    actual = prop.get("type") if isinstance(prop, dict) else None
+    if actual not in {"rich_text", "select"}:
+        raise NotionSchemaError(
+            f"字段 {INBOX_SOURCE_PROPERTY} 类型应为 rich_text 或 select，实际为 {actual}，请手动调整后重试"
+        )
 
 
 def _ensure_automation_status(patch: dict[str, Any], properties: dict[str, Any]) -> None:
