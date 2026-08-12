@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 from reven.rss.ai import SiliconFlowChatClient
-from reven.rss.discovery import FeedEntry
+from reven.rss.discovery import FeedEntry, PartialLocalizationError
 from reven.rss.screening import ScreeningDocument
 
 
@@ -95,6 +95,59 @@ async def test_chat_client_localizes_large_inputs_within_provider_batch_limit() 
 
     assert [(item.title_zh, item.summary_zh) for item in result] == [
         (f"中文 Title {index}", f"中文 Summary {index}") for index in range(12)
+    ]
+
+
+@pytest.mark.anyio
+async def test_chat_client_preserves_successful_batches_when_one_batch_fails() -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        items = json.loads(json.loads(request.content)["messages"][1]["content"])
+        if requests == 2:
+            return httpx.Response(500)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "items": [
+                                        {
+                                            "index": item["index"],
+                                            "title_zh": f"中文 {item['title']}",
+                                            "summary_zh": f"中文 {item['summary']}",
+                                        }
+                                        for item in items
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    entries = tuple(FeedEntry(str(index), None, f"Title {index}", f"Summary {index}", None) for index in range(12))
+    async with httpx.AsyncClient(
+        base_url="https://api.siliconflow.cn",
+        transport=httpx.MockTransport(handler),
+    ) as http:
+        with pytest.raises(PartialLocalizationError) as captured:
+            await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize(entries)
+
+    assert requests == 3
+    assert captured.value.error_types == ("RuntimeError",)
+    assert [(item.title_zh, item.summary_zh) for item in captured.value.localized] == [
+        (f"中文 Title {index}", f"中文 Summary {index}")
+        if index < 5 or index >= 10
+        else (f"Title {index}", f"Summary {index}")
+        for index in range(12)
     ]
 
 

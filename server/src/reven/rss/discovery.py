@@ -32,6 +32,17 @@ class LocalizedEntry:
     summary_zh: str
 
 
+class PartialLocalizationError(RuntimeError):
+    def __init__(
+        self,
+        localized: tuple[LocalizedEntry, ...],
+        error_types: tuple[str, ...],
+    ) -> None:
+        super().__init__("RSS 本地化部分失败")
+        self.localized = localized
+        self.error_types = error_types
+
+
 @dataclass(frozen=True)
 class RssRunSummary:
     run_id: UUID
@@ -96,10 +107,14 @@ class RssDiscoveryService:
         entries = tuple(entry for _source, entry in fetched)
         try:
             localized = await self._localizer.localize(entries)
-            if len(localized) != len(fetched):
-                raise RuntimeError("RSS 本地化结果数量与输入不一致")
+        except PartialLocalizationError as exc:
+            localized = exc.localized
+            errors.extend({"stage": "translation", "error_type": name} for name in exc.error_types)
         except Exception as exc:
             errors.append({"stage": "translation", "error_type": type(exc).__name__})
+            localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
+        if len(localized) != len(fetched):
+            errors.append({"stage": "translation", "error_type": "RuntimeError"})
             localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
         summary = await self._persist_result(run_id, sources, fetched, localized, errors)
         if self._screener is not None:
