@@ -55,6 +55,50 @@ async def test_chat_client_localizes_entries_as_strict_ordered_json() -> None:
 
 
 @pytest.mark.anyio
+async def test_chat_client_localizes_large_inputs_within_provider_batch_limit() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        items = json.loads(payload["messages"][1]["content"])
+        if len(items) > 5:
+            raise httpx.ReadTimeout("provider batch timeout", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "items": [
+                                        {
+                                            "index": item["index"],
+                                            "title_zh": f"中文 {item['title']}",
+                                            "summary_zh": f"中文 {item['summary']}",
+                                        }
+                                        for item in items
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    entries = tuple(FeedEntry(str(index), None, f"Title {index}", f"Summary {index}", None) for index in range(12))
+    async with httpx.AsyncClient(
+        base_url="https://api.siliconflow.cn",
+        transport=httpx.MockTransport(handler),
+    ) as http:
+        result = await SiliconFlowChatClient("test-key", model="Qwen/Qwen3-8B", http=http).localize(entries)
+
+    assert [(item.title_zh, item.summary_zh) for item in result] == [
+        (f"中文 Title {index}", f"中文 Summary {index}") for index in range(12)
+    ]
+
+
+@pytest.mark.anyio
 async def test_chat_client_returns_optional_boundary_judgement() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert b"rules_version" in request.content

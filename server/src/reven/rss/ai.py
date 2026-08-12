@@ -11,7 +11,7 @@ from reven.rss.discovery import FeedEntry, LocalizedEntry
 from reven.rss.screening import ModelJudgement, ScreeningDocument
 
 MAX_RESPONSE_BYTES = 1024 * 1024
-LOCALIZE_BATCH_SIZE = 20
+LOCALIZE_BATCH_SIZE = 5
 
 
 class SiliconFlowChatClient:
