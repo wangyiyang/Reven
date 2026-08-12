@@ -61,6 +61,7 @@ class WeChatSecret(_Strict):
 
 class FeishuSecret(_Strict):
     webhook_url: str = Field(pattern=_FEISHU_WEBHOOK_PATTERN, max_length=512)
+    signing_secret: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class NotionIntegrationPut(_Strict):

@@ -1,5 +1,7 @@
 """生产环境交付编排器装配。"""
 
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -67,14 +69,24 @@ class ConfiguredFeishuNotifier:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         secret_box: SecretBox,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.session_factory = session_factory
         self.secret_box = secret_box
+        self.transport = transport
+        self.clock = clock
 
     async def send(self, notification: Notification) -> None:
-        webhook_url = await self._webhook_url()
-        async with httpx.AsyncClient(timeout=10, trust_env=False) as http:
-            await FeishuWebhookClient(webhook_url, http=http).send(
+        webhook_url, signing_secret = await self._credentials()
+        async with httpx.AsyncClient(timeout=10, trust_env=False, transport=self.transport) as http:
+            await FeishuWebhookClient(
+                webhook_url,
+                http=http,
+                signing_secret=signing_secret,
+                clock=self.clock,
+            ).send(
                 NotificationCard(
                     notification.title,
                     str(notification.stage),
@@ -83,7 +95,7 @@ class ConfiguredFeishuNotifier:
                 )
             )
 
-    async def _webhook_url(self) -> str:
+    async def _credentials(self) -> tuple[str, str | None]:
         async with self.session_factory() as session:
             integration = await IntegrationRepository(session).get_by_provider("feishu")
         if integration is None or integration.encrypted_secret is None:
@@ -95,7 +107,7 @@ class ConfiguredFeishuNotifier:
         webhook_url = secret.get("webhook_url")
         if not webhook_url:
             raise RuntimeError("飞书 Webhook 尚未配置")
-        return webhook_url
+        return webhook_url, secret.get("signing_secret")
 
 
 def build_configured_orchestrator(

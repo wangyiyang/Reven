@@ -1,6 +1,11 @@
 """最小化的飞书自定义机器人 Webhook 客户端。"""
 
+import base64
+import hashlib
+import hmac
 import json
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -19,13 +24,28 @@ class NotificationCard:
 
 
 class FeishuWebhookClient:
-    def __init__(self, webhook_url: str, *, http: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        webhook_url: str,
+        *,
+        http: httpx.AsyncClient,
+        signing_secret: str | None = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         _validate_webhook(webhook_url)
         self.webhook_url = webhook_url
         self.http = http
+        self.signing_secret = signing_secret
+        self.clock = clock
 
     async def send(self, card: NotificationCard) -> None:
-        async with self.http.stream("POST", self.webhook_url, json=_payload(card)) as response:
+        payload = _payload(card)
+        if self.signing_secret:
+            timestamp = str(int(self.clock()))
+            signing_key = f"{timestamp}\n{self.signing_secret}".encode()
+            digest = hmac.new(signing_key, digestmod=hashlib.sha256).digest()
+            payload.update(timestamp=timestamp, sign=base64.b64encode(digest).decode())
+        async with self.http.stream("POST", self.webhook_url, json=payload) as response:
             body = await _bounded_body(response)
         try:
             decoded = json.loads(body)
