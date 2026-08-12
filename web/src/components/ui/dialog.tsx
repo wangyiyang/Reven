@@ -21,7 +21,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 border border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[10px_10px_0_var(--ink)]"
+          className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 border border-[var(--line)] bg-[var(--bg)] p-6 shadow-lg"
           onCloseAutoFocus={(event) => {
             if (!props.returnFocusRef?.current) return
             event.preventDefault()
@@ -29,9 +29,9 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           }}
         >
           <div className="flex items-start justify-between gap-6">
-            <AlertTriangle aria-hidden className="mt-1 text-[var(--red)]" />
+            <AlertTriangle aria-hidden className="mt-1 text-[var(--danger)]" />
             <div className="flex-1">
-              <Dialog.Title className="font-display text-2xl">{props.title}</Dialog.Title>
+              <Dialog.Title className="text-2xl font-bold">{props.title}</Dialog.Title>
               <Dialog.Description className="mt-3 text-sm leading-6 text-[var(--muted)]">{props.description}</Dialog.Description>
             </div>
             <Dialog.Close asChild>

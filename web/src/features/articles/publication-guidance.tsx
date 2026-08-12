@@ -22,22 +22,22 @@ export function PublicationGuidance({
   return (
     <section className="border-y border-[var(--ink)] py-7">
       <p className="section-kicker"><Wrench aria-hidden size={14} />Recovery notes / 错误与建议</p>
-      <h2 className="font-display mt-2 text-3xl">下一步怎么处理</h2>
+      <h2 className="mt-2 text-3xl font-bold">下一步怎么处理</h2>
       {items.length === 0 ? (
         <p className="mt-4 text-sm text-[var(--muted)]">当前没有需要处理的错误。</p>
       ) : (
         <ul className="mt-5 grid gap-3">
           {items.map((item, index) => (
-            <li className="grid gap-2 border-l-2 border-[var(--red)] bg-[var(--red-soft)] p-4 sm:grid-cols-[10rem_1fr]" key={`${item.source}-${index}`}>
-              <div><p className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{item.source}</p><p className="mt-1 text-sm text-[var(--red)]">{item.error}</p></div>
+            <li className="grid gap-2 border-l-2 border-[var(--danger)] bg-[var(--faint)] p-4 sm:grid-cols-[10rem_1fr]" key={`${item.source}-${index}`}>
+              <div><p className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{item.source}</p><p className="mt-1 text-sm text-[var(--danger)]">{item.error}</p></div>
               <div><p className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">建议</p><p className="mt-1 text-sm">{item.advice}</p></div>
             </li>
           ))}
         </ul>
       )}
       {items.length > 0 && <div className="mt-4 flex flex-wrap gap-4 text-xs font-semibold">
-        {notionUrl && <a className="inline-flex items-center gap-1 underline underline-offset-4" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={12} /></a>}
-        <Link className="underline underline-offset-4" to="/integrations">检查集成配置</Link>
+        {notionUrl && <a className="inline-flex items-center gap-1" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={12} /></a>}
+        <Link to="/integrations">检查集成配置</Link>
       </div>}
     </section>
   )

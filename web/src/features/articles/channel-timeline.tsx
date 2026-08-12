@@ -18,10 +18,10 @@ export function ChannelTimeline({ channel, result }: { channel: ChannelName; res
   return (
     <section className="border-t border-[var(--ink)] py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-display text-2xl">{channel}</h3>
+        <h3 className="text-2xl font-bold">{channel}</h3>
         <ArticleStatus status={result?.status ?? null} />
       </div>
-      <div className="mt-5 border-l border-[var(--line-strong)] pl-5">
+      <div className="mt-5 border-l border-[var(--line)] pl-5">
         <p className="text-[10px] tracking-[0.13em] text-[var(--muted)] uppercase">当前阶段</p>
         <p className="mt-1 text-sm">{result?.status ?? "尚未创建渠道任务"}</p>
         {entries.length > 0 && (
@@ -29,7 +29,7 @@ export function ChannelTimeline({ channel, result }: { channel: ChannelName; res
             {entries.map(([key, value]) => <ResultItem key={key} name={key} value={String(value)} />)}
           </dl>
         )}
-        {result?.error && <p className="mt-5 border-l-2 border-[var(--red)] bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">{result.error}</p>}
+        {result?.error && <p className="mt-5 border-l-2 border-[var(--danger)] bg-[var(--faint)] p-3 text-sm text-[var(--danger)]">{result.error}</p>}
       </div>
     </section>
   )
@@ -41,7 +41,7 @@ function ResultItem({ name, value }: { name: string; value: string }) {
     <div className="min-w-0">
       <dt className="text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">{labels[name] ?? name}</dt>
       <dd className="mt-1 truncate font-mono text-xs">
-        {isLink ? <a className="inline-flex items-center gap-1 underline underline-offset-4" href={value} rel="noopener noreferrer" target="_blank">打开 <ArrowUpRight aria-hidden size={12} /></a> : value}
+        {isLink ? <a className="inline-flex items-center gap-1" href={value} rel="noopener noreferrer" target="_blank">打开 <ArrowUpRight aria-hidden size={12} /></a> : value}
       </dd>
     </div>
   )

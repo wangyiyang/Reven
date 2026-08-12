@@ -57,8 +57,8 @@ function ManualCopyDialog(props: { markdown: string | null; onClose: () => void 
     <Dialog.Root onOpenChange={(open) => !open && props.onClose()} open={props.markdown !== null}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 border border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[10px_10px_0_var(--ink)]">
-          <Dialog.Title className="font-display text-3xl">手动复制 Markdown</Dialog.Title>
+        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 border border-[var(--line)] bg-[var(--bg)] p-6 shadow-lg">
+          <Dialog.Title className="text-3xl font-bold">手动复制 Markdown</Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
             浏览器未授予剪贴板权限。请在下方选中全部内容后手动复制。
           </Dialog.Description>

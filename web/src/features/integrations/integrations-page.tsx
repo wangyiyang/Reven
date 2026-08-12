@@ -13,7 +13,7 @@ export function IntegrationsPage() {
       <PageHeader onRefresh={() => controller.integrations.refetch()} />
       {controller.integrations.isLoading && <IntegrationsLoading />}
       {controller.integrations.isError && (
-        <div className="border border-[var(--red)] bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]" role="alert">
+        <div className="border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert">
           <p>无法读取集成配置：{controller.integrations.error.message}</p>
           <Button className="mt-4" onClick={() => controller.integrations.refetch()} variant="outline">重新读取</Button>
         </div>
@@ -49,7 +49,7 @@ function PageHeader({ onRefresh }: { onRefresh: () => void }) {
     <header className="mb-12 grid gap-7 border-b border-[var(--ink)] pb-9 lg:grid-cols-[1fr_22rem]">
       <div>
         <p className="section-kicker"><BookOpenText aria-hidden size={15} />系统装帧 / Integrations</p>
-        <h1 className="font-display mt-4 max-w-3xl text-[clamp(2.7rem,7vw,6rem)] leading-[0.92] tracking-[-0.045em]">连接你的<br /><i className="text-[var(--red)]">出版流水线</i></h1>
+        <h1 className="mt-4 max-w-3xl text-[clamp(2.7rem,7vw,6rem)] leading-[0.92] font-bold tracking-[-0.045em]">连接你的<br />出版流水线</h1>
       </div>
       <div className="self-end text-sm leading-7 text-[var(--muted)]">
         <p>公共配置可以随时修改。密钥写入后只展示不可逆提示，不会返回到浏览器。</p>

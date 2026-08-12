@@ -55,7 +55,7 @@ function PageHeader() {
   return (
     <header className="mb-10 border-b border-[var(--ink)] pb-8">
       <p className="section-kicker"><Rss aria-hidden size={15} />Content discovery / RSS</p>
-      <h1 className="font-display mt-4 text-[clamp(2.7rem,7vw,5.5rem)] leading-[0.92] tracking-[-0.045em]">
+      <h1 className="mt-4 text-[clamp(2.7rem,7vw,5.5rem)] leading-[0.92] font-bold tracking-[-0.045em]">
         RSS 内容发现配置
       </h1>
       <p className="mt-5 max-w-2xl text-sm leading-7 text-[var(--muted)]">
@@ -76,7 +76,7 @@ function SourcesPanel(props: SourcesPanelProps) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="font-display text-3xl">RSS 源</h2>
+        <h2 className="text-3xl font-bold">RSS 源</h2>
         <p className="text-sm text-[var(--muted)]">{props.sources.length} 个已配置源</p>
       </CardHeader>
       <CardContent>
@@ -123,7 +123,7 @@ function SourceRow(props: {
     <li className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <p className="font-semibold">{source.name}</p>
-        <a className="block truncate text-xs text-[var(--blue)] underline underline-offset-4" href={source.feed_url} rel="noopener noreferrer" target="_blank">
+        <a className="block truncate text-xs" href={source.feed_url} rel="noopener noreferrer" target="_blank">
           {source.feed_url}
         </a>
       </div>
@@ -245,7 +245,7 @@ function KeywordForm(props: {
           <div>
             <Label htmlFor="rss-keyword-kind">关键词类型</Label>
             <select
-              className="h-10 w-full border-0 border-b border-[var(--line)] bg-transparent text-sm outline-none focus:border-[var(--blue)]"
+              className="h-10 w-full border-0 border-b border-[var(--line)] bg-transparent text-sm outline-none focus:border-[var(--signal)]"
               id="rss-keyword-kind"
               onChange={(event) => setKind(event.target.value === "negative" ? "negative" : "positive")}
               value={kind}
@@ -277,7 +277,7 @@ function KeywordPanel(props: {
   return (
     <Card aria-label={title} role="region">
       <CardHeader>
-        <h2 className="font-display text-3xl">{title}</h2>
+        <h2 className="text-3xl font-bold">{title}</h2>
         <p className="text-sm text-[var(--muted)]">{filtered.length} 个关键词</p>
       </CardHeader>
       <CardContent>
@@ -308,12 +308,12 @@ function KeywordPanel(props: {
 }
 
 function StatusBadge({ enabled }: { enabled: boolean }) {
-  return <Badge className={enabled ? "text-[var(--green)]" : "text-[var(--muted)]"}>{enabled ? "已启用" : "已停用"}</Badge>
+  return <Badge className={enabled ? "text-[var(--signal)]" : "text-[var(--muted)]"}>{enabled ? "已启用" : "已停用"}</Badge>
 }
 
 function ErrorPanel({ message, retry }: { message: string; retry: () => void }) {
   return (
-    <div className="border border-[var(--red)] bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]" role="alert">
+    <div className="border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert">
       <p>RSS 配置读取失败：{message}</p>
       <Button className="mt-4" onClick={retry} size="sm" variant="outline">重新读取</Button>
     </div>

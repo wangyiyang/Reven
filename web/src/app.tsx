@@ -28,7 +28,7 @@ function Placeholder({ eyebrow, title }: { eyebrow: string; title: string }) {
     <main className="page-enter grid min-h-[75vh] place-items-center px-6">
       <div className="text-center">
         <p className="section-kicker justify-center">{eyebrow}</p>
-        <h1 className="font-display mt-4 text-6xl">{title}</h1>
+        <h1 className="mt-4 text-6xl font-bold">{title}</h1>
         <p className="mt-5 text-sm text-[var(--muted)]">此页面将在下一阶段接入。</p>
       </div>
     </main>
