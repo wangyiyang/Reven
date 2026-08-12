@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -22,6 +23,21 @@ class RecordingJudge:
 class FailingJudge:
     async def judge(self, document: ScreeningDocument, evidence: dict[str, object]) -> ModelJudgement:
         raise RuntimeError("model unavailable")
+
+
+class ConcurrentJudge:
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+
+    async def judge(self, document: ScreeningDocument, evidence: dict[str, object]) -> ModelJudgement:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(0.01)
+            return ModelJudgement(True, 0.9, f"{document.title} 相关")
+        finally:
+            self.active -= 1
 
 
 @pytest.mark.anyio
@@ -82,3 +98,19 @@ async def test_optional_model_failure_keeps_deterministic_decision() -> None:
     assert decision.model_status == "failed"
     assert decision.model_score is None
     assert "正向" in decision.reason
+
+
+@pytest.mark.anyio
+async def test_model_boundary_reviews_use_bounded_concurrency() -> None:
+    judge = ConcurrentJudge()
+    engine = RssScreeningEngine(judge=judge)
+    documents = tuple(
+        ScreeningDocument(uuid4(), f"AI agent architecture {index}", "Practical guide") for index in range(8)
+    )
+    keyword = KeywordSignal("AI agent", "positive", (1.0, 0.0))
+
+    decisions = await engine.screen(documents, (keyword,), tuple((1.0, 0.0) for _document in documents))
+
+    assert judge.max_active == 4
+    assert [decision.model_status for decision in decisions] == ["completed"] * 8
+    assert [decision.item_id for decision in decisions] == [document.item_id for document in documents]

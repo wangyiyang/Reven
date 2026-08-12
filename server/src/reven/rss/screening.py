@@ -1,5 +1,6 @@
 """Explainable layered RSS screening without persisting item vectors."""
 
+import asyncio
 import math
 import re
 from collections import Counter
@@ -12,6 +13,7 @@ from reven.rss.normalization import normalize_keyword
 RULES_VERSION = "rss-v1"
 BM25_CANDIDATE_THRESHOLD = 0.2
 EMBEDDING_CANDIDATE_THRESHOLD = 0.55
+MODEL_REVIEW_CONCURRENCY = 4
 
 
 @dataclass(frozen=True)
@@ -69,17 +71,26 @@ class RssScreeningEngine:
         positive = tuple(keyword for keyword in keywords if keyword.kind == "positive")
         negative = tuple(keyword for keyword in keywords if keyword.kind == "negative")
         bm25 = _bm25_scores(documents, tuple(keyword.term for keyword in positive))
-        decisions: list[ScreeningDecision] = []
-        for index, document in enumerate(documents):
-            decision = _base_decision(document, item_vectors[index], positive, negative, bm25[index])
-            if self._judge is not None and _needs_model(decision):
+        decisions = tuple(
+            _base_decision(document, item_vectors[index], positive, negative, bm25[index])
+            for index, document in enumerate(documents)
+        )
+        judge = self._judge
+        if judge is None:
+            return decisions
+        limiter = asyncio.Semaphore(MODEL_REVIEW_CONCURRENCY)
+
+        async def review(index: int, decision: ScreeningDecision) -> ScreeningDecision:
+            if not _needs_model(decision):
+                return decision
+            async with limiter:
                 try:
-                    judgement = await self._judge.judge(document, _evidence(decision))
-                    decision = _with_judgement(decision, judgement)
+                    judgement = await judge.judge(documents[index], _evidence(decision))
+                    return _with_judgement(decision, judgement)
                 except Exception:
-                    decision = _with_model_failure(decision)
-            decisions.append(decision)
-        return tuple(decisions)
+                    return _with_model_failure(decision)
+
+        return tuple(await asyncio.gather(*(review(index, decision) for index, decision in enumerate(decisions))))
 
 
 def _base_decision(
