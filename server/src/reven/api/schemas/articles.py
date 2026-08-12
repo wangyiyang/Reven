@@ -23,6 +23,7 @@ class CurrentSnapshotSummary(BaseModel):
 
 class ContentSyncRunSummary(BaseModel):
     id: UUID
+    article_id: UUID
     status: str
     stage: str
     progress_current: int
