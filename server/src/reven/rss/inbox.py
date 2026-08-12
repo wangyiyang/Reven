@@ -15,6 +15,8 @@ PUSH_LEASE = timedelta(minutes=5)
 
 
 class NotionInboxClient(Protocol):
+    async def retrieve_data_source(self, data_source_id: str) -> dict[str, object]: ...
+
     async def query_data_source(
         self,
         data_source_id: str,
@@ -69,9 +71,10 @@ class RssInboxService:
         try:
             page = await self._find_existing(claimed.id)
             if page is None:
+                source_type = await self._source_property_type()
                 page = await self._notion.create_page(
                     self._inbox_data_source_id,
-                    properties=_notion_properties(claimed),
+                    properties=_notion_properties(claimed, source_type=source_type),
                 )
             page_id, notion_url = _page_identity(page)
             return await self._complete(claimed, page_id, notion_url)
@@ -129,6 +132,15 @@ class RssInboxService:
             raise InboxPushError("NOTION_INBOX_RESPONSE_INVALID", "Notion Inbox 页面响应无效", status_code=502)
         return page
 
+    async def _source_property_type(self) -> str:
+        data_source = await self._notion.retrieve_data_source(self._inbox_data_source_id)
+        properties = data_source.get("properties")
+        source = properties.get("来源") if isinstance(properties, dict) else None
+        source_type = source.get("type") if isinstance(source, dict) else None
+        if not isinstance(source_type, str) or source_type not in {"rich_text", "select"}:
+            raise InboxPushError("NOTION_INBOX_SCHEMA_INVALID", "Notion Inbox 来源字段类型无效")
+        return source_type
+
     async def _complete(self, snapshot: _MaterialSnapshot, page_id: UUID, notion_url: str) -> InboxPushResult:
         async with self._factory.begin() as session:
             item = await session.get(RssItem, snapshot.id, with_for_update=True)
@@ -154,11 +166,16 @@ class RssInboxService:
             item.push_error = error_type[:120]
 
 
-def _notion_properties(item: _MaterialSnapshot) -> dict[str, object]:
+def _notion_properties(item: _MaterialSnapshot, *, source_type: str) -> dict[str, object]:
+    source: dict[str, object]
+    if source_type == "select":
+        source = {"select": {"name": item.source_name[:100]}}
+    else:
+        source = {"rich_text": [_rich_text(item.source_name)]}
     return {
         "名称": {"title": [_rich_text(item.title)]},
         "Reven ID": {"rich_text": [_rich_text(str(item.id))]},
-        "来源": {"rich_text": [_rich_text(item.source_name)]},
+        "来源": source,
         "原文链接": {"url": item.url[:2000] if item.url else None},
         "发布时间": {"date": {"start": item.published_at.isoformat()} if item.published_at else None},
         "摘要": {"rich_text": [_rich_text(item.summary)] if item.summary else []},

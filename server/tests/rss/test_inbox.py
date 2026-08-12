@@ -17,11 +17,19 @@ class RecordingNotion:
         existing: dict[str, object] | None = None,
         *,
         page_url: str = "https://www.notion.so/material",
+        source_type: str = "rich_text",
     ) -> None:
         self.existing = existing
         self.page_url = page_url
+        self.source_type = source_type
         self.queries: list[dict[str, object]] = []
+        self.retrieved: list[str] = []
         self.created: list[dict[str, object]] = []
+
+    async def retrieve_data_source(self, data_source_id: str) -> dict[str, object]:
+        assert data_source_id == INBOX_ID
+        self.retrieved.append(data_source_id)
+        return {"properties": {"来源": {"type": self.source_type}}}
 
     async def query_data_source(
         self,
@@ -84,9 +92,11 @@ async def test_confirm_pushes_material_once_without_internal_scores(db_session: 
     assert first == second
     assert first.notion_page_id == UUID(PAGE_ID)
     assert len(notion.queries) == 1
+    assert notion.retrieved == [INBOX_ID]
     assert len(notion.created) == 1
     properties = notion.created[0]
     assert set(properties) == {"名称", "Reven ID", "来源", "原文链接", "发布时间", "摘要"}
+    assert properties["来源"] == {"rich_text": [{"type": "text", "text": {"content": "Example"}}]}
     serialized = repr(properties)
     assert "高价值候选" not in serialized
     assert "agent" not in serialized.casefold()
@@ -96,6 +106,17 @@ async def test_confirm_pushes_material_once_without_internal_scores(db_session: 
         assert stored is not None
         assert stored.status == "pushed"
         assert stored.notion_page_id == UUID(PAGE_ID)
+
+
+@pytest.mark.anyio
+async def test_confirm_writes_source_as_select_for_existing_select_schema(db_session: AsyncSession) -> None:
+    item = await seed_candidate(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    notion = RecordingNotion(source_type="select")
+
+    await RssInboxService(factory, notion, INBOX_ID).push(item.id)
+
+    assert notion.created[0]["来源"] == {"select": {"name": "Example"}}
 
 
 @pytest.mark.anyio
