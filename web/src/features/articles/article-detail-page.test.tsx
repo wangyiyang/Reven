@@ -72,6 +72,21 @@ describe("ArticleDetailPage", () => {
     expect(screen.getByText("检查 GitHub 集成、PR 与构建日志，修复后仅重试博客渠道。")).toBeInTheDocument()
   })
 
+  it("shows sync failure with cover advice in recovery guidance", async () => {
+    useDetailHandlers({
+      articlePatch: {
+        last_error: null,
+        validation_errors: [],
+        blog: null,
+        content_sync: { ...article.content_sync, error: "同步需要可下载的封面" },
+      },
+    })
+    renderPage()
+
+    expect((await screen.findAllByText("同步需要可下载的封面")).length).toBeGreaterThan(0)
+    expect(screen.getByText("在 Notion 补充封面图片并重新同步，然后重试失败渠道。")).toBeInTheDocument()
+  })
+
   it("renders returned HTML only in a fully sandboxed iframe", async () => {
     useDetailHandlers()
     renderPage()
@@ -169,7 +184,7 @@ describe("ArticleDetailPage", () => {
     expect(await screen.findByRole("button", { name: "复制 Markdown" })).toBeDisabled()
     expect(await screen.findByRole("button", { name: "生成微信预览" })).toBeDisabled()
     expect(await screen.findByRole("button", { name: "重试个人博客" })).toBeDisabled()
-    expect(screen.getAllByText("附件下载失败")).toHaveLength(2)
+    expect(screen.getAllByText("附件下载失败")).toHaveLength(3)
     expect(screen.getByRole("button", { name: "同步内容" })).toBeEnabled()
   })
 

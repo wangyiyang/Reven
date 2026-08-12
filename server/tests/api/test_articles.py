@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from reven.articles.models import Article
 from reven.articles.query import ARTICLE_DETAIL_JOB_LIMIT
+from reven.content_sync.models import ContentSyncRun
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import compute_target_channels_hash
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -133,6 +134,42 @@ def test_article_detail_bounds_recent_job_history(workbench) -> None:  # type: i
     assert payload["jobs"][0]["content_hash"] == f"{ARTICLE_DETAIL_JOB_LIMIT + 2:064x}"
 
 
+def test_list_and_detail_expose_article_id_on_latest_sync_run(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    article = _article("同步失败", datetime.now(tz=UTC))
+    run = ContentSyncRun(
+        article_id=article.id,
+        status="同步失败",
+        stage="同步失败",
+        error_stage="正在读取 Notion",
+        error_code="COVER_REQUIRED",
+        error_message="同步需要可下载的封面",
+        error_media="封面",
+    )
+    asyncio.run(_seed_values(factory, article, [run]))
+
+    list_payload = client.get("/api/articles").json()
+    detail_payload = client.get(f"/api/articles/{article.id}").json()
+
+    list_run = list_payload["items"][0]["content_sync"]["latest_run"]
+    detail_run = detail_payload["content_sync"]["latest_run"]
+    assert list_run["article_id"] == str(article.id)
+    assert detail_run["article_id"] == str(article.id)
+    assert list_run["error_code"] == "COVER_REQUIRED"
+
+
+def test_article_detail_reports_cover_failure_when_cover_missing(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    article = _article("缺封面", datetime.now(tz=UTC))
+    article.cover_metadata = {}
+    asyncio.run(_seed_values(factory, article, []))
+
+    payload = client.get(f"/api/articles/{article.id}").json()
+
+    assert payload["cover_valid"] is False
+    assert any(item["code"] == "cover_missing" for item in payload["validation_errors"])
+
+
 def _article(
     title: str,
     edited_at: datetime,
@@ -240,7 +277,9 @@ def _channel_job(
     )
 
 
-async def _seed_values(factory: async_sessionmaker, article: Article, jobs: list[PublicationJob]) -> None:
+async def _seed_values(
+    factory: async_sessionmaker, article: Article, jobs: list[PublicationJob | ContentSyncRun]
+) -> None:
     async with factory.begin() as session:
         session.add(article)
         session.add_all(jobs)
