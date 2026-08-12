@@ -45,6 +45,7 @@ export function PublicationGuidance({
 
 function guidanceItems(article: ArticleDetail, job: JobDetail | null): GuidanceItem[] {
   const items: GuidanceItem[] = []
+  if (article.content_sync.error) items.push(item("内容同步", article.content_sync.error, article.validation_errors))
   if (article.last_error) items.push(item("稿件", article.last_error, article.validation_errors))
   if (job?.blog.error) items.push(item("个人博客", job.blog.error, []))
   if (job?.wechat.error) items.push(item("微信公众号", job.wechat.error, []))
