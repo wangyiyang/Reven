@@ -227,6 +227,8 @@ def _article_detail(
     errors = _validation_items(latest, "errors")
     if article.last_error and not errors:
         errors = [{"code": "publication_blocked", "message": _safe_error(article.last_error), "field": "job"}]
+    if not article.cover_metadata.get("name") and not any(item.get("code") == "cover_missing" for item in errors):
+        errors = [{"code": "cover_missing", "message": "请配置并确认封面可下载", "field": "cover"}, *errors]
     return ArticleDetail(
         **summary,
         notion_metadata=article.notion_metadata,
