@@ -111,7 +111,7 @@ async def put_integration(provider: str, request: Request, session: SessionDep) 
     integration = await service.upsert_integration(
         provider=provider,
         public_config=body.public_config.model_dump(mode="json", exclude_none=True),
-        secret=body.secret.model_dump() if body.secret is not None else None,
+        secret=body.secret.model_dump(exclude_none=True) if body.secret is not None else None,
     )
     await session.commit()
     return to_response(integration)

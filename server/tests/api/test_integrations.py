@@ -238,6 +238,23 @@ def test_invalid_public_config_is_rejected(client: TestClient) -> None:
     assert good_webhook.json()["secret_hint"] == "已配置 · ****-123"
 
 
+def test_feishu_accepts_signing_secret_without_exposing_it(client: TestClient) -> None:
+    response = client.put(
+        "/api/integrations/feishu",
+        json={
+            "public_config": {"name": "发布通知"},
+            "secret": {
+                "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/abc-123",
+                "signing_secret": "feishu-signing-secret",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["secret_hint"] == "已配置 · ****-123"
+    assert "feishu-signing-secret" not in response.text
+
+
 def test_connection_test_without_adapter_returns_503(client: TestClient) -> None:
     # notion 已接入真实适配器；wechat 尚未接入，用于验证无适配器时的行为
     client.put(

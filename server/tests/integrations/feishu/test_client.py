@@ -38,6 +38,27 @@ async def test_sends_interactive_card_with_safe_links_only() -> None:
 
 
 @pytest.mark.anyio
+async def test_signed_webhook_includes_current_timestamp_and_signature() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.read()))
+        return httpx.Response(200, json={"code": 0})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False) as http:
+        client = FeishuWebhookClient(
+            "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+            http=http,
+            signing_secret="demo",
+            clock=lambda: 1599360473.9,
+        )
+        await client.send(NotificationCard("稿件", "已完成", "博客已上线", {}))
+
+    assert captured["timestamp"] == "1599360473"
+    assert captured["sign"] == "l1N0gAcBjdwBvGm1xMjOF0XSyaLRpR7tuO5dHfhAYc8="
+
+
+@pytest.mark.anyio
 async def test_rejects_failed_webhook_response_without_exposing_body() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         del request

@@ -70,6 +70,7 @@ def test_redact_mapping_replaces_sensitive_keys_case_insensitively() -> None:
         "Token": "abc",
         "authorization": "Bearer xyz",
         "WEBHOOK_URL": "https://open.feishu.cn/hook/1",
+        "signing_secret": "feishu-signing-secret",
         "name": "保留",
     }
 
@@ -77,6 +78,7 @@ def test_redact_mapping_replaces_sensitive_keys_case_insensitively() -> None:
         "Token": "***",
         "authorization": "***",
         "WEBHOOK_URL": "***",
+        "signing_secret": "***",
         "name": "保留",
     }
 

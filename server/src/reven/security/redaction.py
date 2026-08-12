@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-SENSITIVE_KEYS = frozenset({"token", "secret", "password", "authorization", "webhook_url"})
+SENSITIVE_KEYS = frozenset({"token", "secret", "password", "authorization", "webhook_url", "signing_secret"})
 
 REDACTED = "***"
 
