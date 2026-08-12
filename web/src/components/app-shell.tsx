@@ -45,7 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               ))}
             </ul>
           </nav>
-          <div className="hidden lg:flex lg:flex-col lg:gap-5">
+          <div className="flex lg:flex-col lg:gap-5">
             <button
               aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
               className="flex min-h-9 w-fit items-center gap-2 border border-[var(--line)] px-3 font-mono text-[11px] tracking-[0.08em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)]"
@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               {theme === "dark" ? <Sun aria-hidden size={14} /> : <Moon aria-hidden size={14} />}
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            <p className="font-mono text-[10px] leading-5 tracking-[0.13em] text-[var(--muted)] uppercase">
+            <p className="hidden font-mono text-[10px] leading-5 tracking-[0.13em] text-[var(--muted)] uppercase lg:block">
               CODE, ONE STROKE<br />AT A TIME.
             </p>
           </div>
