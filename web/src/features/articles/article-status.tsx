@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils"
 type Tone = "waiting" | "working" | "failed" | "done" | "neutral"
 
 const tones: Record<Tone, string> = {
-  waiting: "border-[#336f9f] bg-[#dbe8f0] text-[#245476]",
-  working: "border-[#9a6712] bg-[#f3e4bd] text-[#76500d]",
-  failed: "border-[#b74427] bg-[#f1d8cd] text-[#96351e]",
-  done: "border-[#39734d] bg-[#dce9dc] text-[#2d5b3d]",
-  neutral: "border-[var(--line-strong)] bg-white/35 text-[var(--muted)]",
+  waiting: "border-[var(--muted)] text-[var(--muted)]",
+  working: "border-[var(--muted)] text-[var(--muted)]",
+  failed: "border-[var(--danger)] text-[var(--danger)]",
+  done: "border-[var(--signal)] text-[var(--signal)]",
+  neutral: "border-[var(--line)] text-[var(--muted)]",
 }
 
 function toneFor(status: string | null): Tone {

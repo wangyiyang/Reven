@@ -60,10 +60,10 @@ function Header({ total }: { total?: number }) {
     <header className="mb-8 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
       <div>
         <p className="section-kicker"><BookOpenText aria-hidden size={15} />Editorial queue / 稿件索引</p>
-        <h1 className="font-display mt-3 text-[clamp(2.8rem,7vw,6.4rem)] leading-[0.9] tracking-[-0.055em]">交付，<i className="text-[var(--red)]">逐篇校准</i></h1>
+        <h1 className="mt-3 text-[clamp(2.8rem,7vw,6.4rem)] leading-[0.9] font-bold tracking-[-0.055em]">交付，逐篇校准</h1>
       </div>
       <p className="max-w-sm border-l border-[var(--ink)] pl-5 text-sm leading-7 text-[var(--muted)]">
-        当前索引 <strong className="font-display text-3xl text-[var(--ink)]">{total ?? "—"}</strong> 篇。稿件仍在 Notion 写作，Reven 只负责同步、校验与交付。
+        当前索引 <strong className="text-3xl font-bold text-[var(--ink)]">{total ?? "—"}</strong> 篇。稿件仍在 Notion 写作，Reven 只负责同步、校验与交付。
       </p>
     </header>
   )
@@ -84,15 +84,15 @@ function DesktopTable({ items }: { items: ArticleSummary[] }) {
 
 function ArticleRow({ article }: { article: ArticleSummary }) {
   return (
-    <tr className="group border-b border-[var(--line)] align-top hover:bg-white/30">
+    <tr className="group border-b border-[var(--line)] align-top hover:bg-[var(--faint)]">
       <td className="w-[21%] px-2 py-5">
-        <Link className="font-display text-lg leading-tight underline decoration-[var(--line)] underline-offset-4 group-hover:decoration-[var(--red)]" to={`/articles/${article.id}`}>{article.title}</Link>
+        <Link className="text-lg font-bold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
         <RowActions article={article} />
       </td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.notion_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.automation_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.content_sync.status} /></td>
-      <td className="px-2 py-5">{article.cover_valid ? "✓ 已校验" : <span className="text-[var(--red)]">! 缺失</span>}</td>
+      <td className="px-2 py-5">{article.cover_valid ? "✓ 已校验" : <span className="text-[var(--danger)]">! 缺失</span>}</td>
       <td className="px-2 py-5">{channelLabel(article.target_channels, " · ")}</td>
       <td className="px-2 py-5">{formatDate(article.planned_at)}</td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.blog_status} /></td>
@@ -106,8 +106,8 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
   return (
     <div className="mt-6 grid gap-4 xl:hidden">
       {items.map((article) => (
-        <article aria-label={`${article.title}移动摘要`} className="border border-[var(--line-strong)] bg-white/25 p-5" key={article.id}>
-          <Link className="font-display text-2xl leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
+        <article aria-label={`${article.title}移动摘要`} className="border border-[var(--line)] bg-[var(--faint)] p-5" key={article.id}>
+          <Link className="text-2xl font-bold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
           <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.content_sync.status} /><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
           <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
             <Meta label="渠道" value={channelLabel(article.target_channels, "、")} />
@@ -130,9 +130,9 @@ function RowActions({ article }: { article: ArticleSummary }) {
   const notionUrl = safeNotionUrl(article.notion_url)
   return (
     <div className="mt-3 flex flex-wrap gap-1">
-      {notionUrl && <a className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-black/5" href={notionUrl} rel="noopener noreferrer" target="_blank">Notion <ArrowUpRight aria-hidden size={12} /></a>}
+      {notionUrl && <a className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-[var(--faint)]" href={notionUrl} rel="noopener noreferrer" target="_blank">Notion <ArrowUpRight aria-hidden size={12} /></a>}
       <ContentSyncControl article={article} compact />
-      <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-black/5" to={`/articles/${article.id}`}>任务详情</Link>
+      <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-[var(--faint)]" to={`/articles/${article.id}`}>任务详情</Link>
     </div>
   )
 }
@@ -184,13 +184,13 @@ function ChannelSummary({ label, status }: { label: string; status: string | nul
 }
 
 function LoadingRows() {
-  return <section aria-busy="true" aria-label="正在读取稿件" className="mt-6 grid gap-3">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-20 rounded-none bg-black/8" key={index} />)}</section>
+  return <section aria-busy="true" aria-label="正在读取稿件" className="mt-6 grid gap-3">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-20 rounded-none bg-[var(--faint)]" key={index} />)}</section>
 }
 
 function ErrorPanel({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="mt-6 border border-[var(--red)] bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]" role="alert"><p>稿件读取失败：{message}</p><Button className="mt-4" onClick={retry} size="sm" variant="outline">重新读取</Button></div>
+  return <div className="mt-6 border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>稿件读取失败：{message}</p><Button className="mt-4" onClick={retry} size="sm" variant="outline">重新读取</Button></div>
 }
 
 function EmptyState() {
-  return <div className="mt-8 border border-dashed border-[var(--line-strong)] px-6 py-16 text-center"><p className="font-display text-3xl">没有匹配稿件</p><p className="mt-2 text-sm text-[var(--muted)]">调整筛选条件，或先从 Notion 同步稿件。</p></div>
+  return <div className="mt-8 border border-dashed border-[var(--line)] px-6 py-16 text-center"><p className="text-3xl font-bold">没有匹配稿件</p><p className="mt-2 text-sm text-[var(--muted)]">调整筛选条件，或先从 Notion 同步稿件。</p></div>
 }

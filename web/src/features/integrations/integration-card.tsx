@@ -109,10 +109,10 @@ function useIntegrationForm(definition: ProviderDefinition, integration?: Integr
 function CardHeader({ definition, integration }: { definition: ProviderDefinition; integration?: Integration }) {
   return (
     <header className="grid gap-5 sm:grid-cols-[5rem_1fr_auto]">
-      <span className="font-display text-5xl leading-none text-[var(--line-strong)]" aria-hidden>{definition.number}</span>
+      <span className="text-5xl font-bold leading-none text-[var(--line)]" aria-hidden>{definition.number}</span>
       <div>
-        <p className="text-[11px] font-bold tracking-[0.22em] text-[var(--red)] uppercase">{definition.eyebrow}</p>
-        <h2 className="font-display mt-1 text-3xl text-[var(--ink)]">{definition.title}</h2>
+        <p className="font-mono text-[11px] font-bold tracking-[0.22em] text-[var(--muted)] uppercase">{definition.eyebrow}</p>
+        <h2 className="mt-1 text-3xl font-bold text-[var(--ink)]">{definition.title}</h2>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">{definition.description}</p>
       </div>
       <ConnectionBadge integration={integration} />
@@ -177,12 +177,12 @@ function StatusNotices({ definition, integration }: { definition: ProviderDefini
   return (
     <>
       {integration?.last_error && (
-        <p className="mt-6 border-l-2 border-[var(--red)] bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]" role="alert">
+        <p className="mt-6 border-l-2 border-[var(--danger)] bg-[var(--faint)] px-4 py-3 text-sm text-[var(--danger)]" role="alert">
           {integration.last_error}
         </p>
       )}
       {definition.provider === "feishu" && (
-        <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--blue)]">
+        <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
           <Send aria-hidden size={14} />测试飞书会主动发送一条消息。
         </p>
       )}
@@ -212,7 +212,7 @@ function CardActions(props: CardActionsProps) {
   const publicConfig = publicConfigForSave(definition, form.publicConfig)
   return (
     <footer className="mt-7">
-      {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--red)]">{`请填写 ${formatFieldLabels(definition)}后保存配置。`}</p>}
+      {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--danger)]">{`请填写 ${formatFieldLabels(definition)}后保存配置。`}</p>}
       {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${definition.secretField.label} 后测试连接。`}</p>}
       <div className="flex flex-wrap items-center gap-3">
       <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, publicConfig)} ref={props.saveButtonRef}>
@@ -229,7 +229,7 @@ function CardActions(props: CardActionsProps) {
       <TestButton actionsDisabled={props.actionsDisabled} definition={definition} integration={integration} onTest={props.onTest} />
       {definition.provider === "notion" && <Button disabled={props.actionsDisabled} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
       {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} disabled={props.actionsDisabled} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
-      {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--blue)]" size={18} />}
+      {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--muted)]" size={18} />}
       </div>
     </footer>
   )
@@ -268,7 +268,7 @@ function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definitio
 function ConnectionBadge({ integration }: { integration?: Integration }) {
   if (!integration) return <Badge className="text-[var(--muted)]">未配置</Badge>
   const ok = integration.connection_status === "连接正常"
-  const style = ok ? "text-[var(--blue)]" : integration.connection_status === "连接失败" ? "text-[var(--red)]" : "text-[var(--muted)]"
+  const style = ok ? "text-[var(--signal)]" : integration.connection_status === "连接失败" ? "text-[var(--danger)]" : "text-[var(--muted)]"
   return (
     <div className="justify-self-start text-right sm:justify-self-end">
       <Badge className={style}>{ok && <Check aria-hidden size={12} />}{integration.connection_status}</Badge>
@@ -290,7 +290,7 @@ function EgressIp({ value }: { value?: string | null }) {
     <div>
       <Label>出口 IP</Label>
       <div className="mt-2 flex min-h-8 items-center gap-2 border-b border-[var(--line)] pb-2 font-mono text-sm">
-        <ArrowUpRight aria-hidden size={15} className="text-[var(--blue)]" />{value ?? "暂时无法获取"}
+        <ArrowUpRight aria-hidden size={15} className="text-[var(--muted)]" />{value ?? "暂时无法获取"}
       </div>
       <p className="mt-2 text-xs text-[var(--muted)]">请将该地址加入微信公众号 IP 白名单。</p>
     </div>

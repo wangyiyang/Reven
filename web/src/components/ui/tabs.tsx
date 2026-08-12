@@ -12,7 +12,7 @@ export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrim
 export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
-      className={cn("px-4 py-3 text-sm font-semibold text-[var(--muted)] data-[state=active]:border-b-2 data-[state=active]:border-[var(--red)] data-[state=active]:text-[var(--ink)]", className)}
+      className={cn("px-4 py-3 text-sm font-semibold text-[var(--muted)] data-[state=active]:border-b-2 data-[state=active]:border-[var(--ink)] data-[state=active]:text-[var(--ink)]", className)}
       {...props}
     />
   )

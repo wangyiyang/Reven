@@ -63,7 +63,7 @@ export function ContentSyncControl({ article, compact = false }: { article: Arti
 }
 
 function SyncProgress({ run, fallback }: { run: ContentSyncRun | null; fallback: string | null }) {
-  if (!run) return fallback ? <p className="max-w-64 text-[11px] text-[var(--red)]">{fallback}</p> : null
+  if (!run) return fallback ? <p className="max-w-64 text-[11px] text-[var(--danger)]">{fallback}</p> : null
   const progress = run.progress_total > 0 ? ` ${run.progress_current}/${run.progress_total}` : ""
   const media = run.current_media ? ` · ${run.current_media}` : ""
   const error = run.error_message ? `：${run.error_message}${run.error_media ? `（${run.error_media}）` : ""}` : ""

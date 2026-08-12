@@ -44,11 +44,11 @@ function DetailContent({ article }: { article: ArticleDetail }) {
       <header className="mt-5 grid gap-7 border-b border-[var(--ink)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
           <p className="section-kicker">Article dossier / 交付档案</p>
-          <h1 className="font-display mt-3 max-w-4xl text-[clamp(2.5rem,6vw,5.5rem)] leading-[0.95] tracking-[-0.05em]">{article.title}</h1>
+          <h1 className="mt-3 max-w-4xl text-[clamp(2.5rem,6vw,5.5rem)] leading-[0.95] font-bold tracking-[-0.05em]">{article.title}</h1>
           <div className="mt-5 flex flex-wrap gap-2"><ArticleStatus status={article.notion_status} /><ArticleStatus status={article.automation_status} /></div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {notionUrl && <a className="inline-flex min-h-10 items-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold hover:border-[var(--ink)]" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={14} /></a>}
+          {notionUrl && <a className="inline-flex min-h-10 items-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)] hover:no-underline" href={notionUrl} rel="noopener noreferrer" target="_blank">打开 Notion <ArrowUpRight aria-hidden size={14} /></a>}
           <ContentSyncControl article={article} />
           <PortableMarkdownCopy articleId={article.id} enabled={article.content_sync.outputs_enabled} />
           <WechatPreview articleId={article.id} enabled={article.content_sync.outputs_enabled} title={article.title} />
@@ -82,9 +82,9 @@ function DetailContent({ article }: { article: ArticleDetail }) {
 function ContentSyncPanel({ article }: { article: ArticleDetail }) {
   const snapshot = article.content_sync.current_snapshot
   return (
-    <section className="mt-8 border border-[var(--line-strong)] bg-white/25 p-5">
+    <section className="mt-8 border border-[var(--line)] bg-[var(--faint)] p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-3xl">内容快照</h2>
+        <h2 className="text-3xl font-bold">内容快照</h2>
         <ArticleStatus status={article.content_sync.status} />
       </div>
       <dl className="mt-5 grid gap-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -93,7 +93,7 @@ function ContentSyncPanel({ article }: { article: ArticleDetail }) {
         <Meta label="正文字符" value={snapshot ? String(snapshot.character_count) : "—"} />
         <Meta label="归档媒体" value={snapshot ? String(snapshot.media_count) : "—"} />
       </dl>
-      {article.content_sync.error && <p className="mt-4 text-sm text-[var(--red)]">{article.content_sync.error}</p>}
+      {article.content_sync.error && <p className="mt-4 text-sm text-[var(--danger)]">{article.content_sync.error}</p>}
       {!article.content_sync.outputs_enabled && <p className="mt-2 text-xs text-[var(--muted)]">同步成功且版本校验通过后，复制与发布操作才会解锁。</p>}
     </section>
   )
@@ -102,7 +102,7 @@ function ContentSyncPanel({ article }: { article: ArticleDetail }) {
 function Metadata({ article }: { article: ArticleDetail }) {
   return (
     <section>
-      <h2 className="font-display text-3xl">Notion 元数据</h2>
+      <h2 className="text-3xl font-bold">Notion 元数据</h2>
       <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
         <Meta label="封面校验" value={article.cover_valid ? "通过" : "未通过：发布将被阻止"} danger={!article.cover_valid} />
         <Meta label="计划时间" value={formatDate(article.planned_at)} />
@@ -117,9 +117,9 @@ function Metadata({ article }: { article: ArticleDetail }) {
 function Validation({ errors, warnings }: { errors: ValidationItem[]; warnings: ValidationItem[] }) {
   return (
     <section>
-      <h2 className="font-display text-3xl">发布前校验</h2>
+      <h2 className="text-3xl font-bold">发布前校验</h2>
       <div className="mt-5 grid gap-3">
-        {errors.length === 0 && warnings.length === 0 && <p className="border border-[#39734d] bg-[#dce9dc] p-4 text-sm text-[#2d5b3d]">当前没有校验问题。</p>}
+        {errors.length === 0 && warnings.length === 0 && <p className="border-l-2 border-[var(--signal)] bg-[var(--faint)] p-4 text-sm">当前没有校验问题。</p>}
         {errors.map((item, index) => <Issue item={item} key={`error-${index}`} tone="error" />)}
         {warnings.map((item, index) => <Issue item={item} key={`warning-${index}`} tone="warning" />)}
       </div>
@@ -128,7 +128,7 @@ function Validation({ errors, warnings }: { errors: ValidationItem[]; warnings: 
 }
 
 function Issue({ item, tone }: { item: ValidationItem; tone: "error" | "warning" }) {
-  return <div className={tone === "error" ? "border-l-2 border-[var(--red)] bg-[var(--red-soft)] p-4" : "border-l-2 border-[#9a6712] bg-[#f3e4bd] p-4"}><p className="text-sm font-semibold">{item.message ?? item.code ?? "未知校验问题"}</p>{item.field && <p className="mt-1 text-xs opacity-70">字段：{item.field}</p>}</div>
+  return <div className={tone === "error" ? "border-l-2 border-[var(--danger)] bg-[var(--faint)] p-4" : "border-l-2 border-[var(--muted)] bg-[var(--faint)] p-4"}><p className="text-sm font-semibold">{item.message ?? item.code ?? "未知校验问题"}</p>{item.field && <p className="mt-1 text-xs opacity-70">字段：{item.field}</p>}</div>
 }
 
 function JobActions({ articleId, job, outputsEnabled }: { articleId: string; job: JobSummary | JobDetail; outputsEnabled: boolean }) {
@@ -178,7 +178,7 @@ function JobActions({ articleId, job, outputsEnabled }: { articleId: string; job
 function JobHistory({ article }: { article: ArticleDetail }) {
   return (
     <section className="py-5">
-      <h2 className="font-display text-3xl">任务历史</h2>
+      <h2 className="text-3xl font-bold">任务历史</h2>
       <p className="mt-2 text-xs text-[var(--muted)]">显示最近 {article.jobs.length} 条，共 {article.jobs_total} 条。{article.jobs_has_more && "更早记录未在本页加载。"}</p>
       <ol className="mt-5 grid gap-2">
         {article.jobs.map((job) => <li className="grid gap-2 border-b border-[var(--line)] py-3 text-xs sm:grid-cols-[1fr_auto_auto]" key={job.id}><span className="truncate font-mono">{job.id}</span><ArticleStatus compact status={job.overall_status} /><time>{formatDate(job.scheduled_at)}</time></li>)}
@@ -188,7 +188,7 @@ function JobHistory({ article }: { article: ArticleDetail }) {
 }
 
 function Meta({ label, value, danger = false, mono = false }: { label: string; value: string; danger?: boolean; mono?: boolean }) {
-  return <div className="min-w-0"><dt className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{label}</dt><dd className={`mt-1 break-words ${danger ? "text-[var(--red)]" : ""} ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
+  return <div className="min-w-0"><dt className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{label}</dt><dd className={`mt-1 break-words ${danger ? "text-[var(--danger)]" : ""} ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
 }
 
 function isFailed(status: string) {
@@ -209,7 +209,7 @@ function DetailLoading() {
 }
 
 function DetailError({ message, retry }: { message: string; retry: () => void }) {
-  return <main className="mx-auto max-w-6xl px-5 py-12"><div className="border border-[var(--red)] bg-[var(--red-soft)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
+  return <main className="mx-auto max-w-6xl px-5 py-12"><div className="border border-[var(--danger)] bg-[var(--faint)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
 }
 
 function JobLoading() {
@@ -217,5 +217,5 @@ function JobLoading() {
 }
 
 function JobError({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="my-5 border border-[var(--red)] bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]" role="alert"><p>最近任务读取失败：{message}</p><Button className="mt-3" onClick={retry} size="sm" variant="outline">重试任务详情</Button></div>
+  return <div className="my-5 border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>最近任务读取失败：{message}</p><Button className="mt-3" onClick={retry} size="sm" variant="outline">重试任务详情</Button></div>
 }
