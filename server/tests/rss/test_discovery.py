@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 import pytest
-from reven.rss.discovery import FeedEntry, LocalizedEntry, RssDiscoveryService
+from reven.rss.discovery import FeedEntry, LocalizedEntry, PartialLocalizationError, RssDiscoveryService
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -46,6 +46,15 @@ class RecordingScreener:
 class FailingLocalizer:
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
         raise RuntimeError("translation unavailable")
+
+
+class PartiallyFailingLocalizer:
+    async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
+        localized = (
+            LocalizedEntry(entries[0], "已翻译标题", "已翻译摘要"),
+            LocalizedEntry(entries[1], entries[1].title, entries[1].summary),
+        )
+        raise PartialLocalizationError(localized, ("RuntimeError",))
 
 
 @pytest.mark.anyio
@@ -98,6 +107,32 @@ async def test_translation_failure_is_explicitly_degraded_and_still_notifies(
         assert item is not None and run is not None
         assert item.title_zh == item.title
         assert item.summary_zh == item.summary
+        assert run.errors == [{"stage": "translation", "error_type": "RuntimeError"}]
+
+
+@pytest.mark.anyio
+async def test_partial_translation_failure_preserves_successful_entries(
+    db_session: AsyncSession,
+) -> None:
+    source = RssSource(name="Example", feed_url="https://example.com/partial.xml", enabled=True)
+    db_session.add(source)
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    result = await RssDiscoveryService(
+        factory,
+        StubFeedReader(),
+        PartiallyFailingLocalizer(),
+        RecordingNotifier(),
+    ).run(date(2026, 8, 14))
+
+    assert result.status == "partial"
+    assert result.failure_count == 1
+    async with factory() as session:
+        item = await session.scalar(select(RssItem))
+        run = await session.get(RssDiscoveryRun, result.run_id)
+        assert item is not None and run is not None
+        assert item.title_zh == "已翻译标题"
         assert run.errors == [{"stage": "translation", "error_type": "RuntimeError"}]
 
 

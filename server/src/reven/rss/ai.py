@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from reven.rss.discovery import FeedEntry, LocalizedEntry
+from reven.rss.discovery import FeedEntry, LocalizedEntry, PartialLocalizationError
 from reven.rss.screening import ModelJudgement, ScreeningDocument
 
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -26,14 +26,26 @@ class SiliconFlowChatClient:
 
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
         localized: list[LocalizedEntry] = []
+        failures: list[Exception] = []
+        completed_batches = 0
         for start in range(0, len(entries), LOCALIZE_BATCH_SIZE):
             batch = entries[start : start + LOCALIZE_BATCH_SIZE]
-            content = await self._complete_json(_localize_messages(batch))
-            translations = _parse_translations(content, len(batch))
+            try:
+                content = await self._complete_json(_localize_messages(batch))
+                translations = _parse_translations(content, len(batch))
+            except Exception as exc:
+                failures.append(exc)
+                localized.extend(LocalizedEntry(entry, entry.title, entry.summary) for entry in batch)
+                continue
+            completed_batches += 1
             localized.extend(
                 LocalizedEntry(entry, title_zh, summary_zh)
                 for entry, (title_zh, summary_zh) in zip(batch, translations, strict=True)
             )
+        if failures:
+            if completed_batches == 0:
+                raise failures[0]
+            raise PartialLocalizationError(tuple(localized), tuple(type(exc).__name__ for exc in failures))
         return tuple(localized)
 
     async def judge(self, document: ScreeningDocument, evidence: dict[str, object]) -> ModelJudgement:
