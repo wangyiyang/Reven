@@ -15,3 +15,7 @@ coverage/
 htmlcov/
 .vite/
 .data/
+.next/
+test-results/
+*.tsbuildinfo
+next-env.d.ts
