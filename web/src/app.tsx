@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom"
 
 import { AppShell } from "@/components/app-shell"
+import { LoginPage } from "@/features/auth/login-page"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
@@ -8,6 +9,15 @@ import { RssSettingsPage } from "@/features/rss/rss-settings-page"
 import { RssCandidatesPage } from "@/features/rss/rss-candidates-page"
 
 export function App() {
+  return (
+    <Routes>
+      <Route element={<LoginPage />} path="/login" />
+      <Route element={<ShellRoutes />} path="*" />
+    </Routes>
+  )
+}
+
+function ShellRoutes() {
   return (
     <AppShell>
       <Routes>

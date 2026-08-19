@@ -230,6 +230,7 @@ async def test_production_factory_wires_configured_channel_publishers(
     settings = Settings(
         database_url=SecretStr("postgresql+asyncpg://unused"),
         reven_master_key=SecretStr(base64.b64encode(b"k" * 32).decode()),
+        reven_admin_password=SecretStr("test-admin-password"),
         job_data_dir=str(tmp_path),
         renderer_command="node renderer/dist/cli.mjs",
     )

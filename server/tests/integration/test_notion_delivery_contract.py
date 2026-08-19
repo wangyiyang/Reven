@@ -46,6 +46,7 @@ async def _configured_writer(db_session: AsyncSession, monkeypatch, handler) -> 
     key = base64.urlsafe_b64encode(b"k" * 32).decode()
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://unused")
     monkeypatch.setenv("REVEN_MASTER_KEY", key)
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
     db_session.add(
         Integration(

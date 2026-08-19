@@ -8,6 +8,12 @@ export class ApiError extends Error {
   }
 }
 
+export function redirectToLogin(): void {
+  if (typeof window === "undefined" || window.location.pathname === "/login") return
+  const next = encodeURIComponent(window.location.pathname + window.location.search)
+  window.location.assign(`/login?next=${next}`)
+}
+
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase()
   const headers = new Headers(init?.headers)
@@ -20,6 +26,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   const text = await response.text()
   const body = parseJson(text)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/auth/")) redirectToLogin()
     const error = isObject(body) ? body : null
     throw new ApiError(
       response.status,

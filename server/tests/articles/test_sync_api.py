@@ -103,10 +103,13 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
         "REVEN_MASTER_KEY",
         base64.urlsafe_b64encode(b"t" * 32).decode(),
     )
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
 
     headers = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
-    with TestClient(create_app(start_background_tasks=False), headers=headers) as client:
+    with TestClient(create_app(start_background_tasks=False), base_url="https://testserver", headers=headers) as client:
+        login = client.post("/api/auth/login", json={"password": "test-admin-password"})
+        assert login.status_code == 200
         response = client.post("/api/sync/notion")
         paths = client.get("/openapi.json").json()["paths"]
 
@@ -159,6 +162,7 @@ def test_app_lifespan_disposes_internally_created_engine(
         "REVEN_MASTER_KEY",
         base64.urlsafe_b64encode(b"t" * 32).decode(),
     )
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
     disposed = 0
     original_dispose = AsyncEngine.dispose
@@ -186,6 +190,7 @@ def test_database_settings_accept_ci_test_database_url(
         "REVEN_MASTER_KEY",
         base64.urlsafe_b64encode(b"t" * 32).decode(),
     )
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
 
     assert get_settings().database_url.get_secret_value() == ci_url

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
+TEST_ADMIN_PASSWORD = "test-admin-password"
 WRITE_HEADERS = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
 
 
@@ -50,6 +51,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     database_url = os.environ["TEST_DATABASE_URL"]
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("REVEN_MASTER_KEY", TEST_MASTER_KEY)
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
     get_settings.cache_clear()
 
     @asynccontextmanager
@@ -76,6 +78,7 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
         pytest.skip("TEST_DATABASE_URL is not set")
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("REVEN_MASTER_KEY", TEST_MASTER_KEY)
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
     get_settings.cache_clear()
     engine = create_async_engine(database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -85,7 +88,7 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
             await connection.execute(
                 text(
                     "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, "
-                    "articles, integrations, "
+                    "articles, integrations, auth_sessions, "
                     "system_state RESTART IDENTITY CASCADE"
                 )
             )
@@ -97,7 +100,9 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
         public_base_url="https://dev.wangyiyang.cc",
     )
     app.state.wechat_preview_service = _FakePreview()
-    with TestClient(app, headers=WRITE_HEADERS) as test_client:
+    with TestClient(app, base_url="https://testserver", headers=WRITE_HEADERS) as test_client:
+        login = test_client.post("/api/auth/login", json={"password": TEST_ADMIN_PASSWORD})
+        assert login.status_code == 200
         yield test_client, factory
     asyncio.run(engine.dispose())
     get_settings.cache_clear()

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from reven.api.routes.articles import router as articles_router
+from reven.api.routes.auth import router as auth_router
 from reven.api.routes.integrations import router as integrations_router
 from reven.api.routes.rss import router as rss_router
 from reven.api.routes.sync import router as sync_router
@@ -17,6 +18,7 @@ from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.jobs.runner import build_background_runner
 from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher, ConfiguredRssInboxPusher
+from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
 
 logger = logging.getLogger(__name__)
@@ -121,6 +123,9 @@ def create_app(
     )
     app = FastAPI(title="Reven", lifespan=lifespan)
     app.add_middleware(CsrfOriginMiddleware, public_base_url=public_base_url)
+    # 后加的中间件在最外层：先过认证，再做 CSRF 校验
+    app.add_middleware(AuthMiddleware)
+    app.include_router(auth_router)
     app.include_router(articles_router)
     app.include_router(integrations_router)
     app.include_router(rss_router)

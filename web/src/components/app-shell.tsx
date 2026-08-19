@@ -1,10 +1,20 @@
-import { Activity, FileText, Moon, PlugZap, Rss, Sparkles, Sun } from "lucide-react"
+import { Activity, FileText, LogOut, Moon, PlugZap, Rss, Sparkles, Sun } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 import { Toaster } from "sonner"
 
+import { apiRequest } from "@/lib/api"
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
+
+async function logout() {
+  try {
+    await apiRequest("/auth/logout", { method: "POST" })
+  } catch {
+    // 会话可能已失效，照常回到登录页
+  }
+  window.location.assign("/login")
+}
 
 const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
@@ -46,6 +56,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             </ul>
           </nav>
           <div className="flex lg:flex-col lg:gap-5">
+            <button
+              aria-label="退出登录"
+              className="flex min-h-9 w-fit items-center gap-2 border border-[var(--line)] px-3 font-mono text-[11px] tracking-[0.08em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)]"
+              onClick={() => void logout()}
+              type="button"
+            >
+              <LogOut aria-hidden size={14} />
+              退出
+            </button>
             <button
               aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
               className="flex min-h-9 w-fit items-center gap-2 border border-[var(--line)] px-3 font-mono text-[11px] tracking-[0.08em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)]"

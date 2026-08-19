@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 
-def test_smoke_keeps_credentials_out_of_process_arguments_and_output(tmp_path: Path) -> None:
+def test_smoke_health_check_needs_no_credentials(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     record = tmp_path / "argv.json"
@@ -20,16 +20,15 @@ def test_smoke_keeps_credentials_out_of_process_arguments_and_output(tmp_path: P
         encoding="utf-8",
     )
     fake_curl.chmod(0o700)
-    secret = "task17-secret-value"
     environment = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "ARGV_RECORD": str(record),
         "REVEN_BASE_URL": "https://dev.example.test",
-        "REVEN_BASIC_AUTH_USER": "smoke-user",
-        "REVEN_BASIC_AUTH_PASSWORD": secret,
         "TMPDIR": str(tmp_path),
     }
+    for key in ("REVEN_BASIC_AUTH_USER", "REVEN_BASIC_AUTH_PASSWORD"):
+        environment.pop(key, None)
 
     result = subprocess.run(
         ["bash", "scripts/smoke.sh"],
@@ -42,10 +41,6 @@ def test_smoke_keeps_credentials_out_of_process_arguments_and_output(tmp_path: P
     )
 
     assert result.returncode == 0
-    assert secret not in result.stdout + result.stderr
-    assert secret not in record.read_text(encoding="utf-8")
-    process = json.loads(record.read_text(encoding="utf-8"))
-    argv = process["argv"]
-    netrc_path = Path(argv[argv.index("--netrc-file") + 1])
-    assert not netrc_path.exists()
+    argv = json.loads(record.read_text(encoding="utf-8"))["argv"]
+    assert "--netrc-file" not in argv
     assert "--user" not in argv
