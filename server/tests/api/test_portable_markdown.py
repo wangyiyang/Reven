@@ -134,6 +134,7 @@ async def _mark_sync_failed(factory, article_id) -> None:  # type: ignore[no-unt
 def _configure_notion(factory, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     master_key = base64.urlsafe_b64encode(b"m" * 32).decode()
     monkeypatch.setenv("REVEN_MASTER_KEY", master_key)
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
 
     async def seed() -> None:

@@ -94,6 +94,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://reven_test:reven_test@127.0.0.1:5432/reven_test
       TEST_DATABASE_URL: postgresql+asyncpg://reven_test:reven_test@127.0.0.1:5432/reven_test
+      REVEN_ADMIN_PASSWORD: ci-admin-password
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
@@ -192,8 +193,6 @@ jobs:
             ./scripts/validate_reven_image.sh
           docker compose --env-file .env -f infra/compose/docker-compose.yml config >/dev/null
           docker run --rm \
-            -e REVEN_BASIC_AUTH_USER=smoke \
-            -e 'CADDY_BASIC_AUTH_HASH=$2a$14$abcdefghijklmnopqrstuuuuuuuuuuuuuuuuuuuuuuuuuuuu' \
             -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c \
             caddy validate --config /etc/caddy/Caddyfile
@@ -236,6 +235,7 @@ jobs:
             -v reven-ci-static:/srv/reven -v reven-ci-security-data:/data \
             -e DATABASE_URL=postgresql+asyncpg://invalid:invalid@127.0.0.1:1/invalid \
             -e REVEN_MASTER_KEY=dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ= \
+            -e REVEN_ADMIN_PASSWORD=ci-smoke-password \
             reven:test; then
             exit 1
           fi

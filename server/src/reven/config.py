@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     database_url: SecretStr
     reven_master_key: SecretStr
+    reven_admin_password: SecretStr
     public_base_url: str = Field(
         default="https://dev.wangyiyang.cc",
         validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),

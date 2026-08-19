@@ -6,6 +6,7 @@ from reven.config import Settings
 def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
     monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
 
     settings = Settings(_env_file=None)
 
@@ -23,6 +24,7 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
 def test_public_base_url_accepts_https_and_localhost_http(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
     monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", "http://localhost:3000")
 
     assert Settings(_env_file=None).public_base_url == "http://localhost:3000"
@@ -40,6 +42,7 @@ def test_public_base_url_accepts_https_and_localhost_http(monkeypatch) -> None: 
 def test_public_base_url_rejects_unsafe_origins(monkeypatch, value: str) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
     monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", value)
 
     with pytest.raises(ValidationError):

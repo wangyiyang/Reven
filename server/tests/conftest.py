@@ -48,7 +48,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         await connection.execute(
             text(
                 "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, articles, "
-                "integrations, system_state RESTART IDENTITY CASCADE"
+                "integrations, auth_sessions, system_state RESTART IDENTITY CASCADE"
             )
         )
     async with session_factory() as session:

@@ -55,24 +55,21 @@ COS_ASSET_PREFIX=assets/sha256
 删除或覆盖已验证的历史资产。启用可移植 Markdown 前，应为专用 Bucket 配置自定义
 公开域名、流量告警和防盗链，并将权限限制为“公有读、私有写”；禁止设置“公有读写”。
 
-## 3. 配置独立的 Caddy Basic Auth
+## 3. 配置管理员登录密码
 
-Basic Auth 密码必须与 SSH、Supabase、Notion 等密码不同。生成哈希：
-
-```bash
-docker run --rm caddy:2.10.0-alpine caddy hash-password --plaintext '<BASIC_AUTH_PASSWORD>'
-```
-
-只把用户名和生成的哈希写入 `.env`：
+站点认证由应用内登录页负责（不再使用 Caddy Basic Auth）。管理员密码必须与
+SSH、Supabase、Notion 等密码不同，只把明文密码写入服务器 `.env`（文件本身保持
+`600` 权限，不进入仓库）：
 
 ```dotenv
-REVEN_BASIC_AUTH_USER=<BASIC_AUTH_USER>
-CADDY_BASIC_AUTH_HASH=<CADDY_BCRYPT_HASH>
+REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 ```
 
-不要把明文密码写入 `.env`。Caddy 为 `dev.wangyiyang.cc` 自动申请并续期
+未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
+有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
+Caddy 为 `dev.wangyiyang.cc` 自动申请并续期
 HTTPS 证书，因此域名 A/AAAA 记录必须指向服务器，公网 80/443 端口必须可达。
-Caddy 容器只接收这两个认证变量，不接收 Reven 的数据库或集成 Secret。
+Caddy 容器不再接收任何认证变量，只负责反向代理与静态资源。
 
 ## 4. 安装博客 required check
 
@@ -226,17 +223,17 @@ Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听
 
 ## 9. 验证 HTTPS、认证与健康状态
 
-依次验证 HTTP 自动跳转 HTTPS、未认证请求被拒绝、认证后健康检查成功：
+依次验证 HTTP 自动跳转 HTTPS、未认证业务请求被拒绝、健康检查公开可访问：
 
 ```bash
 curl -I http://dev.wangyiyang.cc
-curl -I https://dev.wangyiyang.cc
-curl --fail --user '<BASIC_AUTH_USER>:<BASIC_AUTH_PASSWORD>' \
-  https://dev.wangyiyang.cc/api/health
+curl -i https://dev.wangyiyang.cc/api/articles
+curl --fail https://dev.wangyiyang.cc/api/health
 ```
 
 预期分别为 HTTPS 重定向、`401`、以及
-`{"service":"reven","status":"ok"}`。随后检查容器状态与脱敏日志：
+`{"service":"reven","status":"ok"}`。随后用浏览器打开站点，确认跳转到登录页，
+用 `.env` 中的 `REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
 
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
@@ -276,13 +273,20 @@ RSS_MODEL_REVIEW_ENABLED=true
 与稿件库“关联素材”的双向多对多关系。Notion 集成必须同时向两个 Data Source 授权。
 
 在“RSS 配置”中录入 HTTPS Feed、正向关键词和反向关键词。需要主动重建关键词向量时，
-使用受控客户端调用：
+先在浏览器登录获取会话，再在同一浏览器会话中调用；或用受控客户端走登录接口：
 
 ```bash
-curl --fail --user '<BASIC_AUTH_USER>:<BASIC_AUTH_PASSWORD>' \
+curl --fail -c /tmp/reven-cookie.jar \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'X-Reven-CSRF: 1' \
+  -d '{"password": "<ADMIN_PASSWORD>"}' \
+  -X POST https://dev.wangyiyang.cc/api/auth/login
+curl --fail -b /tmp/reven-cookie.jar \
   -H 'Origin: https://dev.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
   -X POST https://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+rm -f /tmp/reven-cookie.jar
 ```
 
 切换按以下门禁执行，任何一步失败都不得停用旧流程：

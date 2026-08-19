@@ -10,6 +10,7 @@ def _settings(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
     values = {
         "DATABASE_URL": "postgresql+asyncpg://test:test@db/test",
         "REVEN_MASTER_KEY": "test-master-key",
+        "REVEN_ADMIN_PASSWORD": "test-admin-password",
         "COS_BUCKET": "reven-1251081768",
         "COS_REGION": "ap-beijing",
         "COS_SECRET_ID": "AKIDexample",
@@ -59,6 +60,7 @@ def test_configuration_rejects_unsafe_values(
 def test_configuration_reports_missing_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
     monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
 
     with pytest.raises(TencentCosConfigurationError, match="COS_BUCKET"):
         load_tencent_cos_configuration(Settings(_env_file=None))

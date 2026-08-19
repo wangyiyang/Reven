@@ -1,8 +1,4 @@
 dev.wangyiyang.cc {
-	basic_auth {
-		{$REVEN_BASIC_AUTH_USER} {$CADDY_BASIC_AUTH_HASH}
-	}
-
 	handle /api/* {
 		reverse_proxy reven:8000
 	}

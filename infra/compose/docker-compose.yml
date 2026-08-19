@@ -32,9 +32,6 @@ services:
   caddy:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
-    environment:
-      REVEN_BASIC_AUTH_USER: ${REVEN_BASIC_AUTH_USER:?REVEN_BASIC_AUTH_USER is required}
-      CADDY_BASIC_AUTH_HASH: ${CADDY_BASIC_AUTH_HASH:?CADDY_BASIC_AUTH_HASH is required}
     depends_on:
       reven:
         condition: service_healthy
