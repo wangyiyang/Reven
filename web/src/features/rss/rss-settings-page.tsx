@@ -1,4 +1,3 @@
-import { Rss } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -53,12 +52,9 @@ export function RssSettingsPage() {
 
 function PageHeader() {
   return (
-    <header className="mb-10 border-b border-[var(--ink)] pb-8">
-      <p className="section-kicker"><Rss aria-hidden size={15} />Content discovery / RSS</p>
-      <h1 className="mt-4 text-[clamp(2.7rem,7vw,5.5rem)] leading-[0.92] font-bold tracking-[-0.045em]">
-        RSS 内容发现配置
-      </h1>
-      <p className="mt-5 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+    <header className="mb-10">
+      <h1 className="text-2xl font-semibold">RSS 内容发现配置</h1>
+      <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
         维护抓取源与正反向关键词。系统每天上海时间 06:00 自动抓取、筛选并发送一条汇总。
       </p>
     </header>
@@ -76,7 +72,7 @@ function SourcesPanel(props: SourcesPanelProps) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-3xl font-bold">RSS 源</h2>
+        <h2 className="text-base font-semibold">RSS 源</h2>
         <p className="text-sm text-[var(--muted)]">{props.sources.length} 个已配置源</p>
       </CardHeader>
       <CardContent>
@@ -245,7 +241,7 @@ function KeywordForm(props: {
           <div>
             <Label htmlFor="rss-keyword-kind">关键词类型</Label>
             <select
-              className="h-10 w-full border-0 border-b border-[var(--line)] bg-transparent text-sm outline-none focus:border-[var(--signal)]"
+              className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm outline-none focus:border-[var(--signal)]"
               id="rss-keyword-kind"
               onChange={(event) => setKind(event.target.value === "negative" ? "negative" : "positive")}
               value={kind}
@@ -277,14 +273,14 @@ function KeywordPanel(props: {
   return (
     <Card aria-label={title} role="region">
       <CardHeader>
-        <h2 className="text-3xl font-bold">{title}</h2>
+        <h2 className="text-base font-semibold">{title}</h2>
         <p className="text-sm text-[var(--muted)]">{filtered.length} 个关键词</p>
       </CardHeader>
       <CardContent>
         {filtered.length === 0 && <p className="text-sm text-[var(--muted)]">尚未配置{title}。</p>}
         <ul className="flex flex-wrap gap-2">
           {filtered.map((keyword) => (
-            <li className="flex items-center gap-2 border border-[var(--line)] px-3 py-2 text-sm" key={keyword.id}>
+            <li className="flex items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2 text-sm" key={keyword.id}>
               <span>{keyword.term}</span><StatusBadge enabled={keyword.enabled} />
               <Button
                 aria-label={`${keyword.enabled ? "停用" : "启用"} ${keyword.term}`}

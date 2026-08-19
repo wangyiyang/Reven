@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check, Rss, Sparkles, X } from "lucide-react"
+import { ArrowUpRight, Check, Rss, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,16 +9,9 @@ export function RssCandidatesPage() {
   const controller = useRssCandidatesController()
   return (
     <main className="page-enter mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
-      <header className="mb-8 grid gap-6 border-b border-[var(--ink)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
-        <div>
-          <p className="section-kicker"><Sparkles aria-hidden size={15} />Discovery desk / Review</p>
-          <h1 className="mt-4 text-[clamp(2.7rem,7vw,5.5rem)] leading-[0.92] font-bold tracking-[-0.045em]">RSS 候选工作台</h1>
-          <p className="mt-5 max-w-2xl text-sm leading-7 text-[var(--muted)]">核对筛选依据，只把值得继续编辑的素材送入 Notion Inbox。</p>
-        </div>
-        <div className="border-l-4 border-[var(--ink)] pl-4">
-          <p className="text-4xl font-bold">{controller.candidates.data?.length ?? "—"}</p>
-          <p className="text-xs tracking-[0.12em] text-[var(--muted)] uppercase">Awaiting review</p>
-        </div>
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <h1 className="text-2xl font-semibold">RSS 候选工作台</h1>
+        <p className="text-sm text-[var(--muted)]">待审 <span className="font-semibold text-[var(--ink)]">{controller.candidates.data?.length ?? "—"}</span></p>
       </header>
 
       {controller.candidates.isLoading && <p aria-busy="true" className="text-sm text-[var(--muted)]">正在读取候选…</p>}
@@ -47,8 +40,8 @@ export function RssCandidatesPage() {
 
 function EmptyQueue() {
   return (
-    <section className="grid min-h-72 place-items-center border border-dashed border-[var(--line)] bg-[var(--faint)] text-center">
-      <div><Rss aria-hidden className="mx-auto text-[var(--muted)]" /><h2 className="mt-4 text-3xl font-bold">候选队列已清空</h2><p className="mt-2 text-sm text-[var(--muted)]">下一次定时发现完成后，新候选会出现在这里。</p></div>
+    <section className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--line)] bg-[var(--faint)] text-center">
+      <div><Rss aria-hidden className="mx-auto text-[var(--muted)]" /><h2 className="mt-4 text-base font-semibold">候选队列已清空</h2><p className="mt-2 text-sm text-[var(--muted)]">下一次定时发现完成后，新候选会出现在这里。</p></div>
     </section>
   )
 }
@@ -62,13 +55,13 @@ function CandidateCard(props: {
 }) {
   const { candidate } = props
   return (
-    <li className="candidate-card grid overflow-hidden border border-[var(--line)] bg-[var(--bg)] lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <li className="candidate-card grid overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--bg)] lg:grid-cols-[minmax(0,1fr)_20rem]">
       <article className="p-5 sm:p-7">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-[var(--muted)]">
-          <span className="font-mono font-bold text-[var(--muted)]">#{String(props.index).padStart(2, "0")}</span>
+          <span>#{String(props.index).padStart(2, "0")}</span>
           <span>{candidate.source_name}</span><span aria-hidden>·</span><time>{formatDate(candidate.published_at)}</time>
         </div>
-        <h2 className="mt-4 text-3xl font-bold leading-tight sm:text-4xl">{candidate.title_zh}</h2>
+        <h2 className="mt-4 text-lg font-semibold leading-tight">{candidate.title_zh}</h2>
         {candidate.title_zh !== candidate.title && <p className="mt-2 text-sm italic text-[var(--muted)]">{candidate.title}</p>}
         <p className="mt-5 max-w-3xl text-sm leading-7">{candidate.summary_zh || candidate.summary || "暂无摘要"}</p>
         <div className="mt-6 flex flex-wrap gap-2">
@@ -76,10 +69,10 @@ function CandidateCard(props: {
           {candidate.negative_literal_matches.map((term) => <Badge className="text-[var(--danger)]" key={`negative-${term}`}>反向 · {term}</Badge>)}
           {candidate.positive_literal_matches.length + candidate.negative_literal_matches.length === 0 && <span className="text-xs text-[var(--muted)]">无字面命中</span>}
         </div>
-        <p className="mt-5 border-l-2 border-[var(--signal)] pl-4 text-sm leading-6"><span className="font-semibold">入选依据：</span>{candidate.reason ?? "未提供"}</p>
+        <p className="mt-5 rounded-r-md border-l-2 border-[var(--line)] bg-[var(--faint)] py-2 pr-3 pl-4 text-sm leading-6"><span className="font-semibold">入选依据：</span>{candidate.reason ?? "未提供"}</p>
       </article>
-      <aside className="flex flex-col border-t border-[var(--ink)] bg-[var(--faint)] p-5 lg:border-t-0 lg:border-l">
-        <p className="text-[10px] font-bold tracking-[0.16em] text-[var(--muted)] uppercase">Signal report</p>
+      <aside className="flex flex-col border-t border-[var(--line)] bg-[var(--faint)] p-5 lg:border-t-0 lg:border-l">
+        <p className="text-xs text-[var(--muted)]">Signal report</p>
         <dl className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-1">
           <Score label="BM25" value={candidate.bm25_score} />
           <Score label="正向语义" value={candidate.positive_embedding_score} />
@@ -91,7 +84,7 @@ function CandidateCard(props: {
           <p>规则：{candidate.rules_version ?? "—"}</p>
         </div>
         <div className="mt-auto grid gap-2 pt-6">
-          {candidate.url && <a className="inline-flex min-h-10 items-center justify-center gap-2 border border-[var(--line)] px-4 text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)] hover:no-underline" href={candidate.url} rel="noopener noreferrer" target="_blank">查看原文 <ArrowUpRight aria-hidden size={15} /></a>}
+          {candidate.url && <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line)] px-4 text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)] hover:no-underline" href={candidate.url} rel="noopener noreferrer" target="_blank">查看原文 <ArrowUpRight aria-hidden size={15} /></a>}
           <Button aria-label={`推送到 Notion ${candidate.title_zh}`} disabled={props.busy} onClick={() => void props.onConfirm()}><Check aria-hidden size={16} />推送到 Notion</Button>
           <Button aria-label={`忽略 ${candidate.title_zh}`} disabled={props.busy} onClick={() => void props.onIgnore()} variant="ghost"><X aria-hidden size={16} />忽略</Button>
         </div>
@@ -101,7 +94,7 @@ function CandidateCard(props: {
 }
 
 function Score({ label, value }: { label: string; value: number }) {
-  return <div className="border-b border-[var(--line)] py-2"><dt className="text-[10px] tracking-[0.08em] text-[var(--muted)] uppercase">{label}</dt><dd className="mt-1 font-mono text-lg font-bold">{value.toFixed(3)}</dd></div>
+  return <div className="border-b border-[var(--line)] py-2"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className="mt-1 font-mono text-sm">{value.toFixed(3)}</dd></div>
 }
 
 function formatDate(value: string | null): string {

@@ -30,7 +30,7 @@ export function ArticleFilters({
     onChange({ ...values, query })
   }
   return (
-    <form className="grid gap-4 border-y border-[var(--ink)] py-5 md:grid-cols-[12rem_12rem_1fr_auto]" onSubmit={submit}>
+    <form className="grid gap-4 border-y border-[var(--line)] py-5 md:grid-cols-[12rem_12rem_1fr_auto]" onSubmit={submit}>
       <Field label="状态">
         <Select value={values.status || "全部状态"} onValueChange={(status) => onChange({ ...values, status: status === "全部状态" ? "" : status })}>
           <SelectTrigger aria-label="状态"><SelectValue /></SelectTrigger>
@@ -45,8 +45,8 @@ export function ArticleFilters({
       </Field>
       <Field label="搜索标题">
         <div className="relative">
-          <Search aria-hidden className="absolute top-3 left-0 text-[var(--muted)]" size={15} />
-          <Input aria-label="搜索标题" className="pl-6" maxLength={200} onChange={(event) => setQuery(event.target.value)} value={query} />
+          <Search aria-hidden className="absolute top-1/2 left-3 -translate-y-1/2 text-[var(--muted)]" size={15} />
+          <Input aria-label="搜索标题" className="pl-9" maxLength={200} onChange={(event) => setQuery(event.target.value)} value={query} />
         </div>
       </Field>
       <div className="flex items-end gap-2">
@@ -58,5 +58,5 @@ export function ArticleFilters({
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <div><Label className="mb-1 block text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{label}</Label>{children}</div>
+  return <div><Label className="mb-1 block text-xs text-[var(--muted)]">{label}</Label>{children}</div>
 }

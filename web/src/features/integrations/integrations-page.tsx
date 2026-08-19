@@ -1,4 +1,4 @@
-import { BookOpenText, RefreshCcw } from "lucide-react"
+import { RefreshCcw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IntegrationCard } from "./integration-card"
@@ -46,15 +46,12 @@ export function IntegrationsPage() {
 
 function PageHeader({ onRefresh }: { onRefresh: () => void }) {
   return (
-    <header className="mb-12 grid gap-7 border-b border-[var(--ink)] pb-9 lg:grid-cols-[1fr_22rem]">
+    <header className="mb-8 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--line)] pb-6">
       <div>
-        <p className="section-kicker"><BookOpenText aria-hidden size={15} />系统装帧 / Integrations</p>
-        <h1 className="mt-4 max-w-3xl text-[clamp(2.7rem,7vw,6rem)] leading-[0.92] font-bold tracking-[-0.045em]">连接你的<br />出版流水线</h1>
+        <h1 className="text-2xl font-semibold">集成设置</h1>
+        <p className="mt-1 text-sm text-[var(--muted)]">密钥写入后只展示不可逆提示，不会返回到浏览器。</p>
       </div>
-      <div className="self-end text-sm leading-7 text-[var(--muted)]">
-        <p>公共配置可以随时修改。密钥写入后只展示不可逆提示，不会返回到浏览器。</p>
-        <Button className="mt-4" onClick={onRefresh} size="sm" variant="ghost"><RefreshCcw aria-hidden size={14} />刷新连接状态</Button>
-      </div>
+      <Button onClick={onRefresh} size="sm" variant="ghost"><RefreshCcw aria-hidden size={14} />刷新连接状态</Button>
     </header>
   )
 }

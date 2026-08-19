@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight } from "lucide-react"
+import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react"
 import { Link, useSearchParams } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
@@ -30,7 +30,7 @@ export function ArticlesPage() {
   }
   return (
     <main className="page-enter mx-auto w-full max-w-[94rem] px-4 py-9 sm:px-7 lg:px-10 lg:py-12">
-      <Header total={articles.data?.total} />
+      <Header />
       <ArticleFilters onChange={updateFilters} values={filters} />
       {articles.isLoading && <LoadingRows />}
       {articles.isError && <ErrorPanel message={articles.error.message} retry={() => articles.refetch()} />}
@@ -55,16 +55,10 @@ export function ArticlesPage() {
   )
 }
 
-function Header({ total }: { total?: number }) {
+function Header() {
   return (
-    <header className="mb-8 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-      <div>
-        <p className="section-kicker"><BookOpenText aria-hidden size={15} />Editorial queue / 稿件索引</p>
-        <h1 className="mt-3 text-[clamp(2.8rem,7vw,6.4rem)] leading-[0.9] font-bold tracking-[-0.055em]">交付，逐篇校准</h1>
-      </div>
-      <p className="max-w-sm border-l border-[var(--ink)] pl-5 text-sm leading-7 text-[var(--muted)]">
-        当前索引 <strong className="text-3xl font-bold text-[var(--ink)]">{total ?? "—"}</strong> 篇。稿件仍在 Notion 写作，Reven 只负责同步、校验与交付。
-      </p>
+    <header className="mb-8">
+      <h1 className="text-2xl font-semibold">稿件</h1>
     </header>
   )
 }
@@ -73,8 +67,8 @@ function DesktopTable({ items }: { items: ArticleSummary[] }) {
   return (
     <div className="mt-6 hidden overflow-x-auto xl:block">
       <table className="w-full min-w-[1180px] border-collapse text-left text-xs">
-        <thead><tr className="border-b border-[var(--ink)] text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">
-          {["标题", "Notion 状态", "自动化状态", "内容同步", "封面", "目标渠道", "计划时间", "博客", "微信", "成功同步"].map((title) => <th className="px-2 py-3 font-semibold" key={title}>{title}</th>)}
+        <thead><tr className="border-b border-[var(--line)] text-xs font-medium text-[var(--muted)]">
+          {["标题", "Notion 状态", "自动化状态", "内容同步", "封面", "目标渠道", "计划时间", "博客", "微信", "成功同步"].map((title) => <th className="px-2 py-3 font-medium" key={title}>{title}</th>)}
         </tr></thead>
         <tbody>{items.map((article) => <ArticleRow article={article} key={article.id} />)}</tbody>
       </table>
@@ -106,8 +100,8 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
   return (
     <div className="mt-6 grid gap-4 xl:hidden">
       {items.map((article) => (
-        <article aria-label={`${article.title}移动摘要`} className="border border-[var(--line)] bg-[var(--faint)] p-5" key={article.id}>
-          <Link className="text-2xl font-bold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
+        <article aria-label={`${article.title}移动摘要`} className="rounded-lg border border-[var(--line)] bg-[var(--faint)] p-5" key={article.id}>
+          <Link className="text-lg font-semibold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
           <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.content_sync.status} /><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
           <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
             <Meta label="渠道" value={channelLabel(article.target_channels, "、")} />
@@ -140,7 +134,7 @@ function RowActions({ article }: { article: ArticleSummary }) {
 function Pagination({ page, pageSize, total, setPage }: { page: number; pageSize: number; total: number; setPage: (page: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))
   return (
-    <nav aria-label="稿件分页" className="mt-8 flex items-center justify-between border-t border-[var(--ink)] pt-5">
+    <nav aria-label="稿件分页" className="mt-8 flex items-center justify-between border-t border-[var(--line)] pt-5">
       <span className="text-xs text-[var(--muted)]">第 {page} / {pages} 页</span>
       <div className="flex gap-2">
         <Button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} size="sm" variant="outline"><ChevronLeft aria-hidden size={14} /></Button>
@@ -176,21 +170,21 @@ function channelLabel(channels: ArticleSummary["target_channels"], separator: st
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
-  return <div><dt className="text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">{label}</dt><dd className="mt-1">{value}</dd></div>
+  return <div><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className="mt-1">{value}</dd></div>
 }
 
 function ChannelSummary({ label, status }: { label: string; status: string | null }) {
-  return <div><p className="mb-1 text-[10px] tracking-[0.1em] text-[var(--muted)] uppercase">{label}</p><ArticleStatus compact status={status} /></div>
+  return <div><p className="mb-1 text-xs text-[var(--muted)]">{label}</p><ArticleStatus compact status={status} /></div>
 }
 
 function LoadingRows() {
-  return <section aria-busy="true" aria-label="正在读取稿件" className="mt-6 grid gap-3">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-20 rounded-none bg-[var(--faint)]" key={index} />)}</section>
+  return <section aria-busy="true" aria-label="正在读取稿件" className="mt-6 grid gap-3">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-20 bg-[var(--faint)]" key={index} />)}</section>
 }
 
 function ErrorPanel({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="mt-6 border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>稿件读取失败：{message}</p><Button className="mt-4" onClick={retry} size="sm" variant="outline">重新读取</Button></div>
+  return <div className="mt-6 rounded-lg border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>稿件读取失败：{message}</p><Button className="mt-4" onClick={retry} size="sm" variant="outline">重新读取</Button></div>
 }
 
 function EmptyState() {
-  return <div className="mt-8 border border-dashed border-[var(--line)] px-6 py-16 text-center"><p className="text-3xl font-bold">没有匹配稿件</p><p className="mt-2 text-sm text-[var(--muted)]">调整筛选条件，或先从 Notion 同步稿件。</p></div>
+  return <div className="mt-8 rounded-lg border border-dashed border-[var(--line)] px-6 py-16 text-center"><p className="text-lg font-semibold">没有匹配稿件</p><p className="mt-2 text-sm text-[var(--muted)]">调整筛选条件，或先从 Notion 同步稿件。</p></div>
 }

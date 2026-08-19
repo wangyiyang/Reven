@@ -1,4 +1,4 @@
-import { ArrowUpRight, Wrench } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { safeNotionUrl } from "@/lib/external-url"
@@ -20,17 +20,16 @@ export function PublicationGuidance({
   const items = guidanceItems(article, job)
   const notionUrl = safeNotionUrl(article.notion_url)
   return (
-    <section className="border-y border-[var(--ink)] py-7">
-      <p className="section-kicker"><Wrench aria-hidden size={14} />Recovery notes / 错误与建议</p>
-      <h2 className="mt-2 text-3xl font-bold">下一步怎么处理</h2>
+    <section className="border-y border-[var(--line)] py-7">
+      <h2 className="text-base font-semibold">下一步怎么处理</h2>
       {items.length === 0 ? (
         <p className="mt-4 text-sm text-[var(--muted)]">当前没有需要处理的错误。</p>
       ) : (
         <ul className="mt-5 grid gap-3">
           {items.map((item, index) => (
             <li className="grid gap-2 border-l-2 border-[var(--danger)] bg-[var(--faint)] p-4 sm:grid-cols-[10rem_1fr]" key={`${item.source}-${index}`}>
-              <div><p className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{item.source}</p><p className="mt-1 text-sm text-[var(--danger)]">{item.error}</p></div>
-              <div><p className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">建议</p><p className="mt-1 text-sm">{item.advice}</p></div>
+              <div><p className="text-xs text-[var(--muted)]">{item.source}</p><p className="mt-1 text-sm text-[var(--danger)]">{item.error}</p></div>
+              <div><p className="text-xs text-[var(--muted)]">建议</p><p className="mt-1 text-sm">{item.advice}</p></div>
             </li>
           ))}
         </ul>

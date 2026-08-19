@@ -19,7 +19,7 @@ export function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowEle
 }
 
 export function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={cn("h-11 px-3 text-left text-xs font-bold tracking-wider text-[var(--muted)]", className)} {...props} />
+  return <th className={cn("h-11 px-3 text-left text-xs font-medium text-[var(--muted)]", className)} {...props} />
 }
 
 export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
