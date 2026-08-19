@@ -8,6 +8,7 @@ from alembic import context
 from reven.articles.models import Article  # noqa: F401
 from reven.content_sync.models import ContentSnapshot, ContentSyncRun, SnapshotAsset  # noqa: F401
 from reven.db import Base
+from reven.finance.models import FinanceEntry  # noqa: F401
 from reven.integrations.models import Integration  # noqa: F401
 from reven.jobs.models import PublicationJob  # noqa: F401
 from reven.jobs.notification_outbox import NotificationOutbox  # noqa: F401

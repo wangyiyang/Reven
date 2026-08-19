@@ -88,7 +88,7 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
             await connection.execute(
                 text(
                     "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, "
-                    "articles, integrations, auth_sessions, "
+                    "articles, finance_entries, integrations, auth_sessions, "
                     "system_state RESTART IDENTITY CASCADE"
                 )
             )

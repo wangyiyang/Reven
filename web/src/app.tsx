@@ -5,6 +5,7 @@ import { LoginPage } from "@/features/auth/login-page"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
+import { FinancePage } from "@/features/finance/finance-page"
 import { RssSettingsPage } from "@/features/rss/rss-settings-page"
 import { RssCandidatesPage } from "@/features/rss/rss-candidates-page"
 
@@ -24,6 +25,7 @@ function ShellRoutes() {
         <Route element={<ArticlesPage />} path="/articles" />
         <Route element={<ArticleDetailPage />} path="/articles/:articleId" />
         <Route element={<IntegrationsPage />} path="/integrations" />
+        <Route element={<FinancePage />} path="/finance" />
         <Route element={<RssSettingsPage />} path="/rss" />
         <Route element={<RssCandidatesPage />} path="/rss/candidates" />
         <Route element={<Placeholder title="系统状态" />} path="/system" />
