@@ -88,10 +88,13 @@ def test_finance_entry_not_found(workbench) -> None:  # type: ignore[no-untyped-
     client, _factory = workbench
     missing = uuid4()
     assert client.get(f"/api/finance/entries/{missing}").status_code == 404
-    assert client.put(
-        f"/api/finance/entries/{missing}",
-        json={"kind": "income", "name": "x", "amount": 1, "occurred_on": "2026-08-19"},
-    ).status_code == 404
+    assert (
+        client.put(
+            f"/api/finance/entries/{missing}",
+            json={"kind": "income", "name": "x", "amount": 1, "occurred_on": "2026-08-19"},
+        ).status_code
+        == 404
+    )
     assert client.delete(f"/api/finance/entries/{missing}").status_code == 404
 
 
