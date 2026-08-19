@@ -1,4 +1,4 @@
-import { Activity, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
+import { Activity, BookOpenCheck, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -20,6 +20,7 @@ const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
   { to: "/finance", label: "财务", icon: Wallet },
   { to: "/projects", label: "项目", icon: FolderKanban },
+  { to: "/playbooks", label: "SOP/话术", icon: BookOpenCheck },
   { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
   { to: "/rss", label: "RSS 配置", icon: Rss, end: true },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
