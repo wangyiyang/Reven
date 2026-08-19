@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getTheme)
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
-      <aside className="z-20 border-b border-[var(--line)] bg-[var(--bg)] lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0">
+      <aside className="z-20 border-b border-[var(--line)] bg-[var(--panel)] lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0">
         <div className="flex h-full items-center justify-between px-5 py-4 lg:flex-col lg:items-stretch lg:px-6 lg:py-8">
           <NavLink aria-label="Reven 首页" className="group flex items-center gap-2.5" to="/articles">
             <img alt="" className="h-8 w-8 dark:hidden" src="/brand/yixing-logo-v2-master.svg" />
@@ -55,10 +55,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               ))}
             </ul>
           </nav>
-          <div className="flex lg:flex-col lg:gap-5">
+          <div className="flex lg:flex-col lg:gap-3">
             <button
               aria-label="退出登录"
-              className="flex min-h-9 w-fit items-center gap-2 border border-[var(--line)] px-3 font-mono text-[11px] tracking-[0.08em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)]"
+              className="flex min-h-9 w-fit items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
               onClick={() => void logout()}
               type="button"
             >
@@ -67,16 +67,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             <button
               aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
-              className="flex min-h-9 w-fit items-center gap-2 border border-[var(--line)] px-3 font-mono text-[11px] tracking-[0.08em] text-[var(--muted)] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)]"
+              className="flex min-h-9 w-fit items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
               onClick={() => setTheme(toggleTheme())}
               type="button"
             >
               {theme === "dark" ? <Sun aria-hidden size={14} /> : <Moon aria-hidden size={14} />}
-              {theme === "dark" ? "Light" : "Dark"}
+              {theme === "dark" ? "浅色" : "深色"}
             </button>
-            <p className="hidden font-mono text-[10px] leading-5 tracking-[0.13em] text-[var(--muted)] uppercase lg:block">
-              CODE, ONE STROKE<br />AT A TIME.
-            </p>
           </div>
         </div>
       </aside>

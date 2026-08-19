@@ -29,7 +29,7 @@ export function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center px-6">
       <form
-        className="page-enter w-full max-w-sm border border-[var(--line)] bg-[var(--bg)] p-8"
+        className="page-enter w-full max-w-sm rounded-lg border border-[var(--line)] bg-[var(--bg)] p-8 shadow-sm"
         onSubmit={onSubmit}
       >
         <div className="flex items-center gap-2.5">
@@ -43,19 +43,19 @@ export function LoginPage() {
         <input
           autoComplete="current-password"
           autoFocus
-          className="mt-2 min-h-11 w-full border border-[var(--line)] bg-transparent px-3 outline-none focus:border-[var(--signal)]"
+          className="mt-2 min-h-11 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 outline-none focus:border-[var(--signal)]"
           id="admin-password"
           onChange={(event) => setPassword(event.target.value)}
           type="password"
           value={password}
         />
         {error && (
-          <p className="mt-3 text-sm text-[var(--signal)]" role="alert">
+          <p className="mt-3 text-sm text-[var(--danger)]" role="alert">
             {error}
           </p>
         )}
         <button
-          className="mt-6 min-h-11 w-full border border-[var(--line)] font-mono text-[11px] tracking-[0.08em] uppercase transition-colors hover:border-[var(--signal)] hover:text-[var(--signal)] disabled:opacity-50"
+          className="mt-6 min-h-11 w-full rounded-md border border-[var(--signal)] bg-[var(--signal)] text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:opacity-50"
           disabled={pending || password.length === 0}
           type="submit"
         >

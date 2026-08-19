@@ -4,11 +4,11 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex min-h-10 items-center justify-center gap-2 border px-4 text-sm font-semibold transition-[transform,background-color,color,border-color,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--signal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] disabled:pointer-events-none disabled:opacity-45 active:translate-y-px",
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-4 text-sm font-semibold transition-[transform,background-color,color,border-color,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--signal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] disabled:pointer-events-none disabled:opacity-45 active:translate-y-px",
   {
     variants: {
       variant: {
-        default: "border-[var(--ink)] bg-[var(--ink)] text-[var(--bg)] hover:opacity-85",
+        default: "border-[var(--signal)] bg-[var(--signal)] text-white hover:opacity-85",
         outline: "border-[var(--line)] bg-transparent text-[var(--ink)] hover:border-[var(--ink)] hover:bg-[var(--faint)]",
         danger: "border-[var(--danger)] bg-transparent text-[var(--danger)] hover:bg-[var(--danger)] hover:text-white",
         ghost: "border-transparent bg-transparent hover:bg-[var(--faint)]",

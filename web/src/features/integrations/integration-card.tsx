@@ -30,7 +30,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
   const busy = props.busyAction?.startsWith(props.definition.provider)
   const deleteLabel = `删除${props.definition.title}密钥`
   return (
-    <article className="integration-card group relative border-t border-[var(--ink)] py-8">
+    <article className="integration-card group relative mb-6 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-6 shadow-sm">
       <CardHeader definition={props.definition} integration={props.integration} />
       <ConfigFields definition={props.definition} egressIp={props.egressIp} form={form} integration={props.integration} />
       <StatusNotices definition={props.definition} integration={props.integration} />
@@ -108,12 +108,10 @@ function useIntegrationForm(definition: ProviderDefinition, integration?: Integr
 
 function CardHeader({ definition, integration }: { definition: ProviderDefinition; integration?: Integration }) {
   return (
-    <header className="grid gap-5 sm:grid-cols-[5rem_1fr_auto]">
-      <span className="text-5xl font-bold leading-none text-[var(--line)]" aria-hidden>{definition.number}</span>
+    <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p className="font-mono text-[11px] font-bold tracking-[0.22em] text-[var(--muted)] uppercase">{definition.eyebrow}</p>
-        <h2 className="mt-1 text-3xl font-bold text-[var(--ink)]">{definition.title}</h2>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">{definition.description}</p>
+        <h2 className="text-lg font-semibold">{definition.title}</h2>
+        <p className="mt-1 max-w-xl text-sm text-[var(--muted)]">{definition.description}</p>
       </div>
       <ConnectionBadge integration={integration} />
     </header>
@@ -177,7 +175,7 @@ function StatusNotices({ definition, integration }: { definition: ProviderDefini
   return (
     <>
       {integration?.last_error && (
-        <p className="mt-6 border-l-2 border-[var(--danger)] bg-[var(--faint)] px-4 py-3 text-sm text-[var(--danger)]" role="alert">
+        <p className="mt-6 rounded-md border-l-2 border-[var(--danger)] bg-[var(--faint)] px-4 py-3 text-sm text-[var(--danger)]" role="alert">
           {integration.last_error}
         </p>
       )}
@@ -272,7 +270,7 @@ function ConnectionBadge({ integration }: { integration?: Integration }) {
   return (
     <div className="justify-self-start text-right sm:justify-self-end">
       <Badge className={style}>{ok && <Check aria-hidden size={12} />}{integration.connection_status}</Badge>
-      {integration.last_tested_at && <p className="mt-2 text-[10px] tracking-wide text-[var(--muted)]">{formatShanghai(integration.last_tested_at)}</p>}
+      {integration.last_tested_at && <p className="mt-2 text-xs text-[var(--muted)]">{formatShanghai(integration.last_tested_at)}</p>}
     </div>
   )
 }
@@ -289,7 +287,7 @@ function EgressIp({ value }: { value?: string | null }) {
   return (
     <div>
       <Label>出口 IP</Label>
-      <div className="mt-2 flex min-h-8 items-center gap-2 border-b border-[var(--line)] pb-2 font-mono text-sm">
+      <div className="mt-2 flex min-h-8 items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2 font-mono text-sm">
         <ArrowUpRight aria-hidden size={15} className="text-[var(--muted)]" />{value ?? "暂时无法获取"}
       </div>
       <p className="mt-2 text-xs text-[var(--muted)]">请将该地址加入微信公众号 IP 白名单。</p>

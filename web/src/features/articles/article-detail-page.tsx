@@ -41,10 +41,9 @@ function DetailContent({ article }: { article: ArticleDetail }) {
   return (
     <main className="page-enter mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 lg:px-12 lg:py-12">
       <Link className="inline-flex min-h-10 items-center gap-2 text-xs font-semibold hover:underline" to="/articles"><ArrowLeft aria-hidden size={14} />返回稿件索引</Link>
-      <header className="mt-5 grid gap-7 border-b border-[var(--ink)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
+      <header className="mt-5 grid gap-7 border-b border-[var(--line)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
-          <p className="section-kicker">Article dossier / 交付档案</p>
-          <h1 className="mt-3 max-w-4xl text-[clamp(2.5rem,6vw,5.5rem)] leading-[0.95] font-bold tracking-[-0.05em]">{article.title}</h1>
+          <h1 className="max-w-4xl text-2xl font-semibold">{article.title}</h1>
           <div className="mt-5 flex flex-wrap gap-2"><ArticleStatus status={article.notion_status} /><ArticleStatus status={article.automation_status} /></div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -60,7 +59,6 @@ function DetailContent({ article }: { article: ArticleDetail }) {
         <Validation errors={article.validation_errors} warnings={article.validation_warnings} />
       </section>
       <section aria-label="渠道交付时间线">
-        <p className="section-kicker mb-2">Delivery timeline / 渠道状态</p>
         {!newest && <>
           <ChannelTimeline channel="个人博客" result={article.blog} />
           <ChannelTimeline channel="微信公众号" result={article.wechat} />
@@ -82,9 +80,9 @@ function DetailContent({ article }: { article: ArticleDetail }) {
 function ContentSyncPanel({ article }: { article: ArticleDetail }) {
   const snapshot = article.content_sync.current_snapshot
   return (
-    <section className="mt-8 border border-[var(--line)] bg-[var(--faint)] p-5">
+    <section className="mt-8 rounded-lg border border-[var(--line)] bg-[var(--faint)] p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-3xl font-bold">内容快照</h2>
+        <h2 className="text-base font-semibold">内容快照</h2>
         <ArticleStatus status={article.content_sync.status} />
       </div>
       <dl className="mt-5 grid gap-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -102,7 +100,7 @@ function ContentSyncPanel({ article }: { article: ArticleDetail }) {
 function Metadata({ article }: { article: ArticleDetail }) {
   return (
     <section>
-      <h2 className="text-3xl font-bold">Notion 元数据</h2>
+      <h2 className="text-base font-semibold">Notion 元数据</h2>
       <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
         <Meta label="封面校验" value={article.cover_valid ? "通过" : "未通过：发布将被阻止"} danger={!article.cover_valid} />
         <Meta label="计划时间" value={formatDate(article.planned_at)} />
@@ -117,7 +115,7 @@ function Metadata({ article }: { article: ArticleDetail }) {
 function Validation({ errors, warnings }: { errors: ValidationItem[]; warnings: ValidationItem[] }) {
   return (
     <section>
-      <h2 className="text-3xl font-bold">发布前校验</h2>
+      <h2 className="text-base font-semibold">发布前校验</h2>
       <div className="mt-5 grid gap-3">
         {errors.length === 0 && warnings.length === 0 && <p className="border-l-2 border-[var(--signal)] bg-[var(--faint)] p-4 text-sm">当前没有校验问题。</p>}
         {errors.map((item, index) => <Issue item={item} key={`error-${index}`} tone="error" />)}
@@ -163,7 +161,7 @@ function JobActions({ articleId, job, outputsEnabled }: { articleId: string; job
     ? job.target_channels.filter((channel) => !isDelivered(job, channel))
     : []
   return (
-    <section className="my-8 flex flex-wrap items-center justify-between gap-4 border-y border-[var(--ink)] py-5">
+    <section className="my-8 flex flex-wrap items-center justify-between gap-4 border-y border-[var(--line)] py-5">
       <div><p className="text-xs text-[var(--muted)]">最近任务</p><p className="mt-1 font-mono text-xs">{job.id}</p></div>
       <div className="flex flex-wrap gap-2">
         {resumable.length > 0
@@ -178,7 +176,7 @@ function JobActions({ articleId, job, outputsEnabled }: { articleId: string; job
 function JobHistory({ article }: { article: ArticleDetail }) {
   return (
     <section className="py-5">
-      <h2 className="text-3xl font-bold">任务历史</h2>
+      <h2 className="text-base font-semibold">任务历史</h2>
       <p className="mt-2 text-xs text-[var(--muted)]">显示最近 {article.jobs.length} 条，共 {article.jobs_total} 条。{article.jobs_has_more && "更早记录未在本页加载。"}</p>
       <ol className="mt-5 grid gap-2">
         {article.jobs.map((job) => <li className="grid gap-2 border-b border-[var(--line)] py-3 text-xs sm:grid-cols-[1fr_auto_auto]" key={job.id}><span className="truncate font-mono">{job.id}</span><ArticleStatus compact status={job.overall_status} /><time>{formatDate(job.scheduled_at)}</time></li>)}
@@ -188,7 +186,7 @@ function JobHistory({ article }: { article: ArticleDetail }) {
 }
 
 function Meta({ label, value, danger = false, mono = false }: { label: string; value: string; danger?: boolean; mono?: boolean }) {
-  return <div className="min-w-0"><dt className="text-[10px] tracking-[0.12em] text-[var(--muted)] uppercase">{label}</dt><dd className={`mt-1 break-words ${danger ? "text-[var(--danger)]" : ""} ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
+  return <div className="min-w-0"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 break-words ${danger ? "text-[var(--danger)]" : ""} ${mono ? "font-mono text-xs" : ""}`}>{value}</dd></div>
 }
 
 function isFailed(status: string) {
@@ -205,17 +203,17 @@ function formatDate(value: string | null) {
 }
 
 function DetailLoading() {
-  return <main aria-busy="true" aria-label="正在读取稿件详情" className="mx-auto max-w-6xl px-5 py-12"><Skeleton className="h-16 rounded-none" /><Skeleton className="mt-8 h-72 rounded-none" /></main>
+  return <main aria-busy="true" aria-label="正在读取稿件详情" className="mx-auto max-w-6xl px-5 py-12"><Skeleton className="h-16" /><Skeleton className="mt-8 h-72" /></main>
 }
 
 function DetailError({ message, retry }: { message: string; retry: () => void }) {
-  return <main className="mx-auto max-w-6xl px-5 py-12"><div className="border border-[var(--danger)] bg-[var(--faint)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
+  return <main className="mx-auto max-w-6xl px-5 py-12"><div className="rounded-lg border border-[var(--danger)] bg-[var(--faint)] p-6" role="alert"><p>稿件详情读取失败：{message}</p><Button className="mt-4" onClick={retry} variant="outline"><RefreshCcw aria-hidden size={14} />重新读取</Button></div></main>
 }
 
 function JobLoading() {
-  return <div aria-busy="true" aria-label="正在读取最近任务" className="grid gap-3 py-6"><Skeleton className="h-20 rounded-none" /><Skeleton className="h-20 rounded-none" /></div>
+  return <div aria-busy="true" aria-label="正在读取最近任务" className="grid gap-3 py-6"><Skeleton className="h-20" /><Skeleton className="h-20" /></div>
 }
 
 function JobError({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="my-5 border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>最近任务读取失败：{message}</p><Button className="mt-3" onClick={retry} size="sm" variant="outline">重试任务详情</Button></div>
+  return <div className="my-5 rounded-lg border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert"><p>最近任务读取失败：{message}</p><Button className="mt-3" onClick={retry} size="sm" variant="outline">重试任务详情</Button></div>
 }
