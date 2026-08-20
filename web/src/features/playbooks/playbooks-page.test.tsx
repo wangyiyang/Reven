@@ -54,6 +54,14 @@ describe("PlaybooksPage", () => {
     expect(screen.getByText("CRM、销售")).toBeInTheDocument()
   })
 
+  it("shows empty state when no playbooks", async () => {
+    server.use(http.get("/api/playbooks", () => HttpResponse.json([])))
+
+    renderPage()
+
+    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+  })
+
   it("creates a playbook and refreshes the list", async () => {
     let requestBody: Record<string, unknown> | null = null
     server.use(

@@ -10,8 +10,8 @@ export function TableHeader(props: HTMLAttributes<HTMLTableSectionElement>) {
   return <thead {...props} />
 }
 
-export function TableBody(props: HTMLAttributes<HTMLTableSectionElement>) {
-  return <tbody {...props} />
+export function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+  return <tbody className={cn("[&>tr:hover]:bg-[var(--faint)]", className)} {...props} />
 }
 
 export function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {

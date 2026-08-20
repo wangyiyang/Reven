@@ -59,6 +59,14 @@ describe("ProjectsPage", () => {
     expect(screen.getByText("wangyiyang/OLL")).toBeInTheDocument()
   })
 
+  it("shows empty state when no projects", async () => {
+    server.use(http.get("/api/projects", () => HttpResponse.json([])))
+
+    renderPage()
+
+    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+  })
+
   it("creates a project and refreshes the list", async () => {
     let requestBody: Record<string, unknown> | null = null
     server.use(
