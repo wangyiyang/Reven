@@ -81,3 +81,4 @@ Reven 正在重建发布 MVP。详细的产品设计与实施计划见：
 
 - [`docs/superpowers/specs/2026-07-29-editorial-publishing-mvp-design.md`](docs/superpowers/specs/2026-07-29-editorial-publishing-mvp-design.md)
 - [`docs/superpowers/plans/2026-07-29-editorial-publishing-mvp.md`](docs/superpowers/plans/2026-07-29-editorial-publishing-mvp.md)
+- [`docs/ai-test-map.md`](docs/ai-test-map.md)：AI 测试地图，覆盖全功能、全路径与安全红线。
