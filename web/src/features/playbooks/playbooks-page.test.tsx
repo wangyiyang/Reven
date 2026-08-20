@@ -129,4 +129,66 @@ describe("PlaybooksPage", () => {
     expect(deleted).toBe(false)
     expect(screen.getByText("客户首次沟通 SOP")).toBeInTheDocument()
   })
+
+  it("filters playbooks by kind and status", async () => {
+    server.use(
+      http.get("/api/playbooks", ({ request }) => {
+        const url = new URL(request.url)
+        const kind = url.searchParams.get("kind")
+        const status = url.searchParams.get("status")
+        return HttpResponse.json(kind === "checklist" || status === "正式" ? [] : [playbook])
+      }),
+    )
+
+    renderPage()
+    expect(await screen.findByText("客户首次沟通 SOP")).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型筛选" }), "checklist")
+    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型筛选" }), "")
+    await screen.findByText("客户首次沟通 SOP")
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "正式")
+    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+  })
+
+  it("searches playbooks by keyword", async () => {
+    server.use(
+      http.get("/api/playbooks", ({ request }) => {
+        const query = new URL(request.url).searchParams.get("query")
+        return HttpResponse.json(query === "不存在" ? [] : [playbook])
+      }),
+    )
+
+    renderPage()
+    expect(await screen.findByText("客户首次沟通 SOP")).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("搜索 Playbook"), "不存在")
+
+    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+  })
+
+  it("edits a playbook and refreshes the list", async () => {
+    let playbooks = [playbook]
+    let requestBody: unknown
+    server.use(
+      http.get("/api/playbooks", () => HttpResponse.json(playbooks)),
+      http.put("/api/playbooks/:id", async ({ request }) => {
+        requestBody = await request.json()
+        playbooks = [{ ...playbook, title: "客户首次沟通 SOP v2" }]
+        return HttpResponse.json(playbooks[0])
+      }),
+    )
+
+    renderPage()
+    await userEvent.click(await screen.findByRole("button", { name: "编辑" }))
+
+    const titleInput = await screen.findByLabelText("标题")
+    await userEvent.clear(titleInput)
+    await userEvent.type(titleInput, "客户首次沟通 SOP v2")
+    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+
+    expect(await screen.findByText("客户首次沟通 SOP v2")).toBeInTheDocument()
+    expect(requestBody).toMatchObject({ title: "客户首次沟通 SOP v2", kind: "sop", status: "试行", body: "1. 确认背景", tags: ["CRM", "销售"] })
+    expect(toast.success).toHaveBeenCalledWith("Playbook 已更新")
+  })
 })
