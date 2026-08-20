@@ -58,20 +58,56 @@ const emptyForm = {
 export function FinancePage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(emptyForm)
-  const entriesQuery = useQuery({ queryKey: ["finance", "entries"], queryFn: () => apiRequest<FinanceEntry[]>("/finance/entries") })
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [filters, setFilters] = useState({ kind: "", query: "" })
+
+  const entriesQuery = useQuery({
+    queryKey: ["finance", "entries", filters],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (filters.kind) params.set("kind", filters.kind)
+      if (filters.query.trim()) params.set("query", filters.query.trim())
+      const suffix = params.size ? `?${params.toString()}` : ""
+      return apiRequest<FinanceEntry[]>(`/finance/entries${suffix}`)
+    },
+  })
   const summaryQuery = useQuery({ queryKey: ["finance", "summary"], queryFn: () => apiRequest<FinanceSummary>("/finance/summary") })
+
+  async function invalidateFinance() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["finance", "entries"] }),
+      queryClient.invalidateQueries({ queryKey: ["finance", "summary"] }),
+    ])
+  }
+
   const createMutation = useMutation({
     mutationFn: (payload: FinanceEntryPayload) =>
       apiRequest<FinanceEntry>("/finance/entries", { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: async () => {
       toast.success("财务记录已添加")
       setForm(emptyForm)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["finance", "entries"] }),
-        queryClient.invalidateQueries({ queryKey: ["finance", "summary"] }),
-      ])
+      await invalidateFinance()
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "财务记录添加失败"),
+  })
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: FinanceEntryPayload }) =>
+      apiRequest<FinanceEntry>(`/finance/entries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+    onSuccess: async () => {
+      toast.success("财务记录已更新")
+      setForm(emptyForm)
+      setEditingId(null)
+      await invalidateFinance()
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "财务记录更新失败"),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest<null>(`/finance/entries/${id}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      toast.success("财务记录已删除")
+      await invalidateFinance()
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "财务记录删除失败"),
   })
 
   const entries = entriesQuery.data ?? []
@@ -84,7 +120,7 @@ export function FinancePage() {
       toast.error("请填写名称、有效金额和日期")
       return
     }
-    createMutation.mutate({
+    const payload: FinanceEntryPayload = {
       kind: form.kind,
       name: form.name.trim(),
       amount,
@@ -95,7 +131,29 @@ export function FinancePage() {
       source: null,
       status: form.status,
       notes: null,
+    }
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, payload })
+      return
+    }
+    createMutation.mutate(payload)
+  }
+
+  function startEdit(entry: FinanceEntry) {
+    setEditingId(entry.id)
+    setForm({
+      kind: entry.kind,
+      name: entry.name,
+      amount: String(entry.amount_cents / 100),
+      category: entry.category ?? "",
+      occurred_on: entry.occurred_on,
+      status: entry.status,
     })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setForm(emptyForm)
   }
 
   return (
@@ -115,7 +173,7 @@ export function FinancePage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">添加记录</h2>
+          <h2 className="text-lg font-medium text-[var(--ink)]">{editingId ? "编辑记录" : "添加记录"}</h2>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 md:grid-cols-5" onSubmit={submit}>
@@ -181,8 +239,15 @@ export function FinancePage() {
                 <option value="已付">已付</option>
               </select>
             </div>
-            <div className="flex items-end">
-              <Button type="submit" disabled={createMutation.isPending}>添加记录</Button>
+            <div className="flex items-end gap-2">
+              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+                {editingId ? "保存修改" : "添加记录"}
+              </Button>
+              {editingId ? (
+                <Button onClick={cancelEdit} type="button" variant="ghost">
+                  取消编辑
+                </Button>
+              ) : null}
             </div>
           </form>
         </CardContent>
@@ -192,7 +257,33 @@ export function FinancePage() {
         <CardHeader>
           <h2 className="text-lg font-medium text-[var(--ink)]">收支记录</h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="finance-filter-kind">类型筛选</Label>
+              <select
+                aria-label="类型筛选"
+                className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
+                id="finance-filter-kind"
+                onChange={(event) => setFilters((current) => ({ ...current, kind: event.target.value }))}
+                value={filters.kind}
+              >
+                <option value="">全部</option>
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+              </select>
+            </div>
+            <div className="min-w-56 flex-1 space-y-2">
+              <Label htmlFor="finance-filter-query">搜索</Label>
+              <Input
+                aria-label="搜索记录"
+                id="finance-filter-query"
+                onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+                placeholder="按名称或分类搜索"
+                value={filters.query}
+              />
+            </div>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -202,6 +293,7 @@ export function FinancePage() {
                 <TableHead>分类</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-right">金额</TableHead>
+                <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -217,11 +309,29 @@ export function FinancePage() {
                   <TableCell>{entry.category ?? "—"}</TableCell>
                   <TableCell>{entry.status}</TableCell>
                   <TableCell className="text-right">{formatMoney(entry.amount_cents)}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button onClick={() => startEdit(entry)} size="sm" type="button" variant="ghost">
+                        编辑
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          if (!window.confirm(`确认删除财务记录「${entry.name}」？此操作不可恢复。`)) return
+                          deleteMutation.mutate(entry.id)
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        删除
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
               {entries.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-[var(--muted)]">
+                  <TableCell colSpan={7} className="text-center text-[var(--muted)]">
                     还没有财务记录。
                   </TableCell>
                 </TableRow>
