@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -43,6 +43,7 @@ describe("PlaybooksPage", () => {
   afterEach(() => {
     server.resetHandlers()
     vi.unstubAllGlobals()
+    Object.defineProperty(window.navigator, "clipboard", { value: undefined, configurable: true })
   })
   afterAll(() => server.close())
 
@@ -190,5 +191,23 @@ describe("PlaybooksPage", () => {
     expect(await screen.findByText("客户首次沟通 SOP v2")).toBeInTheDocument()
     expect(requestBody).toMatchObject({ title: "客户首次沟通 SOP v2", kind: "sop", status: "试行", body: "1. 确认背景", tags: ["CRM", "销售"] })
     expect(toast.success).toHaveBeenCalledWith("Playbook 已更新")
+  })
+
+  it("opens full content view and copies the body", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window.navigator, "clipboard", { value: { writeText }, configurable: true })
+    Object.defineProperty(window, "isSecureContext", { value: true, configurable: true })
+
+    renderPage()
+    await userEvent.click(await screen.findByRole("button", { name: "查看" }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText("1. 确认背景")).toBeInTheDocument()
+    expect(within(dialog).getByText("CRM、销售")).toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "复制内容" }))
+    expect(writeText).toHaveBeenCalledWith("1. 确认背景")
+    expect(toast.success).toHaveBeenCalledWith("内容已复制")
   })
 })

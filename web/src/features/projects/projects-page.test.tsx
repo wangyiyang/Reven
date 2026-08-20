@@ -196,4 +196,13 @@ describe("ProjectsPage", () => {
     expect(requestBody).toMatchObject({ name: "OLL 二期交付", github_repo: "wangyiyang/OLL", status: "进行中" })
     expect(toast.success).toHaveBeenCalledWith("项目已更新")
   })
+
+  it("renders the GitHub repo as an external link", async () => {
+    renderPage()
+
+    const link = await screen.findByRole("link", { name: "wangyiyang/OLL" })
+    expect(link).toHaveAttribute("href", "https://github.com/wangyiyang/OLL")
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"))
+  })
 })
