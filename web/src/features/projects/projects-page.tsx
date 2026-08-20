@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { apiRequest } from "@/lib/api"
+import { safeGithubUrl } from "@/lib/external-url"
 
 type Project = {
   id: string
@@ -288,7 +289,22 @@ export function ProjectsPage() {
                   <TableCell><Badge>{project.status}</Badge></TableCell>
                   <TableCell>{project.department ?? "—"}</TableCell>
                   <TableCell>{project.due_on ?? "—"}</TableCell>
-                  <TableCell>{project.github_repo ?? "—"}</TableCell>
+                  <TableCell>
+                    {(() => {
+                      const githubUrl = project.github_repo ? safeGithubUrl(project.github_repo) : null
+                      if (!githubUrl) return project.github_repo ?? "—"
+                      return (
+                        <a
+                          className="text-[var(--signal)] underline underline-offset-2 hover:text-[var(--ink)]"
+                          href={githubUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {project.github_repo}
+                        </a>
+                      )
+                    })()}
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button onClick={() => startEdit(project)} size="sm" type="button" variant="ghost">
