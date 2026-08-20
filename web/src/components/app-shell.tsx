@@ -1,4 +1,4 @@
-import { Activity, FileText, LogOut, Moon, PlugZap, Rss, Sparkles, Sun } from "lucide-react"
+import { Activity, FileText, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -18,6 +18,7 @@ async function logout() {
 
 const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
+  { to: "/finance", label: "财务", icon: Wallet },
   { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
   { to: "/rss", label: "RSS 配置", icon: Rss, end: true },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
