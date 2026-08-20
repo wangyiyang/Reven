@@ -102,7 +102,7 @@ export function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">项目库</h1>
         <p className="text-sm text-[var(--muted)]">一人公司项目台账：目标、状态、截止日、GitHub 与 Notion 链接。</p>
@@ -195,6 +195,6 @@ export function ProjectsPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </main>
   )
 }

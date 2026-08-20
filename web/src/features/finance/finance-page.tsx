@@ -99,7 +99,7 @@ export function FinancePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">财务收支</h1>
         <p className="text-sm text-[var(--muted)]">一人公司现金流台账：收入、花销、应收、跑道。</p>
@@ -230,7 +230,7 @@ export function FinancePage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </main>
   )
 }
 

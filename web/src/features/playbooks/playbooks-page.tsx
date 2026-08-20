@@ -91,7 +91,7 @@ export function PlaybooksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">SOP / 话术库</h1>
         <p className="text-sm text-[var(--muted)]">沉淀 SOP、Checklist、话术和方法论，状态按 草稿 → 试行 → 正式 管理。</p>
@@ -190,6 +190,6 @@ export function PlaybooksPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </main>
   )
 }
