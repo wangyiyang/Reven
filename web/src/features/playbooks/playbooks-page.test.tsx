@@ -5,6 +5,8 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { toast } from "sonner"
+
 import { PlaybooksPage } from "./playbooks-page"
 
 vi.mock("sonner", () => ({
@@ -38,7 +40,10 @@ function renderPage() {
 
 describe("PlaybooksPage", () => {
   beforeAll(() => server.listen())
-  afterEach(() => server.resetHandlers())
+  afterEach(() => {
+    server.resetHandlers()
+    vi.unstubAllGlobals()
+  })
   afterAll(() => server.close())
 
   beforeEach(() => {
@@ -90,5 +95,38 @@ describe("PlaybooksPage", () => {
       body: "- 题图\n- 摘要",
       tags: ["内容", "发布"],
     })
+  })
+
+  it("requires playbook content before posting", async () => {
+    let posted = false
+    server.use(http.post("/api/playbooks", () => {
+      posted = true
+      return HttpResponse.json(playbook, { status: 201 })
+    }))
+
+    renderPage()
+    await userEvent.type(await screen.findByLabelText("标题"), "空内容 Playbook")
+    await userEvent.click(screen.getByRole("button", { name: "添加 Playbook" }))
+
+    expect(toast.error).toHaveBeenCalledWith("请填写标题和内容")
+    expect(posted).toBe(false)
+  })
+
+  it("asks for confirmation before deleting a playbook", async () => {
+    let deleted = false
+    const confirmSpy = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirmSpy)
+    server.use(http.delete("/api/playbooks/:id", () => {
+      deleted = true
+      return new HttpResponse(null, { status: 204 })
+    }))
+
+    renderPage()
+    await screen.findByText("客户首次沟通 SOP")
+    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(deleted).toBe(false)
+    expect(screen.getByText("客户首次沟通 SOP")).toBeInTheDocument()
   })
 })

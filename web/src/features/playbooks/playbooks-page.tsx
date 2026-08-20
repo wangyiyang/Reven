@@ -87,6 +87,10 @@ export function PlaybooksPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!form.title.trim() || !form.body.trim()) {
+      toast.error("请填写标题和内容")
+      return
+    }
     createMutation.mutate(form)
   }
 
@@ -190,7 +194,17 @@ export function PlaybooksPage() {
                   <TableCell><Badge>{playbook.status}</Badge></TableCell>
                   <TableCell>{playbook.tags.length ? playbook.tags.join("、") : "—"}</TableCell>
                   <TableCell>
-                    <Button onClick={() => deleteMutation.mutate(playbook.id)} size="sm" type="button" variant="ghost">删除</Button>
+                    <Button
+                      onClick={() => {
+                        if (!window.confirm(`确认删除 Playbook「${playbook.title}」？此操作不可恢复。`)) return
+                        deleteMutation.mutate(playbook.id)
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      删除
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

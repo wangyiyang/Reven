@@ -51,6 +51,16 @@ function emptyToNull(value: string) {
   return value.trim() ? value.trim() : null
 }
 
+const githubRepoPattern = /^(?:https:\/\/github\.com\/)?[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/
+
+function hasValidProjectLinks(form: ProjectForm) {
+  const githubRepo = form.github_repo.trim()
+  const notionUrl = form.notion_url.trim()
+  if (githubRepo && !githubRepoPattern.test(githubRepo)) return false
+  if (notionUrl && (!notionUrl.startsWith("https://") || !notionUrl.includes("notion"))) return false
+  return true
+}
+
 export function ProjectsPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(initialForm)
@@ -98,6 +108,10 @@ export function ProjectsPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!hasValidProjectLinks(form)) {
+      toast.error("GitHub 仓库或 Notion URL 格式不正确")
+      return
+    }
     createMutation.mutate(form)
   }
 
@@ -194,7 +208,17 @@ export function ProjectsPage() {
                   <TableCell>{project.due_on ?? "—"}</TableCell>
                   <TableCell>{project.github_repo ?? "—"}</TableCell>
                   <TableCell>
-                    <Button onClick={() => deleteMutation.mutate(project.id)} size="sm" type="button" variant="ghost">删除</Button>
+                    <Button
+                      onClick={() => {
+                        if (!window.confirm(`确认删除项目「${project.name}」？此操作不可恢复。`)) return
+                        deleteMutation.mutate(project.id)
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      删除
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

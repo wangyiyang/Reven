@@ -9,13 +9,14 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 PlaybookKind = Literal["sop", "checklist", "script", "method"]
 PlaybookStatus = Literal["草稿", "试行", "正式"]
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Body = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class PlaybookCreate(BaseModel):
     title: Title
     kind: PlaybookKind = "sop"
     status: PlaybookStatus = "草稿"
-    body: str = ""
+    body: Body
     tags: list[Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)]] = []
 
 
@@ -23,7 +24,7 @@ class PlaybookUpdate(BaseModel):
     title: Title | None = None
     kind: PlaybookKind | None = None
     status: PlaybookStatus | None = None
-    body: str | None = None
+    body: Body | None = None
     tags: list[Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)]] | None = None
 
 
