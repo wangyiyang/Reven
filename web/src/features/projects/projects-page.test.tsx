@@ -139,4 +139,61 @@ describe("ProjectsPage", () => {
     expect(deleted).toBe(false)
     expect(screen.getByText("OLL 交付")).toBeInTheDocument()
   })
+
+  it("filters projects by status", async () => {
+    server.use(
+      http.get("/api/projects", ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status")
+        return HttpResponse.json(status === "已完成" ? [] : [project])
+      }),
+    )
+
+    renderPage()
+    expect(await screen.findByText("OLL 交付")).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "已完成")
+
+    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+  })
+
+  it("searches projects by keyword", async () => {
+    server.use(
+      http.get("/api/projects", ({ request }) => {
+        const query = new URL(request.url).searchParams.get("query")
+        return HttpResponse.json(query === "不存在" ? [] : [project])
+      }),
+    )
+
+    renderPage()
+    expect(await screen.findByText("OLL 交付")).toBeInTheDocument()
+    await userEvent.clear(screen.getByLabelText("搜索项目"))
+    await userEvent.type(screen.getByLabelText("搜索项目"), "不存在")
+
+    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+  })
+
+  it("edits a project and refreshes the list", async () => {
+    let projects = [project]
+    let requestBody: unknown
+    server.use(
+      http.get("/api/projects", () => HttpResponse.json(projects)),
+      http.put("/api/projects/:id", async ({ request }) => {
+        requestBody = await request.json()
+        projects = [{ ...project, name: "OLL 二期交付" }]
+        return HttpResponse.json(projects[0])
+      }),
+    )
+
+    renderPage()
+    await userEvent.click(await screen.findByRole("button", { name: "编辑" }))
+
+    const nameInput = await screen.findByLabelText("名称")
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, "OLL 二期交付")
+    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+
+    expect(await screen.findByText("OLL 二期交付")).toBeInTheDocument()
+    expect(requestBody).toMatchObject({ name: "OLL 二期交付", github_repo: "wangyiyang/OLL", status: "进行中" })
+    expect(toast.success).toHaveBeenCalledWith("项目已更新")
+  })
 })

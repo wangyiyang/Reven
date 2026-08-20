@@ -61,42 +61,67 @@ function hasValidProjectLinks(form: ProjectForm) {
   return true
 }
 
+function toPayload(input: ProjectForm) {
+  return {
+    name: input.name,
+    goal: emptyToNull(input.goal),
+    status: input.status,
+    department: emptyToNull(input.department),
+    due_on: emptyToNull(input.due_on),
+    notion_url: emptyToNull(input.notion_url),
+    github_repo: emptyToNull(input.github_repo),
+    notes: emptyToNull(input.notes),
+  }
+}
+
 export function ProjectsPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(initialForm)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [filters, setFilters] = useState({ status: "", query: "" })
 
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => apiRequest<Project[]>("/projects"),
+    queryKey: ["projects", filters],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (filters.status) params.set("status", filters.status)
+      if (filters.query.trim()) params.set("query", filters.query.trim())
+      const suffix = params.size ? `?${params.toString()}` : ""
+      return apiRequest<Project[]>(`/projects${suffix}`)
+    },
   })
+
+  async function invalidateProjects() {
+    await queryClient.invalidateQueries({ queryKey: ["projects"] })
+  }
 
   const createMutation = useMutation({
     mutationFn: (input: ProjectForm) =>
-      apiRequest<Project>("/projects", {
-        method: "POST",
-        body: JSON.stringify({
-          name: input.name,
-          goal: emptyToNull(input.goal),
-          status: input.status,
-          department: emptyToNull(input.department),
-          due_on: emptyToNull(input.due_on),
-          notion_url: emptyToNull(input.notion_url),
-          github_repo: emptyToNull(input.github_repo),
-          notes: emptyToNull(input.notes),
-        }),
-      }),
+      apiRequest<Project>("/projects", { method: "POST", body: JSON.stringify(toPayload(input)) }),
     onSuccess: async () => {
       setForm(initialForm)
-      await queryClient.invalidateQueries({ queryKey: ["projects"] })
+      await invalidateProjects()
       toast.success("项目已添加")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "保存失败"),
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ProjectForm }) =>
+      apiRequest<Project>(`/projects/${id}`, { method: "PUT", body: JSON.stringify(toPayload(input)) }),
+    onSuccess: async () => {
+      setForm(initialForm)
+      setEditingId(null)
+      await invalidateProjects()
+      toast.success("项目已更新")
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "更新失败"),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest(`/projects/${id}`, { method: "DELETE" }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["projects"] })
+      await invalidateProjects()
       toast.success("项目已删除")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "删除失败"),
@@ -106,10 +131,33 @@ export function ProjectsPage() {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
+  function startEdit(project: Project) {
+    setEditingId(project.id)
+    setForm({
+      name: project.name,
+      goal: project.goal ?? "",
+      status: project.status,
+      department: project.department ?? "",
+      due_on: project.due_on ?? "",
+      notion_url: project.notion_url ?? "",
+      github_repo: project.github_repo ?? "",
+      notes: project.notes ?? "",
+    })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setForm(initialForm)
+  }
+
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!hasValidProjectLinks(form)) {
       toast.error("GitHub 仓库或 Notion URL 格式不正确")
+      return
+    }
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, input: form })
       return
     }
     createMutation.mutate(form)
@@ -124,7 +172,7 @@ export function ProjectsPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">添加项目</h2>
+          <h2 className="text-lg font-medium text-[var(--ink)]">{editingId ? "编辑项目" : "添加项目"}</h2>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 md:grid-cols-4" onSubmit={onSubmit}>
@@ -166,8 +214,15 @@ export function ProjectsPage() {
               <Label htmlFor="project-notion">Notion URL</Label>
               <Input id="project-notion" onChange={(event) => updateField("notion_url", event.target.value)} value={form.notion_url} />
             </div>
-            <div className="flex items-end">
-              <Button disabled={createMutation.isPending} type="submit">添加项目</Button>
+            <div className="flex items-end gap-2">
+              <Button disabled={createMutation.isPending || updateMutation.isPending} type="submit">
+                {editingId ? "保存修改" : "添加项目"}
+              </Button>
+              {editingId ? (
+                <Button onClick={cancelEdit} type="button" variant="ghost">
+                  取消编辑
+                </Button>
+              ) : null}
             </div>
           </form>
         </CardContent>
@@ -177,7 +232,34 @@ export function ProjectsPage() {
         <CardHeader>
           <h2 className="text-lg font-medium text-[var(--ink)]">项目列表</h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="projects-filter-status">状态筛选</Label>
+              <select
+                aria-label="状态筛选"
+                className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
+                id="projects-filter-status"
+                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                value={filters.status}
+              >
+                <option value="">全部</option>
+                <option value="进行中">进行中</option>
+                <option value="已暂停">已暂停</option>
+                <option value="已完成">已完成</option>
+              </select>
+            </div>
+            <div className="min-w-56 flex-1 space-y-2">
+              <Label htmlFor="projects-filter-query">搜索</Label>
+              <Input
+                aria-label="搜索项目"
+                id="projects-filter-query"
+                onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+                placeholder="按名称、目标或部门搜索"
+                value={filters.query}
+              />
+            </div>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -208,17 +290,22 @@ export function ProjectsPage() {
                   <TableCell>{project.due_on ?? "—"}</TableCell>
                   <TableCell>{project.github_repo ?? "—"}</TableCell>
                   <TableCell>
-                    <Button
-                      onClick={() => {
-                        if (!window.confirm(`确认删除项目「${project.name}」？此操作不可恢复。`)) return
-                        deleteMutation.mutate(project.id)
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      删除
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button onClick={() => startEdit(project)} size="sm" type="button" variant="ghost">
+                        编辑
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          if (!window.confirm(`确认删除项目「${project.name}」？此操作不可恢复。`)) return
+                          deleteMutation.mutate(project.id)
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        删除
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
