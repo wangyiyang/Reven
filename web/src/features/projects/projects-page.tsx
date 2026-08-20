@@ -176,6 +176,13 @@ export function ProjectsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {projectsQuery.data?.length === 0 ? (
+                <TableRow>
+                  <TableCell className="py-10 text-center text-[var(--muted)]" colSpan={6}>
+                    暂无项目，先添加一个。
+                  </TableCell>
+                </TableRow>
+              ) : null}
               {(projectsQuery.data ?? []).map((project) => (
                 <TableRow key={project.id}>
                   <TableCell>

@@ -98,6 +98,11 @@ blockquote {
 .nav-link.active {
   color: var(--ink);
   background: var(--faint);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+
+.nav-link.active svg {
+  color: var(--signal);
 }
 
 .integration-card::after {

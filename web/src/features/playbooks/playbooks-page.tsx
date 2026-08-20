@@ -139,6 +139,7 @@ export function PlaybooksPage() {
             <div className="space-y-2 md:col-span-4">
               <Label htmlFor="playbook-tags">标签</Label>
               <Input id="playbook-tags" onChange={(event) => updateField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
+              <p className="text-xs text-[var(--muted)]">多个标签用逗号分隔。</p>
             </div>
             <div className="space-y-2 md:col-span-4">
               <Label htmlFor="playbook-body">内容</Label>
@@ -172,6 +173,13 @@ export function PlaybooksPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {playbooksQuery.data?.length === 0 ? (
+                <TableRow>
+                  <TableCell className="py-10 text-center text-[var(--muted)]" colSpan={5}>
+                    暂无 Playbook，先沉淀一条 SOP。
+                  </TableCell>
+                </TableRow>
+              ) : null}
               {(playbooksQuery.data ?? []).map((playbook) => (
                 <TableRow key={playbook.id}>
                   <TableCell>
