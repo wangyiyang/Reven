@@ -51,6 +51,20 @@ def test_playbooks_crud_and_filters(workbench) -> None:  # type: ignore[no-untyp
     assert client.get(f"/api/playbooks/{playbook_id}").status_code == 404
 
 
+def test_playbooks_reject_empty_body(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _session_factory = workbench
+
+    created = client.post("/api/playbooks", json={"title": "空内容", "body": ""})
+    assert created.status_code == 422
+
+    valid = client.post("/api/playbooks", json={"title": "有内容", "body": "步骤"})
+    assert valid.status_code == 201
+    playbook_id = valid.json()["id"]
+
+    updated = client.put(f"/api/playbooks/{playbook_id}", json={"body": "   "})
+    assert updated.status_code == 422
+
+
 def test_playbooks_model_round_trip(workbench) -> None:  # type: ignore[no-untyped-def]
     _client, session_factory = workbench
 

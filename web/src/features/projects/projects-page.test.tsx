@@ -5,6 +5,8 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { toast } from "sonner"
+
 import { ProjectsPage } from "./projects-page"
 
 vi.mock("sonner", () => ({
@@ -41,7 +43,10 @@ function renderPage() {
 
 describe("ProjectsPage", () => {
   beforeAll(() => server.listen())
-  afterEach(() => server.resetHandlers())
+  afterEach(() => {
+    server.resetHandlers()
+    vi.unstubAllGlobals()
+  })
   afterAll(() => server.close())
 
   beforeEach(() => {
@@ -99,5 +104,39 @@ describe("ProjectsPage", () => {
       github_repo: "wangyiyang/Reven",
       notes: null,
     })
+  })
+
+  it("rejects invalid GitHub or Notion links before posting", async () => {
+    let posted = false
+    server.use(http.post("/api/projects", () => {
+      posted = true
+      return HttpResponse.json(project, { status: 201 })
+    }))
+
+    renderPage()
+    await userEvent.type(await screen.findByLabelText("名称"), "坏链接项目")
+    await userEvent.type(screen.getByLabelText("GitHub 仓库"), "bad url")
+    await userEvent.click(screen.getByRole("button", { name: "添加项目" }))
+
+    expect(toast.error).toHaveBeenCalledWith("GitHub 仓库或 Notion URL 格式不正确")
+    expect(posted).toBe(false)
+  })
+
+  it("asks for confirmation before deleting a project", async () => {
+    let deleted = false
+    const confirmSpy = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirmSpy)
+    server.use(http.delete("/api/projects/:id", () => {
+      deleted = true
+      return new HttpResponse(null, { status: 204 })
+    }))
+
+    renderPage()
+    await screen.findByText("OLL 交付")
+    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(deleted).toBe(false)
+    expect(screen.getByText("OLL 交付")).toBeInTheDocument()
   })
 })

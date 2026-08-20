@@ -46,6 +46,24 @@ def test_projects_crud_and_filters(workbench) -> None:  # type: ignore[no-untype
     assert client.get("/api/projects").json() == []
 
 
+def test_projects_reject_invalid_links(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _session_factory = workbench
+
+    bad_github = client.post(
+        "/api/projects",
+        json={"name": "坏链接", "github_repo": "bad url"},
+    )
+    assert bad_github.status_code == 422
+
+    bad_notion = client.post(
+        "/api/projects",
+        json={"name": "坏链接", "notion_url": "not a url"},
+    )
+    assert bad_notion.status_code == 422
+
+    assert client.get("/api/projects").json() == []
+
+
 def test_projects_model_round_trip(workbench) -> None:  # type: ignore[no-untyped-def]
     _client, session_factory = workbench
 
