@@ -1,4 +1,5 @@
 import { ArrowUpRight, Check, Rss, X } from "lucide-react"
+import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -54,6 +55,9 @@ function CandidateCard(props: {
   onIgnore: () => Promise<unknown>
 }) {
   const { candidate } = props
+  const [expanded, setExpanded] = useState(false)
+  const summaryText = candidate.summary_zh || candidate.summary || "暂无摘要"
+  const isLongSummary = summaryText.length > 240
   return (
     <li className="candidate-card grid overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--bg)] lg:grid-cols-[minmax(0,1fr)_20rem]">
       <article className="p-5 sm:p-7">
@@ -63,7 +67,14 @@ function CandidateCard(props: {
         </div>
         <h2 className="mt-4 text-lg font-semibold leading-tight">{candidate.title_zh}</h2>
         {candidate.title_zh !== candidate.title && <p className="mt-2 text-sm italic text-[var(--muted)]">{candidate.title}</p>}
-        <p className="mt-5 max-w-3xl text-sm leading-7">{candidate.summary_zh || candidate.summary || "暂无摘要"}</p>
+        <p className={`mt-5 max-w-3xl text-sm leading-7${isLongSummary && !expanded ? " line-clamp-4" : ""}`}>{summaryText}</p>
+        {isLongSummary && (
+          <button
+            className="mt-2 text-xs font-semibold text-[var(--signal)] hover:underline"
+            onClick={() => setExpanded((value) => !value)}
+            type="button"
+          >{expanded ? "收起" : "展开全文"}</button>
+        )}
         <div className="mt-6 flex flex-wrap gap-2">
           {candidate.positive_literal_matches.map((term) => <Badge className="text-[var(--signal)]" key={`positive-${term}`}>{term}</Badge>)}
           {candidate.negative_literal_matches.map((term) => <Badge className="text-[var(--danger)]" key={`negative-${term}`}>反向 · {term}</Badge>)}

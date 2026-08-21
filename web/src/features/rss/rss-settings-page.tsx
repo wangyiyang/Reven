@@ -64,6 +64,13 @@ function PageHeader() {
 function SourcesPanel(props: SourcesPanelProps) {
   const [editing, setEditing] = useState<RssSource | null>(null)
   const [deleting, setDeleting] = useState<RssSource | null>(null)
+  const [query, setQuery] = useState("")
+  const keyword = query.trim().toLowerCase()
+  const filteredSources = keyword
+    ? props.sources.filter((source) =>
+        source.name.toLowerCase().includes(keyword) || source.feed_url.toLowerCase().includes(keyword),
+      )
+    : props.sources
   const save = async (input: RssSourceInput) => {
     const saved = editing ? await props.onUpdate(editing, input) : await props.onCreate(input)
     if (saved) setEditing(null)
@@ -78,8 +85,20 @@ function SourcesPanel(props: SourcesPanelProps) {
       <CardContent>
         <SourceForm busy={props.busy} editing={editing} onCancel={() => setEditing(null)} onSubmit={save} />
         {props.sources.length === 0 && <p className="mt-6 text-sm text-[var(--muted)]">尚未配置 RSS 源。</p>}
+        {props.sources.length > 0 && (
+          <div className="mt-5 max-w-xs space-y-2">
+            <Label htmlFor="rss-source-search">搜索</Label>
+            <Input
+              aria-label="搜索 RSS 源"
+              id="rss-source-search"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="按名称或 Feed URL 过滤"
+              value={query}
+            />
+          </div>
+        )}
         <ul className="divide-y divide-[var(--line)]">
-          {props.sources.map((source) => (
+          {filteredSources.map((source) => (
             <SourceRow
               busy={props.busy}
               key={source.id}
@@ -90,6 +109,9 @@ function SourcesPanel(props: SourcesPanelProps) {
             />
           ))}
         </ul>
+        {props.sources.length > 0 && filteredSources.length === 0 && (
+          <p className="py-4 text-sm text-[var(--muted)]">没有匹配的 RSS 源</p>
+        )}
         <ConfirmDialog
           busy={props.busy}
           confirmLabel={`确认删除 ${deleting?.name ?? "RSS 源"}`}
