@@ -281,6 +281,40 @@ export function PlaybooksPage() {
               />
             </div>
           </div>
+          <div className="grid gap-3 lg:hidden">
+            {playbooksQuery.data?.length === 0 ? (
+              <p className="py-6 text-center text-sm text-[var(--muted)]">暂无 Playbook，先沉淀一条 SOP。</p>
+            ) : null}
+            {(playbooksQuery.data ?? []).map((playbook) => (
+              <article
+                aria-label={`${playbook.title} 移动摘要`}
+                className="rounded-lg border border-[var(--line)] p-4"
+                key={playbook.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 font-semibold text-[var(--ink)]">{playbook.title}</p>
+                  <Badge>{playbook.status}</Badge>
+                </div>
+                <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{playbook.body}</p>
+                <div className="mt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
+                  <span>{kindLabels[playbook.kind]}</span>
+                  {playbook.tags.length ? <span>{playbook.tags.join("、")}</span> : null}
+                </div>
+                <div className="mt-3 flex justify-end gap-1">
+                  <Button aria-label={`查看 ${playbook.title}`} onClick={() => setViewing(playbook)} size="sm" type="button" variant="ghost">
+                    查看
+                  </Button>
+                  <Button aria-label={`编辑 ${playbook.title}`} onClick={() => startEdit(playbook)} size="sm" type="button" variant="ghost">
+                    编辑
+                  </Button>
+                  <Button aria-label={`删除 ${playbook.title}`} onClick={() => setDeleting(playbook)} size="sm" type="button" variant="ghost">
+                    删除
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -330,6 +364,7 @@ export function PlaybooksPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

@@ -165,7 +165,7 @@ export function FinancePage() {
         <p className="text-sm text-[var(--muted)]">一人公司现金流台账：收入、花销、应收、跑道。</p>
       </div>
 
-      <section aria-label="财务汇总" className="grid gap-4 md:grid-cols-5">
+      <section aria-label="财务汇总" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-4">
         <SummaryCard label="收入" value={summary?.income_cents} />
         <SummaryCard label="花销" value={summary?.expense_cents} />
         <SummaryCard label="净额" value={summary?.net_cents} />
@@ -242,7 +242,7 @@ export function FinancePage() {
               </select>
             </div>
             <div className="flex items-end gap-2">
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                 {editingId ? "保存修改" : "添加记录"}
               </Button>
               {editingId ? (
@@ -286,6 +286,42 @@ export function FinancePage() {
               />
             </div>
           </div>
+          <div className="grid gap-3 lg:hidden">
+            {entries.map((entry) => (
+              <article
+                aria-label={`${entry.name} 移动摘要`}
+                className="rounded-lg border border-[var(--line)] p-4"
+                key={entry.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[var(--ink)]">{entry.name}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {entry.occurred_on} · {entry.category ?? "未分类"} · {entry.status}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <Badge className={entry.kind === "income" ? "text-emerald-600" : "text-[var(--muted)]"}>
+                    {entry.kind === "income" ? "收入" : "支出"}
+                  </Badge>
+                  <div className="flex gap-1">
+                    <Button aria-label={`编辑 ${entry.name}`} onClick={() => startEdit(entry)} size="sm" type="button" variant="ghost">
+                      编辑
+                    </Button>
+                    <Button aria-label={`删除 ${entry.name}`} onClick={() => setDeleting(entry)} size="sm" type="button" variant="ghost">
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              </article>
+            ))}
+            {entries.length === 0 ? (
+              <p className="py-6 text-center text-sm text-[var(--muted)]">还没有财务记录。</p>
+            ) : null}
+          </div>
+          <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -337,6 +373,7 @@ export function FinancePage() {
               ) : null}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
       <ConfirmDialog

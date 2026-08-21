@@ -78,8 +78,8 @@ describe("FinancePage", () => {
     expect(await screen.findByRole("heading", { name: "财务收支" })).toBeInTheDocument()
     expect((await screen.findAllByText("¥150,000.00")).length).toBeGreaterThan(0)
     expect(screen.getByRole("region", { name: "财务汇总" })).toHaveTextContent("¥100.00")
-    expect(await screen.findByText("OLL 项目预付款")).toBeInTheDocument()
-    expect(screen.getByText("DeepSeek 充值")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+    expect(screen.getAllByText("DeepSeek 充值")[0]).toBeInTheDocument()
   })
 
   it("creates an income entry and refreshes the list", async () => {
@@ -112,7 +112,7 @@ describe("FinancePage", () => {
     fireEvent.change(screen.getByLabelText("日期"), { target: { value: "2026-02-06" } })
     await userEvent.click(screen.getByRole("button", { name: "添加记录" }))
 
-    expect(await screen.findByText("OLL 项目预付款")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     expect(requestBody).toEqual({
       kind: "income",
       name: "OLL 项目预付款",
@@ -138,11 +138,11 @@ describe("FinancePage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("DeepSeek 充值")).toBeInTheDocument()
+    expect((await screen.findAllByText("DeepSeek 充值"))[0]).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型筛选" }), "income")
 
-    expect(await screen.findByText("OLL 项目预付款")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     expect(screen.queryByText("DeepSeek 充值")).not.toBeInTheDocument()
   })
 
@@ -156,11 +156,11 @@ describe("FinancePage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("OLL 项目预付款")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText("搜索记录"), "DeepSeek")
 
-    expect(await screen.findByText("DeepSeek 充值")).toBeInTheDocument()
+    expect((await screen.findAllByText("DeepSeek 充值"))[0]).toBeInTheDocument()
     expect(screen.queryByText("OLL 项目预付款")).not.toBeInTheDocument()
   })
 
@@ -185,7 +185,7 @@ describe("FinancePage", () => {
     await userEvent.type(nameInput, "OLL 项目尾款")
     await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
 
-    expect(await screen.findByText("OLL 项目尾款")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 项目尾款"))[0]).toBeInTheDocument()
     expect(requestBody).toMatchObject({ kind: "income", name: "OLL 项目尾款", amount: 150000, status: "已收" })
     expect(toast.success).toHaveBeenCalledWith("财务记录已更新")
   })
@@ -202,7 +202,7 @@ describe("FinancePage", () => {
     )
 
     renderPage()
-    await screen.findByText("OLL 项目预付款")
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
 
     const dialog = await screen.findByRole("dialog")
@@ -212,7 +212,7 @@ describe("FinancePage", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "取消" }))
     expect(deleted).toBe(false)
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(screen.getByText("OLL 项目预付款")).toBeInTheDocument()
+    expect(screen.getAllByText("OLL 项目预付款")[0]).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
     const dialog2 = await screen.findByRole("dialog")
@@ -220,5 +220,37 @@ describe("FinancePage", () => {
 
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("财务记录已删除")
+  })
+
+  it("renders mobile cards with labeled edit and delete actions", async () => {
+    server.use(
+      http.get("/api/finance/entries", () => HttpResponse.json([income])),
+      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+    )
+
+    renderPage()
+
+    const card = await screen.findByRole("article", { name: "OLL 项目预付款 移动摘要" })
+    expect(card).toHaveTextContent("¥150,000.00")
+    expect(card).toHaveTextContent("收入")
+    expect(card).toHaveTextContent("2026-02-06")
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑 OLL 项目预付款" }))
+    expect(screen.getByLabelText("名称")).toHaveValue("OLL 项目预付款")
+
+    await userEvent.click(screen.getByRole("button", { name: "删除 OLL 项目预付款" }))
+    expect(await screen.findByRole("dialog")).toHaveTextContent("删除财务记录")
+  })
+
+  it("stacks summary cards two-per-row on mobile", async () => {
+    server.use(
+      http.get("/api/finance/entries", () => HttpResponse.json([])),
+      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+    )
+
+    renderPage()
+
+    const summary = await screen.findByRole("region", { name: "财务汇总" })
+    expect(summary.className).toContain("grid-cols-2")
   })
 })
