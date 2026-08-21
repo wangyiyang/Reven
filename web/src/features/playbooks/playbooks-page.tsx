@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -63,6 +64,7 @@ export function PlaybooksPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Playbook | null>(null)
   const [filters, setFilters] = useState({ kind: "", status: "", query: "" })
   const [viewing, setViewing] = useState<Playbook | null>(null)
 
@@ -315,10 +317,7 @@ export function PlaybooksPage() {
                         编辑
                       </Button>
                       <Button
-                        onClick={() => {
-                          if (!window.confirm(`确认删除 Playbook「${playbook.title}」？此操作不可恢复。`)) return
-                          deleteMutation.mutate(playbook.id)
-                        }}
+                        onClick={() => setDeleting(playbook)}
                         size="sm"
                         type="button"
                         variant="ghost"
@@ -365,6 +364,19 @@ export function PlaybooksPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <ConfirmDialog
+        busy={deleteMutation.isPending}
+        confirmLabel={`确认删除「${deleting?.title ?? ""}」`}
+        description="删除后无法恢复，请确认这条 Playbook 已不再需要。"
+        onClose={() => setDeleting(null)}
+        onConfirm={() => {
+          if (!deleting) return
+          deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+        }}
+        open={deleting !== null}
+        title="删除 Playbook"
+      />
     </main>
   )
 }

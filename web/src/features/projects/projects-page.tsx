@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -79,6 +80,7 @@ export function ProjectsPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Project | null>(null)
   const [filters, setFilters] = useState({ status: "", query: "" })
 
   const projectsQuery = useQuery({
@@ -311,10 +313,7 @@ export function ProjectsPage() {
                         编辑
                       </Button>
                       <Button
-                        onClick={() => {
-                          if (!window.confirm(`确认删除项目「${project.name}」？此操作不可恢复。`)) return
-                          deleteMutation.mutate(project.id)
-                        }}
+                        onClick={() => setDeleting(project)}
                         size="sm"
                         type="button"
                         variant="ghost"
@@ -329,6 +328,18 @@ export function ProjectsPage() {
           </Table>
         </CardContent>
       </Card>
+      <ConfirmDialog
+        busy={deleteMutation.isPending}
+        confirmLabel={`确认删除「${deleting?.name ?? ""}」`}
+        description="删除后无法恢复，请确认这个项目已不再需要。"
+        onClose={() => setDeleting(null)}
+        onConfirm={() => {
+          if (!deleting) return
+          deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+        }}
+        open={deleting !== null}
+        title="删除项目"
+      />
     </main>
   )
 }
