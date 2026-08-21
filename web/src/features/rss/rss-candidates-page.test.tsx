@@ -64,6 +64,32 @@ describe("RssCandidatesPage", () => {
     )
   })
 
+  it("clamps long summaries behind an expand toggle", async () => {
+    const longSummary = "这是一段很长的摘要。".repeat(60)
+    server.use(
+      http.get("/api/rss/candidates", () =>
+        HttpResponse.json([{ ...candidate, summary_zh: longSummary }]),
+      ),
+    )
+    renderPage()
+
+    const paragraph = await screen.findByText(longSummary)
+    expect(paragraph.className).toContain("line-clamp")
+
+    await userEvent.click(screen.getByRole("button", { name: "展开全文" }))
+
+    expect(paragraph.className).not.toContain("line-clamp")
+    expect(screen.getByRole("button", { name: "收起" })).toBeInTheDocument()
+  })
+
+  it("shows short summaries in full without a toggle", async () => {
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json([candidate])))
+    renderPage()
+
+    expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "展开全文" })).not.toBeInTheDocument()
+  })
+
   it("ignores a candidate and removes it from the queue", async () => {
     let candidates = [candidate]
     server.use(

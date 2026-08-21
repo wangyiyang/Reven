@@ -65,6 +65,35 @@ describe("RssSettingsPage", () => {
     expect(screen.getByRole("region", { name: "反向关键词" })).toHaveTextContent("sponsored post")
   })
 
+  it("filters sources by keyword in name or feed URL", async () => {
+    const other = {
+      ...source,
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "SegmentFault",
+      feed_url: "https://segmentfault.com/feeds",
+    }
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([source, other])),
+      http.get("/api/rss/keywords", () => HttpResponse.json(keywords)),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText("OpenAI Blog")).toBeInTheDocument()
+    expect(screen.getByText("SegmentFault")).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText("搜索 RSS 源"), "openai")
+
+    expect(screen.getByText("OpenAI Blog")).toBeInTheDocument()
+    expect(screen.queryByText("SegmentFault")).not.toBeInTheDocument()
+
+    await userEvent.clear(screen.getByLabelText("搜索 RSS 源"))
+    await userEvent.type(screen.getByLabelText("搜索 RSS 源"), "不存在的源")
+
+    expect(screen.getByText("没有匹配的 RSS 源")).toBeInTheDocument()
+    expect(screen.queryByText("OpenAI Blog")).not.toBeInTheDocument()
+  })
+
   it("adds an RSS source and refreshes the list", async () => {
     let sources = [source]
     let requestBody: unknown
