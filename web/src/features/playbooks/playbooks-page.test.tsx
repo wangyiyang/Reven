@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -113,10 +113,8 @@ describe("PlaybooksPage", () => {
     expect(posted).toBe(false)
   })
 
-  it("asks for confirmation before deleting a playbook", async () => {
+  it("asks for confirmation via dialog before deleting a playbook", async () => {
     let deleted = false
-    const confirmSpy = vi.fn(() => false)
-    vi.stubGlobal("confirm", confirmSpy)
     server.use(http.delete("/api/playbooks/:id", () => {
       deleted = true
       return new HttpResponse(null, { status: 204 })
@@ -126,9 +124,21 @@ describe("PlaybooksPage", () => {
     await screen.findByText("客户首次沟通 SOP")
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
 
-    expect(confirmSpy).toHaveBeenCalled()
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("删除 Playbook")
     expect(deleted).toBe(false)
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "取消" }))
+    expect(deleted).toBe(false)
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect(screen.getByText("客户首次沟通 SOP")).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    const dialog2 = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog2).getByRole("button", { name: /确认删除/ }))
+
+    await waitFor(() => expect(deleted).toBe(true))
+    expect(toast.success).toHaveBeenCalledWith("Playbook 已删除")
   })
 
   it("filters playbooks by kind and status", async () => {
