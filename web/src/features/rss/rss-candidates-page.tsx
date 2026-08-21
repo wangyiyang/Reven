@@ -6,8 +6,14 @@ import { Button } from "@/components/ui/button"
 import type { RssCandidate } from "./types"
 import { useRssCandidatesController } from "./use-rss-candidates-controller"
 
+const BATCH_SIZE = 30
+
 export function RssCandidatesPage() {
   const controller = useRssCandidatesController()
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
+  const all = controller.candidates.data ?? []
+  const visible = all.slice(0, visibleCount)
+  const remaining = all.length - visible.length
   return (
     <main className="page-enter mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -24,7 +30,7 @@ export function RssCandidatesPage() {
       )}
       {controller.candidates.data?.length === 0 && <EmptyQueue />}
       <ol className="grid gap-6">
-        {controller.candidates.data?.map((candidate, index) => (
+        {visible.map((candidate, index) => (
           <CandidateCard
             busy={controller.busyId === candidate.id}
             candidate={candidate}
@@ -35,6 +41,13 @@ export function RssCandidatesPage() {
           />
         ))}
       </ol>
+      {remaining > 0 && (
+        <div className="mt-6 flex justify-center">
+          <Button onClick={() => setVisibleCount((count) => count + BATCH_SIZE)} type="button" variant="outline">
+            加载更多（还剩 {remaining} 条）
+          </Button>
+        </div>
+      )}
     </main>
   )
 }
