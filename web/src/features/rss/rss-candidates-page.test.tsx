@@ -130,4 +130,25 @@ describe("RssCandidatesPage", () => {
     ))
     expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
   })
+
+  it("renders at most one batch of candidates with a load-more control", async () => {
+    const many = Array.from({ length: 35 }, (_, i) => ({
+      ...candidate,
+      id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, "0")}`,
+      title: `候选 ${i + 1}`,
+    }))
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(many)))
+
+    renderPage()
+
+    expect(await screen.findByText("候选 30")).toBeInTheDocument()
+    expect(screen.queryByText("候选 31")).not.toBeInTheDocument()
+
+    const more = screen.getByRole("button", { name: /加载更多/ })
+    expect(more).toHaveTextContent("5")
+
+    await userEvent.click(more)
+    expect(await screen.findByText("候选 35")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /加载更多/ })).not.toBeInTheDocument()
+  })
 })
