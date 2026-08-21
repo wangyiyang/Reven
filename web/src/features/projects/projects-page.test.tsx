@@ -60,7 +60,7 @@ describe("ProjectsPage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "项目库" })).toBeInTheDocument()
-    expect(await screen.findByText("OLL 交付")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
     expect(screen.getByText("wangyiyang/OLL")).toBeInTheDocument()
   })
 
@@ -69,7 +69,7 @@ describe("ProjectsPage", () => {
 
     renderPage()
 
-    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无项目，先添加一个。"))[0]).toBeInTheDocument()
   })
 
   it("creates a project and refreshes the list", async () => {
@@ -93,7 +93,7 @@ describe("ProjectsPage", () => {
     await userEvent.type(screen.getByLabelText("GitHub 仓库"), "wangyiyang/Reven")
     await userEvent.click(screen.getByRole("button", { name: "添加项目" }))
 
-    expect(await screen.findByText("Reven 工作台")).toBeInTheDocument()
+    expect((await screen.findAllByText("Reven 工作台"))[0]).toBeInTheDocument()
     expect(requestBody).toEqual({
       name: "Reven 工作台",
       goal: "一人公司操作系统",
@@ -130,7 +130,7 @@ describe("ProjectsPage", () => {
     }))
 
     renderPage()
-    await screen.findByText("OLL 交付")
+    expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
 
     const dialog = await screen.findByRole("dialog")
@@ -140,7 +140,7 @@ describe("ProjectsPage", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "取消" }))
     expect(deleted).toBe(false)
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(screen.getByText("OLL 交付")).toBeInTheDocument()
+    expect(screen.getAllByText("OLL 交付")[0]).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
     const dialog2 = await screen.findByRole("dialog")
@@ -148,6 +148,21 @@ describe("ProjectsPage", () => {
 
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("项目已删除")
+  })
+
+  it("renders mobile cards with labeled edit and delete actions", async () => {
+    renderPage()
+
+    const card = await screen.findByRole("article", { name: "OLL 交付 移动摘要" })
+    expect(card).toHaveTextContent("进行中")
+    expect(card).toHaveTextContent("9 月底完成验收")
+    expect(card).toHaveTextContent("2026-09-30")
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑 OLL 交付" }))
+    expect(screen.getByLabelText("名称")).toHaveValue("OLL 交付")
+
+    await userEvent.click(screen.getByRole("button", { name: "删除 OLL 交付" }))
+    expect(await screen.findByRole("dialog")).toHaveTextContent("删除项目")
   })
 
   it("filters projects by status", async () => {
@@ -159,11 +174,11 @@ describe("ProjectsPage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("OLL 交付")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "已完成")
 
-    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无项目，先添加一个。"))[0]).toBeInTheDocument()
   })
 
   it("searches projects by keyword", async () => {
@@ -175,11 +190,11 @@ describe("ProjectsPage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("OLL 交付")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
     await userEvent.clear(screen.getByLabelText("搜索项目"))
     await userEvent.type(screen.getByLabelText("搜索项目"), "不存在")
 
-    expect(await screen.findByText("暂无项目，先添加一个。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无项目，先添加一个。"))[0]).toBeInTheDocument()
   })
 
   it("edits a project and refreshes the list", async () => {
@@ -202,7 +217,7 @@ describe("ProjectsPage", () => {
     await userEvent.type(nameInput, "OLL 二期交付")
     await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
 
-    expect(await screen.findByText("OLL 二期交付")).toBeInTheDocument()
+    expect((await screen.findAllByText("OLL 二期交付"))[0]).toBeInTheDocument()
     expect(requestBody).toMatchObject({ name: "OLL 二期交付", github_repo: "wangyiyang/OLL", status: "进行中" })
     expect(toast.success).toHaveBeenCalledWith("项目已更新")
   })

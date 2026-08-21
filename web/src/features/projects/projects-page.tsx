@@ -263,6 +263,52 @@ export function ProjectsPage() {
               />
             </div>
           </div>
+          <div className="grid gap-3 lg:hidden">
+            {projectsQuery.data?.length === 0 ? (
+              <p className="py-6 text-center text-sm text-[var(--muted)]">暂无项目，先添加一个。</p>
+            ) : null}
+            {(projectsQuery.data ?? []).map((project) => {
+              const githubUrl = project.github_repo ? safeGithubUrl(project.github_repo) : null
+              const meta = [project.department, project.due_on ? `截止 ${project.due_on}` : null].filter(Boolean).join(" · ")
+              return (
+                <article
+                  aria-label={`${project.name} 移动摘要`}
+                  className="rounded-lg border border-[var(--line)] p-4"
+                  key={project.id}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 font-semibold text-[var(--ink)]">{project.name}</p>
+                    <Badge>{project.status}</Badge>
+                  </div>
+                  {project.goal ? <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">{project.goal}</p> : null}
+                  {meta ? <p className="mt-2 text-xs text-[var(--muted)]">{meta}</p> : null}
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex gap-3 text-xs">
+                      {githubUrl ? (
+                        <a className="text-[var(--signal)] underline underline-offset-2" href={githubUrl} rel="noreferrer" target="_blank">
+                          GitHub
+                        </a>
+                      ) : null}
+                      {project.notion_url ? (
+                        <a className="text-[var(--signal)] underline underline-offset-2" href={project.notion_url} rel="noreferrer" target="_blank">
+                          Notion
+                        </a>
+                      ) : null}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button aria-label={`编辑 ${project.name}`} onClick={() => startEdit(project)} size="sm" type="button" variant="ghost">
+                        编辑
+                      </Button>
+                      <Button aria-label={`删除 ${project.name}`} onClick={() => setDeleting(project)} size="sm" type="button" variant="ghost">
+                        删除
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+          <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -326,6 +372,7 @@ export function ProjectsPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
       <ConfirmDialog

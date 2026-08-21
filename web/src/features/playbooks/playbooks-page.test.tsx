@@ -56,8 +56,8 @@ describe("PlaybooksPage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "SOP / 话术库" })).toBeInTheDocument()
-    expect(await screen.findByText("客户首次沟通 SOP")).toBeInTheDocument()
-    expect(screen.getByText("CRM、销售")).toBeInTheDocument()
+    expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
+    expect(screen.getAllByText("CRM、销售")[0]).toBeInTheDocument()
   })
 
   it("shows empty state when no playbooks", async () => {
@@ -65,7 +65,7 @@ describe("PlaybooksPage", () => {
 
     renderPage()
 
-    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无 Playbook，先沉淀一条 SOP。"))[0]).toBeInTheDocument()
   })
 
   it("creates a playbook and refreshes the list", async () => {
@@ -88,7 +88,7 @@ describe("PlaybooksPage", () => {
     await userEvent.type(screen.getByLabelText("内容"), "- 题图\n- 摘要")
     await userEvent.click(screen.getByRole("button", { name: "添加 Playbook" }))
 
-    expect(await screen.findByText("公众号发布 Checklist")).toBeInTheDocument()
+    expect((await screen.findAllByText("公众号发布 Checklist"))[0]).toBeInTheDocument()
     expect(requestBody).toEqual({
       title: "公众号发布 Checklist",
       kind: "checklist",
@@ -121,7 +121,7 @@ describe("PlaybooksPage", () => {
     }))
 
     renderPage()
-    await screen.findByText("客户首次沟通 SOP")
+    expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
 
     const dialog = await screen.findByRole("dialog")
@@ -131,7 +131,7 @@ describe("PlaybooksPage", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "取消" }))
     expect(deleted).toBe(false)
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(screen.getByText("客户首次沟通 SOP")).toBeInTheDocument()
+    expect(screen.getAllByText("客户首次沟通 SOP")[0]).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
     const dialog2 = await screen.findByRole("dialog")
@@ -139,6 +139,24 @@ describe("PlaybooksPage", () => {
 
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("Playbook 已删除")
+  })
+
+  it("renders mobile cards with view, edit and delete actions", async () => {
+    renderPage()
+
+    const card = await screen.findByRole("article", { name: "客户首次沟通 SOP 移动摘要" })
+    expect(card).toHaveTextContent("试行")
+    expect(card).toHaveTextContent("CRM、销售")
+
+    await userEvent.click(screen.getByRole("button", { name: "查看 客户首次沟通 SOP" }))
+    expect(await screen.findByRole("dialog")).toHaveTextContent("1. 确认背景")
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }))
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑 客户首次沟通 SOP" }))
+    expect(screen.getByLabelText("标题")).toHaveValue("客户首次沟通 SOP")
+
+    await userEvent.click(screen.getByRole("button", { name: "删除 客户首次沟通 SOP" }))
+    expect(await screen.findByRole("dialog")).toHaveTextContent("删除 Playbook")
   })
 
   it("filters playbooks by kind and status", async () => {
@@ -152,15 +170,15 @@ describe("PlaybooksPage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("客户首次沟通 SOP")).toBeInTheDocument()
+    expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型筛选" }), "checklist")
-    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无 Playbook，先沉淀一条 SOP。"))[0]).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型筛选" }), "")
-    await screen.findByText("客户首次沟通 SOP")
+    expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "正式")
-    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无 Playbook，先沉淀一条 SOP。"))[0]).toBeInTheDocument()
   })
 
   it("searches playbooks by keyword", async () => {
@@ -172,10 +190,10 @@ describe("PlaybooksPage", () => {
     )
 
     renderPage()
-    expect(await screen.findByText("客户首次沟通 SOP")).toBeInTheDocument()
+    expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText("搜索 Playbook"), "不存在")
 
-    expect(await screen.findByText("暂无 Playbook，先沉淀一条 SOP。")).toBeInTheDocument()
+    expect((await screen.findAllByText("暂无 Playbook，先沉淀一条 SOP。"))[0]).toBeInTheDocument()
   })
 
   it("edits a playbook and refreshes the list", async () => {
@@ -198,7 +216,7 @@ describe("PlaybooksPage", () => {
     await userEvent.type(titleInput, "客户首次沟通 SOP v2")
     await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
 
-    expect(await screen.findByText("客户首次沟通 SOP v2")).toBeInTheDocument()
+    expect((await screen.findAllByText("客户首次沟通 SOP v2"))[0]).toBeInTheDocument()
     expect(requestBody).toMatchObject({ title: "客户首次沟通 SOP v2", kind: "sop", status: "试行", body: "1. 确认背景", tags: ["CRM", "销售"] })
     expect(toast.success).toHaveBeenCalledWith("Playbook 已更新")
   })
