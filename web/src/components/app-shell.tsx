@@ -32,13 +32,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
       <aside className="z-20 border-b border-[var(--line)] bg-[var(--panel)] lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0">
-        <div className="flex h-full items-center justify-between px-5 py-4 lg:flex-col lg:items-stretch lg:px-6 lg:py-8">
+        <div className="flex h-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-4 lg:flex-col lg:flex-nowrap lg:items-stretch lg:px-6 lg:py-8">
           <NavLink aria-label="Reven 首页" className="group flex items-center gap-2.5" to="/articles">
             <img alt="" className="h-8 w-8 dark:hidden" src="/brand/yixing-logo-v2-master.svg" />
             <img alt="" className="hidden h-8 w-8 dark:block" src="/brand/yixing-logo-v2-mono-white.svg" />
             <span className="text-xl font-semibold tracking-[-0.02em]">Reven</span>
           </NavLink>
-          <nav aria-label="内容工作台主导航" className="lg:my-auto">
+          <nav aria-label="内容工作台主导航" className="order-last w-full overflow-x-auto lg:order-none lg:my-auto lg:w-auto lg:overflow-visible">
             <ul className="flex gap-1 lg:flex-col lg:gap-2">
               {navigation.map(({ to, label, icon: Icon, end }) => (
                 <li key={to}>
