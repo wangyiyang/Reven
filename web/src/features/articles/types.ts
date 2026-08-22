@@ -42,7 +42,8 @@ export interface ArticleSummary {
   notion_url: string
   notion_status: string
   automation_status: string
-  target_channels: ChannelName[]
+  /** Notion 目标渠道多选的原始值，可能包含发布链路不支持的渠道（如「掘金」），仅用于展示 */
+  target_channels: string[]
   planned_at: string | null
   notion_last_edited_at: string
   last_synced_at: string

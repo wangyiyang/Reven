@@ -100,7 +100,7 @@ function parseArticleSummary(value: unknown): ArticleSummary {
     notion_url: string(data.notion_url, "稿件"),
     notion_status: string(data.notion_status, "稿件"),
     automation_status: string(data.automation_status, "稿件"),
-    target_channels: channelArray(data.target_channels, "稿件"),
+    target_channels: stringArray(data.target_channels, "稿件"),
     planned_at: nullableDateTime(data.planned_at, "稿件"),
     notion_last_edited_at: dateTime(data.notion_last_edited_at, "稿件"),
     last_synced_at: dateTime(data.last_synced_at, "稿件"),
@@ -178,6 +178,11 @@ function channelArray(value: unknown, name: string): ChannelName[] {
     if (typeof item !== "string" || !channels.has(item as ChannelName)) invalid(name)
     return item as ChannelName
   })
+}
+
+/** 稿件目标渠道只做展示，容忍发布链路外的渠道值（如「掘金」），不因陌生值打挂整页 */
+function stringArray(value: unknown, name: string): string[] {
+  return array(value, name).map((item) => string(item, name))
 }
 
 function record(value: unknown, name: string): Record<string, unknown> {

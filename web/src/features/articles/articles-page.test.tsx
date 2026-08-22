@@ -98,6 +98,15 @@ describe("ArticlesPage", () => {
     expect(within(summary).getByText("草稿已生成")).toBeInTheDocument()
   })
 
+  it("tolerates target channels outside the publish pipeline (e.g. 掘金)", async () => {
+    const juejinArticle = { ...article, title: "带掘金渠道的稿件", target_channels: ["微信公众号", "个人博客", "掘金"] }
+    server.use(http.get("/api/articles", () => HttpResponse.json({ items: [juejinArticle], total: 1, page: 1, page_size: 20 })))
+    renderPage("/articles")
+
+    expect(await screen.findAllByText("带掘金渠道的稿件")).not.toHaveLength(0)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
   it.each([
     ["null items", { items: null, total: 1, page: 1, page_size: 20 }],
     ["string total", { items: [article], total: "1", page: 1, page_size: 20 }],
