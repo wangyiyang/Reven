@@ -148,8 +148,7 @@ class ContentSyncWorker:
     async def _execute(self, claim: ContentSyncClaim) -> None:
         page_id = await self._page_id(claim)
         source = await self.source.load(page_id)
-        if source.page.cover is None:
-            raise ContentSyncFailure("COVER_REQUIRED", "同步需要可下载的封面", media="封面")
+        # 封面缺失不阻塞同步：快照照常生成，封面缺失由发布校验（cover_missing）兜底。
         await self._progress(claim, SyncStage.DISCOVERING_MEDIA)
         archived = await self.media_archive.archive(
             claim.run_id,
