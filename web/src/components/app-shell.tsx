@@ -1,6 +1,6 @@
 import { Activity, BookOpenCheck, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
-import { useState, type ReactNode } from "react"
-import { NavLink } from "react-router-dom"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
 
 import { apiRequest } from "@/lib/api"
@@ -29,6 +29,16 @@ const navigation = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getTheme)
+  const location = useLocation()
+  const navRef = useRef<HTMLElement>(null)
+
+  // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条）
+  useEffect(() => {
+    navRef.current
+      ?.querySelector(".nav-link.active")
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
+  }, [location.pathname])
+
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
       <aside className="z-20 border-b border-[var(--line)] bg-[var(--panel)] lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0">
@@ -38,44 +48,55 @@ export function AppShell({ children }: { children: ReactNode }) {
             <img alt="" className="hidden h-8 w-8 dark:block" src="/brand/yixing-logo-v2-mono-white.svg" />
             <span className="text-xl font-semibold tracking-[-0.02em]">Reven</span>
           </NavLink>
-          <nav aria-label="内容工作台主导航" className="order-last w-full overflow-x-auto lg:order-none lg:my-auto lg:w-auto lg:overflow-visible">
-            <ul className="flex gap-1 lg:flex-col lg:gap-2">
-              {navigation.map(({ to, label, icon: Icon, end }) => (
-                <li key={to}>
-                  <NavLink
-                    aria-label={label}
-                    className={({ isActive }) => cn(
-                      "nav-link flex min-h-11 items-center gap-3 px-3 text-sm font-semibold",
-                      isActive && "active",
-                    )}
-                    end={end}
-                    to={to}
-                  >
-                    <Icon aria-hidden size={17} />
-                    <span className="hidden sm:inline">{label}</span>
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="flex lg:flex-col lg:gap-3">
+          <div className="relative order-last w-full lg:order-none lg:my-auto lg:w-auto">
+            <nav
+              aria-label="内容工作台主导航"
+              className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible"
+              ref={navRef}
+            >
+              <ul className="flex gap-1 lg:flex-col lg:gap-2">
+                {navigation.map(({ to, label, icon: Icon, end }) => (
+                  <li className="shrink-0" key={to}>
+                    <NavLink
+                      aria-label={label}
+                      className={({ isActive }) => cn(
+                        "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
+                        isActive && "active",
+                      )}
+                      end={end}
+                      to={to}
+                    >
+                      <Icon aria-hidden size={17} />
+                      <span>{label}</span>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            {/* 移动端右缘渐隐，提示 tab 条可横向滑动 */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[var(--panel)] to-transparent lg:hidden"
+            />
+          </div>
+          <div className="flex gap-2 lg:flex-col lg:gap-3">
             <button
               aria-label="退出登录"
-              className="flex min-h-9 w-fit items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
+              className="flex h-11 w-11 items-center justify-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)] lg:h-9 lg:min-h-9 lg:w-fit lg:justify-start lg:px-3"
               onClick={() => void logout()}
               type="button"
             >
               <LogOut aria-hidden size={14} />
-              退出
+              <span className="hidden lg:inline">退出</span>
             </button>
             <button
               aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
-              className="flex min-h-9 w-fit items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
+              className="flex h-11 w-11 items-center justify-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)] lg:h-9 lg:min-h-9 lg:w-fit lg:justify-start lg:px-3"
               onClick={() => setTheme(toggleTheme())}
               type="button"
             >
               {theme === "dark" ? <Sun aria-hidden size={14} /> : <Moon aria-hidden size={14} />}
-              {theme === "dark" ? "浅色" : "深色"}
+              <span className="hidden lg:inline">{theme === "dark" ? "浅色" : "深色"}</span>
             </button>
           </div>
         </div>
