@@ -143,12 +143,6 @@ blockquote {
   }
 }
 
-@media (max-width: 639px) {
-  .nav-link {
-    padding-inline: 0.65rem;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
