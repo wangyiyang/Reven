@@ -4,11 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from reven.api.dependencies import RssEmbeddingRefresherDep, RssInboxServiceDep, SessionDep
 from reven.api.schemas.rss import (
     InboxPushResponse,
+    RssCandidatePage,
     RssCandidateResponse,
     RssEmbeddingRebuildResponse,
     RssKeywordCreate,
@@ -34,17 +35,28 @@ async def rebuild_keyword_embeddings(
     return RssEmbeddingRebuildResponse(refreshed=refreshed, model="BAAI/bge-m3", dimension=1024)
 
 
-@router.get("/candidates", response_model=list[RssCandidateResponse])
+@router.get("/candidates", response_model=RssCandidatePage)
 async def list_candidates(
     session: SessionDep,
     candidate_status: str = Query("candidate", alias="status", max_length=24),
-) -> list[RssItem]:
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
+) -> RssCandidatePage:
+    filters = [RssItem.status == candidate_status]
+    total = await session.scalar(select(func.count()).select_from(RssItem).where(*filters))
     result = await session.scalars(
         select(RssItem)
-        .where(RssItem.status == candidate_status)
+        .where(*filters)
         .order_by(RssItem.published_at.desc().nullslast(), RssItem.first_seen_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    return list(result)
+    return RssCandidatePage(
+        items=[RssCandidateResponse.model_validate(item) for item in result],
+        total=total or 0,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post("/candidates/{item_id}/ignore", response_model=RssCandidateResponse)
