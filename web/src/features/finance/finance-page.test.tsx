@@ -222,6 +222,47 @@ describe("FinancePage", () => {
     expect(toast.success).toHaveBeenCalledWith("财务记录已删除")
   })
 
+  it("removes the row optimistically before the server responds", async () => {
+    let resolveDelete: () => void = () => {}
+    server.use(
+      http.get("/api/finance/entries", () => HttpResponse.json([income])),
+      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+      http.delete("/api/finance/entries/:id", async () => {
+        await new Promise<void>((resolve) => { resolveDelete = resolve })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    renderPage()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))
+
+    // 服务端响应被挂起时，行已经从列表消失（乐观更新）
+    await waitFor(() => expect(screen.queryByText("OLL 项目预付款")).not.toBeInTheDocument())
+    resolveDelete()
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("财务记录已删除"))
+  })
+
+  it("restores the row when the delete fails", async () => {
+    server.use(
+      http.get("/api/finance/entries", () => HttpResponse.json([income])),
+      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+      http.delete("/api/finance/entries/:id", () => HttpResponse.json({ message: "boom" }, { status: 500 })),
+    )
+
+    renderPage()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    // 失败后回滚：行恢复
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+  })
+
   it("renders mobile cards with labeled edit and delete actions", async () => {
     server.use(
       http.get("/api/finance/entries", () => HttpResponse.json([income])),
