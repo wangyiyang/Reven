@@ -13,5 +13,4 @@
 **/dist
 README.md
 docs
-infra/test
 server/tests

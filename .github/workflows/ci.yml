@@ -72,6 +72,7 @@ jobs:
               - 'uv.lock'
               - '.env.example'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/release.yml'
 
   backend:
     if: inputs.full || needs.changes.outputs.backend == 'true'
@@ -183,6 +184,19 @@ jobs:
       # ubuntu-24.04 内核默认通过 AppArmor 拦截非特权 user namespace，bwrap 需要放行
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: docker build --pull --no-cache -f infra/docker/Dockerfile -t reven:test .
+      - name: Verify embedded release infra
+        run: |
+          exported_infra="$(mktemp -d)"
+          export_container="$(docker create reven:test)"
+          cleanup() {
+            docker rm "$export_container" >/dev/null 2>&1 || true
+            rm -rf "$exported_infra"
+          }
+          trap cleanup EXIT
+          docker cp "$export_container:/opt/reven-release/infra/." "$exported_infra/"
+          diff -ru infra "$exported_infra"
+      - name: Verify deployment infra synchronization and restoration
+        run: sh scripts/test_deploy_reven.sh
       - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
       - run: docker run --rm reven:test ruby --version
       - run: docker run --rm reven:test bundle --version

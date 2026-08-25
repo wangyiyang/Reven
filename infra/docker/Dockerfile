@@ -58,6 +58,8 @@ RUN find /app/web-dist -type f -print0 \
 COPY --chown=reven:reven server/migrations/ /app/server/migrations/
 COPY --chown=reven:reven server/src/ /app/server/src/
 COPY --chown=reven:reven infra/docker/entrypoint.sh /app/entrypoint.sh
+# Immutable deployment data exported by scripts/deploy_reven.sh. Keep this path stable.
+COPY infra/ /opt/reven-release/infra/
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/server/src" \
     PYTHONDONTWRITEBYTECODE=1 \
