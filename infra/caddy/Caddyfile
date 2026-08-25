@@ -1,4 +1,14 @@
 dev.wangyiyang.cc {
+	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
+	# API 响应若已被 SecurityHeadersMiddleware 设置，这里的值会覆盖为相同内容
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+	}
+
 	handle /api/* {
 		reverse_proxy reven:8000
 	}
