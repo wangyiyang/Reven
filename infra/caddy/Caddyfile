@@ -1,9 +1,28 @@
 dev.wangyiyang.cc {
+	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
+	# API 响应若已被 SecurityHeadersMiddleware 设置，这里的值会覆盖为相同内容
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+	}
+
 	handle /api/* {
 		reverse_proxy reven:8000
 	}
 
+	# 指纹资产长缓存；HTML/SPA 入口 no-cache——否则部署后浏览器继续跑旧 bundle
+	#（2026-08-25 实测：发版后页面仍加载旧 index-*.js，需强刷才拿到新包）
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv/reven/current
+		file_server
+	}
+
 	handle {
+		header Cache-Control "no-cache"
 		root * /srv/reven/current
 		try_files {path} /index.html
 		file_server
