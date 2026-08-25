@@ -6,6 +6,8 @@
 - HSTS 仅在 HTTPS 站点启用语义上才有意义，但加上对 HTTP 响应无害
 """
 
+from collections.abc import Awaitable, Callable
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -31,7 +33,11 @@ _HEADERS: dict[str, str] = {
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         response = await call_next(request)
         for name, value in _HEADERS.items():
             response.headers.setdefault(name, value)
