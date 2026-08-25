@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, Ban, RefreshCcw, RotateCcw } from "lucide-react"
 import { useRef } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useLocation, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,11 @@ export function ArticleDetailPage() {
 
 function DetailContent({ article }: { article: ArticleDetail }) {
   const notionUrl = safeNotionUrl(article.notion_url)
+  const location = useLocation()
+  // 从列表进入时携带来源 URL（含分页/筛选），返回时原样还原（#73）；
+  // 仅接受 /articles 前缀的站内地址，直达访问回退到列表首页
+  const fromState = (location.state as { from?: unknown } | null)?.from
+  const backTo = typeof fromState === "string" && fromState.startsWith("/articles") ? fromState : "/articles"
   const newest = article.jobs[0]
   const job = useQuery({
     queryKey: ["article-job", article.id, newest?.id],
@@ -40,7 +45,7 @@ function DetailContent({ article }: { article: ArticleDetail }) {
   })
   return (
     <main className="page-enter mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 lg:px-12 lg:py-12">
-      <Link className="inline-flex min-h-10 items-center gap-2 text-xs font-semibold hover:underline" to="/articles"><ArrowLeft aria-hidden size={14} />返回稿件索引</Link>
+      <Link className="inline-flex min-h-10 items-center gap-2 text-xs font-semibold hover:underline" to={backTo}><ArrowLeft aria-hidden size={14} />返回稿件索引</Link>
       <header className="mt-5 grid gap-7 border-b border-[var(--line)] pb-8 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
           <h1 className="max-w-4xl text-2xl font-semibold">{article.title}</h1>
