@@ -6,19 +6,15 @@ import { Button } from "@/components/ui/button"
 import type { RssCandidate } from "./types"
 import { useRssCandidatesController } from "./use-rss-candidates-controller"
 
-const BATCH_SIZE = 30
-
 export function RssCandidatesPage() {
   const controller = useRssCandidatesController()
-  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
-  const all = controller.candidates.data ?? []
-  const visible = all.slice(0, visibleCount)
-  const remaining = all.length - visible.length
+  const visible = controller.items
+  const remaining = (controller.total ?? 0) - visible.length
   return (
     <main className="page-enter mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <h1 className="text-2xl font-semibold">RSS 候选工作台</h1>
-        <p className="text-sm text-[var(--muted)]">待审 <span className="font-semibold text-[var(--ink)]">{controller.candidates.data?.length ?? "—"}</span></p>
+        <p className="text-sm text-[var(--muted)]">待审 <span className="font-semibold text-[var(--ink)]">{controller.total ?? "—"}</span></p>
       </header>
 
       {controller.candidates.isLoading && <p aria-busy="true" className="text-sm text-[var(--muted)]">正在读取候选…</p>}
@@ -28,7 +24,7 @@ export function RssCandidatesPage() {
           <Button className="mt-4" onClick={() => controller.candidates.refetch()} size="sm" variant="outline">重新读取</Button>
         </div>
       )}
-      {controller.candidates.data?.length === 0 && <EmptyQueue />}
+      {controller.total === 0 && <EmptyQueue />}
       <ol className="grid gap-6">
         {visible.map((candidate, index) => (
           <CandidateCard
@@ -41,10 +37,15 @@ export function RssCandidatesPage() {
           />
         ))}
       </ol>
-      {remaining > 0 && (
+      {controller.hasNextPage && (
         <div className="mt-6 flex justify-center">
-          <Button onClick={() => setVisibleCount((count) => count + BATCH_SIZE)} type="button" variant="outline">
-            加载更多（还剩 {remaining} 条）
+          <Button
+            disabled={controller.isFetchingNextPage}
+            onClick={() => controller.fetchNextPage()}
+            type="button"
+            variant="outline"
+          >
+            {controller.isFetchingNextPage ? "正在加载…" : `加载更多（还剩 ${remaining} 条）`}
           </Button>
         </div>
       )}

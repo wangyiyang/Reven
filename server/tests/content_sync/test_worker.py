@@ -7,6 +7,7 @@ from reven.content_sync.domain import ContentSyncStatus, SyncRunStatus, SyncStag
 from reven.content_sync.executor import (
     ArchivedContent,
     ArchivedMedia,
+    ContentSyncFailure,
     ContentSyncWorker,
     SourceDocument,
 )
@@ -34,7 +35,7 @@ class FakeSource:
 class FakeMediaArchive:
     async def archive(self, run_id, markdown, cover, *, progress=None):  # type: ignore[no-untyped-def]
         assert markdown == "正文 ![图](https://notion.so/image)"
-        assert cover is not None
+        assert cover is not None  # 仅用于有封面的用例；缺封面用例见 test_sync_succeeds_without_cover
         if progress is not None:
             await progress(SyncStage.DOWNLOADING_MEDIA, 1, 2, "封面")
         return ArchivedContent(
@@ -102,15 +103,59 @@ async def test_failed_run_records_the_exact_stage_and_media(db_session) -> None:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     accepted = await ContentSyncRequestService(factory).request(article.id)
     page = _page(article, edited_at)
-    page = MappedNotionPage(**{**page.__dict__, "cover": None})
 
-    assert await ContentSyncWorker(factory, FakeSource(page, _MARKDOWN), FakeMediaArchive()).run_once() is True
+    class FailingMediaArchive:
+        async def archive(self, run_id, markdown, cover, *, progress=None):  # type: ignore[no-untyped-def]
+            raise ContentSyncFailure("MEDIA_DOWNLOAD_FAILED", "封面下载失败", media="封面")
+
+    assert await ContentSyncWorker(factory, FakeSource(page, _MARKDOWN), FailingMediaArchive()).run_once() is True
 
     run = await ContentSyncRequestService(factory).get_run(article.id, accepted.run.id)
     assert run is not None
     assert run.status == SyncRunStatus.FAILED
-    assert run.error_stage == SyncStage.READING_NOTION
+    assert run.error_stage == SyncStage.DISCOVERING_MEDIA
     assert run.error_media == "封面"
+
+
+@pytest.mark.anyio
+async def test_sync_succeeds_without_cover(db_session) -> None:  # type: ignore[no-untyped-def]
+    """封面缺失不再阻塞同步：快照照常生成，发布层另行拦截。"""
+    edited_at = datetime.now(tz=UTC)
+    article = _article(edited_at)
+    db_session.add(article)
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    accepted = await ContentSyncRequestService(factory).request(article.id)
+    page = _page(article, edited_at)
+    page = MappedNotionPage(**{**page.__dict__, "cover": None})
+
+    class NoCoverMediaArchive:
+        async def archive(self, run_id, markdown, cover, *, progress=None):  # type: ignore[no-untyped-def]
+            assert cover is None
+            return ArchivedContent(
+                canonical_markdown="正文 ![图](reven-asset://image)",
+                portable_markdown="正文 ![图](https://assets.example/image)",
+                media=(
+                    ArchivedMedia(
+                        ordinal=1,
+                        kind="图片",
+                        embedded=True,
+                        source_url="https://notion.so/image",
+                        storage_key="assets/sha256/dd/image",
+                        public_url="https://assets.example/image",
+                        sha256="d" * 64,
+                        mime_type="image/png",
+                        byte_size=3,
+                        filename="image",
+                    ),
+                ),
+            )
+
+    assert await ContentSyncWorker(factory, FakeSource(page, _MARKDOWN), NoCoverMediaArchive()).run_once() is True
+
+    run = await ContentSyncRequestService(factory).get_run(article.id, accepted.run.id)
+    assert run is not None
+    assert run.status == SyncRunStatus.SUCCEEDED
 
 
 @pytest.mark.anyio

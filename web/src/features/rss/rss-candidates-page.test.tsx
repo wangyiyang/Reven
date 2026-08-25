@@ -36,6 +36,10 @@ const candidate = {
   notion_url: null,
 }
 
+function pageOf(items: unknown[], total = items.length, page = 1, pageSize = 30) {
+  return { items, total, page, page_size: pageSize }
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -49,7 +53,7 @@ describe("RssCandidatesPage", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("shows candidate evidence and source material", async () => {
-    server.use(http.get("/api/rss/candidates", () => HttpResponse.json([candidate])))
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))))
 
     renderPage()
 
@@ -68,7 +72,7 @@ describe("RssCandidatesPage", () => {
     const longSummary = "这是一段很长的摘要。".repeat(60)
     server.use(
       http.get("/api/rss/candidates", () =>
-        HttpResponse.json([{ ...candidate, summary_zh: longSummary }]),
+        HttpResponse.json(pageOf([{ ...candidate, summary_zh: longSummary }])),
       ),
     )
     renderPage()
@@ -83,7 +87,7 @@ describe("RssCandidatesPage", () => {
   })
 
   it("shows short summaries in full without a toggle", async () => {
-    server.use(http.get("/api/rss/candidates", () => HttpResponse.json([candidate])))
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))))
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
@@ -91,11 +95,11 @@ describe("RssCandidatesPage", () => {
   })
 
   it("ignores a candidate and removes it from the queue", async () => {
-    let candidates = [candidate]
+    let items: unknown[] = [candidate]
     server.use(
-      http.get("/api/rss/candidates", () => HttpResponse.json(candidates)),
+      http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(items, items.length))),
       http.post("/api/rss/candidates/:id/ignore", () => {
-        candidates = []
+        items = []
         return HttpResponse.json({ ...candidate, status: "ignored" })
       }),
     )
@@ -108,11 +112,11 @@ describe("RssCandidatesPage", () => {
   })
 
   it("confirms a candidate and reports the Notion destination", async () => {
-    let candidates = [candidate]
+    let items: unknown[] = [candidate]
     server.use(
-      http.get("/api/rss/candidates", () => HttpResponse.json(candidates)),
+      http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(items, items.length))),
       http.post("/api/rss/candidates/:id/confirm", () => {
-        candidates = []
+        items = []
         return HttpResponse.json({
           item_id: candidate.id,
           notion_page_id: "22222222-2222-2222-2222-222222222222",
@@ -131,24 +135,47 @@ describe("RssCandidatesPage", () => {
     expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
   })
 
-  it("renders at most one batch of candidates with a load-more control", async () => {
-    const many = Array.from({ length: 35 }, (_, i) => ({
+  it("loads the next server page via the load-more control", async () => {
+    const first = Array.from({ length: 30 }, (_, i) => ({
       ...candidate,
       id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, "0")}`,
       title: `候选 ${i + 1}`,
+      title_zh: `候选 ${i + 1}`,
     }))
-    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(many)))
+    const second = Array.from({ length: 5 }, (_, i) => ({
+      ...candidate,
+      id: `00000000-0000-0000-0000-${String(i + 31).padStart(12, "0")}`,
+      title: `候选 ${i + 31}`,
+      title_zh: `候选 ${i + 31}`,
+    }))
+    const requestedPages: string[] = []
+    server.use(
+      http.get("/api/rss/candidates", ({ request }) => {
+        const page = new URL(request.url).searchParams.get("page") ?? "1"
+        requestedPages.push(page)
+        return HttpResponse.json(page === "1" ? pageOf(first, 35, 1) : pageOf(second, 35, 2))
+      }),
+    )
 
     renderPage()
 
     expect(await screen.findByText("候选 30")).toBeInTheDocument()
     expect(screen.queryByText("候选 31")).not.toBeInTheDocument()
+    expect(screen.getByText("待审")).toHaveTextContent("35")
 
     const more = screen.getByRole("button", { name: /加载更多/ })
     expect(more).toHaveTextContent("5")
 
     await userEvent.click(more)
     expect(await screen.findByText("候选 35")).toBeInTheDocument()
+    expect(requestedPages).toEqual(["1", "2"])
     expect(screen.queryByRole("button", { name: /加载更多/ })).not.toBeInTheDocument()
+  })
+
+  it("flags malformed page payloads as a local error", async () => {
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json([candidate])))
+    renderPage()
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("RSS 候选读取失败")
   })
 })
