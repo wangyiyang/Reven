@@ -196,6 +196,9 @@ def _with_model_failure(decision: ScreeningDecision) -> ScreeningDecision:
 
 
 def _max_similarity(vector: tuple[float, ...], keywords: tuple[KeywordSignal, ...]) -> float:
+    if not vector:
+        # 该条目 embedding 已降级为空向量，语义分按 0 处理
+        return 0.0
     vectors = tuple(keyword.vector for keyword in keywords if keyword.vector is not None)
     if not vectors:
         return 0.0

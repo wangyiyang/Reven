@@ -178,4 +178,23 @@ describe("RssCandidatesPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("RSS 候选读取失败")
   })
+
+  it("surfaces a degraded embedding badge with the screening error code", async () => {
+    server.use(
+      http.get("/api/rss/candidates", () =>
+        HttpResponse.json(pageOf([{ ...candidate, embedding_status: "degraded", screening_error: "embedding_http_429" }]))),
+    )
+    renderPage()
+
+    expect(await screen.findByText("语义降级")).toBeInTheDocument()
+    expect(screen.getByText("embedding_http_429")).toBeInTheDocument()
+  })
+
+  it("does not flag a completed embedding status", async () => {
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))))
+    renderPage()
+
+    expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
+    expect(screen.queryByText("语义降级")).not.toBeInTheDocument()
+  })
 })

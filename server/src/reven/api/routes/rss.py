@@ -14,11 +14,12 @@ from reven.api.schemas.rss import (
     RssEmbeddingRebuildResponse,
     RssKeywordCreate,
     RssKeywordResponse,
+    RssRunResponse,
     RssSourceCreate,
     RssSourceResponse,
 )
 from reven.rss.inbox import InboxPushError, InboxPushResult
-from reven.rss.models import RssItem, RssKeyword, RssSource
+from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
 
 router = APIRouter(prefix="/api/rss", tags=["rss"])
@@ -33,6 +34,14 @@ async def rebuild_keyword_embeddings(
     except Exception:
         return _candidate_error(503, "RSS_EMBEDDING_UNAVAILABLE", "关键词向量重建失败")
     return RssEmbeddingRebuildResponse(refreshed=refreshed, model="BAAI/bge-m3", dimension=1024)
+
+
+@router.get("/runs/latest", response_model=RssRunResponse)
+async def latest_run(session: SessionDep) -> RssDiscoveryRun | JSONResponse:
+    run = await session.scalar(select(RssDiscoveryRun).order_by(RssDiscoveryRun.run_date.desc()).limit(1))
+    if run is None:
+        return _candidate_error(404, "RSS_RUN_NOT_FOUND", "RSS 任务记录不存在")
+    return run
 
 
 @router.get("/candidates", response_model=RssCandidatePage)

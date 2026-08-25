@@ -156,38 +156,35 @@ mkdir -p /opt/reven
 cd /opt/reven
 ```
 
-首次部署前，服务器必须已具备本仓库的 `infra/compose`、`infra/caddy`、
-`infra/docker` 和 `scripts/validate_reven_image.sh`。这些文件只提供 Compose 与运行
-配置；服务器不得执行 Docker 镜像构建。后续由 workflow 上传受限部署脚本，部署脚本
-只会拉取镜像、执行容器内的幂等 Alembic migration、启动 Compose 并检查健康状态。
+首次部署前，服务器只需准备宿主机专属的 `.env` 和 `.docker` 凭据目录，无需预置仓库
+中的 `infra/`；服务器不得执行 Docker 镜像构建。生产镜像把与该 digest 严格对应的发布
+基础设施保存在稳定路径 `/opt/reven-release/infra`。后续由 workflow 上传唯一的受限部署
+脚本；部署和回滚都会先从目标镜像导出并校验该目录，再精确同步到 `/opt/reven/infra`。
+同步会删除新镜像中已移除的基础设施文件，但不会改动 `infra/` 之外的 `.env`、`.docker`、
+镜像历史文件或部署脚本。
 
 推送到 `main` 后，`.github/workflows/release.yml` 会先执行 CI，随后构建 ACR 镜像并
 推送 `sha-<commit SHA>` 与 `latest`。生产部署只接收解析后的完整 digest，不使用任意
 Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避免并发升级。
-成功部署会记录当前与上一健康镜像，并发送一条飞书通知。
+成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
+脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
 通过 Actions 的 `workflow_dispatch` 可选择：
 
 - `deploy`：输入已发布镜像对应的 commit SHA；留空时使用触发 workflow 的 commit；
-- `rollback`：切换到服务器记录的上一健康镜像；只切换应用镜像，不会执行数据库降级。
+- `rollback`：切换到服务器记录的上一健康镜像，并同步该镜像内的配套基础设施；不会执行
+  数据库降级。
 
-部署失败时 workflow 明确失败并发送失败通知；脚本会恢复 `.env` 中原有的
-`REVEN_IMAGE`，但不会伪造健康状态或执行破坏性的数据库操作。
+部署失败时 workflow 明确失败并发送失败通知；脚本会原位恢复 `.env` 中原有的
+`REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile。它不会伪造
+健康状态，也不会自动启动旧 Reven 镜像，因为失败镜像可能已经执行数据库迁移。
 
-若需要在故障处置时人工核查，仍只接受完整 digest：
+若需要在故障处置时人工部署，仍只接受完整 digest，并调用服务器上的同一受限脚本，
+以确保镜像与基础设施保持同步：
 
 ```bash
 REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven@sha256:<AUDITED_DIGEST>
-export REVEN_IMAGE
-./scripts/validate_reven_image.sh
-docker --config /opt/reven/.docker pull "$REVEN_IMAGE"
-test "$(docker image inspect "$REVEN_IMAGE" --format '{{index .RepoDigests 0}}')" = "$REVEN_IMAGE"
-chmod 600 .env
-docker compose --env-file .env -f infra/compose/docker-compose.yml config
-docker --config /opt/reven/.docker compose --env-file .env \
-  -f infra/compose/docker-compose.yml pull reven
-docker compose --env-file .env -f infra/compose/docker-compose.yml up -d
-docker compose --env-file .env -f infra/compose/docker-compose.yml ps
+DEPLOY_OPERATION=deploy REVEN_IMAGE="$REVEN_IMAGE" /opt/reven/scripts/deploy_reven.sh
 ```
 
 直接调用写接口的受控运维客户端必须同时发送
@@ -244,13 +241,10 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml logs --tail=2
 
 ## 10. 按镜像 digest 回滚
 
-回滚时把 `.env` 中 `REVEN_IMAGE` 改为上一已验证的完整 digest，然后执行：
+回滚通过受限部署脚本读取 `.previous-healthy-image`，并从该镜像同步配套基础设施后再启动：
 
 ```bash
-docker --config /opt/reven/.docker compose --env-file .env \
-  -f infra/compose/docker-compose.yml pull reven
-docker compose --env-file .env -f infra/compose/docker-compose.yml up -d --no-deps reven
-docker compose --env-file .env -f infra/compose/docker-compose.yml ps
+DEPLOY_OPERATION=rollback /opt/reven/scripts/deploy_reven.sh
 ```
 
 数据库迁移必须保持向后兼容：先扩展、再迁移数据、最后在后续版本收缩。应用回滚

@@ -1,6 +1,6 @@
 """Public schemas for RSS configuration."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -104,3 +104,18 @@ class RssEmbeddingRebuildResponse(BaseModel):
     refreshed: int
     model: str
     dimension: int
+
+
+class RssRunResponse(BaseModel):
+    """最近一次 RSS 每日任务的运行摘要，用于健康状态展示。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    run_date: date
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    candidate_count: int
+    failure_count: int
+    errors: list[dict[str, object]]
+    notification_error: str | None

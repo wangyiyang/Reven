@@ -103,6 +103,12 @@ function CandidateCard(props: {
           <Score label="正向语义" value={candidate.positive_embedding_score} />
           <Score label="反向语义" value={candidate.negative_embedding_score} />
         </dl>
+        {candidate.embedding_status === "degraded" && (
+          <p className="mt-4 flex flex-wrap items-center gap-2">
+            <Badge className="text-[var(--danger)]">语义降级</Badge>
+            {candidate.screening_error && <span className="text-[11px] text-[var(--danger)]">{candidate.screening_error}</span>}
+          </p>
+        )}
         <div className="mt-5 text-[11px] leading-5 text-[var(--muted)]">
           <p>向量：{candidate.embedding_status} · {candidate.embedding_model ?? "未启用"}</p>
           <p>模型复核：{candidate.model_status}</p>

@@ -1,0 +1,1 @@
+"""Translation integration client tests."""

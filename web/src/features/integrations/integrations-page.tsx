@@ -36,6 +36,7 @@ export function IntegrationsPage() {
               onReplace={(provider, publicConfig, secret) => controller.execute({ action: "save", provider, publicConfig, secret })}
               onSave={(provider, publicConfig) => controller.execute({ action: "save", provider, publicConfig })}
               onTest={(provider) => controller.execute({ action: "test", provider })}
+              runHealth={controller.latestRun.data}
             />
           ))}
         </section>
