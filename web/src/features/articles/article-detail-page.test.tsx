@@ -62,7 +62,7 @@ describe("ArticleDetailPage", () => {
 
     expect(await screen.findByRole("heading", { name: "测试稿件" })).toBeInTheDocument()
     expect(screen.getByText("未通过：发布将被阻止")).toBeInTheDocument()
-    expect(screen.getByText("缺少封面")).toBeInTheDocument()
+    expect(screen.getAllByText("缺少封面").length).toBeGreaterThanOrEqual(1)
     expect(await screen.findByText("微信草稿 media_id")).toBeInTheDocument()
     expect(screen.getByText(/共 57 条。更早记录未在本页加载。/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "重试个人博客" })).toBeInTheDocument()
@@ -84,6 +84,27 @@ describe("ArticleDetailPage", () => {
     renderPage()
 
     expect((await screen.findAllByText("同步需要可下载的封面")).length).toBeGreaterThan(0)
+    expect(screen.getByText("在 Notion 补充封面图片并重新同步，然后重试失败渠道。")).toBeInTheDocument()
+  })
+
+  it("shows publish-blocking validation in recovery guidance even without sync/job errors (#72)", async () => {
+    useDetailHandlers({
+      articlePatch: {
+        last_error: null,
+        content_sync: { ...article.content_sync, error: null },
+        blog: null,
+        wechat: null,
+        jobs: [],
+        validation_errors: [{ code: "cover_missing", message: "请配置并确认封面可下载", field: "cover" }],
+      },
+    })
+    renderPage()
+
+    await screen.findByRole("heading", { name: "测试稿件" })
+    // 校验阻塞项必须出现在「下一步怎么处理」，不能显示「当前没有需要处理的错误」
+    expect(screen.queryByText("当前没有需要处理的错误。")).not.toBeInTheDocument()
+    expect(screen.getAllByText("发布前校验").length).toBeGreaterThanOrEqual(2) // 校验区标题 + 指引项来源
+    expect(screen.getAllByText("请配置并确认封面可下载").length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText("在 Notion 补充封面图片并重新同步，然后重试失败渠道。")).toBeInTheDocument()
   })
 
