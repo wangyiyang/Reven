@@ -1,14 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { safeNotionUrl } from "@/lib/external-url"
-import { confirmRssCandidate, fetchRssCandidates, ignoreRssCandidate } from "./rss-api"
+import { confirmRssCandidate, fetchRssCandidatesPage, ignoreRssCandidate } from "./rss-api"
 
 const QUERY_KEY = ["rss-candidates"] as const
 
 export function useRssCandidatesController() {
   const queryClient = useQueryClient()
-  const candidates = useQuery({ queryKey: QUERY_KEY, queryFn: fetchRssCandidates })
+  const candidates = useInfiniteQuery({
+    queryKey: QUERY_KEY,
+    queryFn: ({ pageParam }) => fetchRssCandidatesPage(pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
+  })
   const ignore = useMutation({
     mutationFn: ignoreRssCandidate,
     onSuccess: async () => {
@@ -28,8 +33,14 @@ export function useRssCandidatesController() {
     },
     onError: (error: Error) => toast.error(error.message),
   })
+  const items = candidates.data?.pages.flatMap((page) => page.items) ?? []
   return {
     candidates,
+    items,
+    total: candidates.data?.pages[0]?.total,
+    hasNextPage: candidates.hasNextPage,
+    isFetchingNextPage: candidates.isFetchingNextPage,
+    fetchNextPage: candidates.fetchNextPage,
     ignore: ignore.mutateAsync,
     confirm: confirm.mutateAsync,
     busyId: ignore.isPending ? ignore.variables : confirm.isPending ? confirm.variables : null,

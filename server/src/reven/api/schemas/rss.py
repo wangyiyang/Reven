@@ -85,6 +85,15 @@ class RssCandidateResponse(BaseModel):
     notion_url: str | None
 
 
+class RssCandidatePage(BaseModel):
+    """候选分页响应：服务端分页避免一次拉回全量（候选可上千条、单条含双语摘要）。"""
+
+    items: list[RssCandidateResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class InboxPushResponse(BaseModel):
     item_id: UUID
     notion_page_id: UUID

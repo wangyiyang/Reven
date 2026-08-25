@@ -1,6 +1,15 @@
 import { apiRequest, ApiError } from "@/lib/api"
 import type { RssCandidate, RssInboxPushResult, RssKeyword, RssSource } from "./types"
 
+export const CANDIDATE_PAGE_SIZE = 30
+
+export interface RssCandidatePage {
+  items: RssCandidate[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface RssSourceInput {
   name: string
   feed_url: string
@@ -38,9 +47,9 @@ export async function fetchRssKeywords(): Promise<RssKeyword[]> {
   return value
 }
 
-export async function fetchRssCandidates(): Promise<RssCandidate[]> {
-  const value = await apiRequest<unknown>("/rss/candidates")
-  if (!Array.isArray(value) || !value.every(isRssCandidate)) throw candidateInvalidResponse()
+export async function fetchRssCandidatesPage(page: number): Promise<RssCandidatePage> {
+  const value = await apiRequest<unknown>(`/rss/candidates?page=${page}&page_size=${CANDIDATE_PAGE_SIZE}`)
+  if (!isRssCandidatePage(value)) throw candidateInvalidResponse()
   return value
 }
 
@@ -102,6 +111,12 @@ function isRssKeyword(value: unknown): value is RssKeyword {
     && typeof value.enabled === "boolean"
     && typeof value.created_at === "string"
     && typeof value.updated_at === "string"
+}
+
+function isRssCandidatePage(value: unknown): value is RssCandidatePage {
+  if (!isRecord(value)) return false
+  if (!Array.isArray(value.items) || !value.items.every(isRssCandidate)) return false
+  return Number.isInteger(value.total) && Number.isInteger(value.page) && Number.isInteger(value.page_size)
 }
 
 function isRssCandidate(value: unknown): value is RssCandidate {
