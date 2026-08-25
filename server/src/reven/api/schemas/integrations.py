@@ -12,18 +12,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from reven.integrations.models import Integration
+from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
 from reven.integrations.service import public_config_without_hint, secret_hint_of
 
-PROVIDERS = (
-    "notion",
-    "github",
-    "wechat",
-    "feishu",
-    "translate_tencent",
-    "translate_baidu",
-    "translate_aliyun",
-    "embedding",
-)
+PROVIDERS = SUPPORTED_INTEGRATION_PROVIDERS
 
 _OWNER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
 _REPO_PATTERN = r"^[A-Za-z0-9._-]{1,100}$"
@@ -104,11 +96,6 @@ class EmbeddingPublicConfig(_Strict):
         return value.rstrip("/")
 
 
-class TencentTranslateSecret(_Strict):
-    secret_id: str = Field(min_length=1, max_length=256)
-    secret_key: str = Field(min_length=1, max_length=256)
-
-
 class BaiduTranslateSecret(_Strict):
     app_id: str = Field(min_length=1, max_length=256)
     app_key: str = Field(min_length=1, max_length=256)
@@ -143,11 +130,6 @@ class FeishuIntegrationPut(_Strict):
     secret: FeishuSecret | None = None
 
 
-class TencentTranslateIntegrationPut(_Strict):
-    public_config: TranslationPublicConfig
-    secret: TencentTranslateSecret | None = None
-
-
 class BaiduTranslateIntegrationPut(_Strict):
     public_config: TranslationPublicConfig
     secret: BaiduTranslateSecret | None = None
@@ -168,7 +150,6 @@ IntegrationPut = (
     | GitHubIntegrationPut
     | WeChatIntegrationPut
     | FeishuIntegrationPut
-    | TencentTranslateIntegrationPut
     | BaiduTranslateIntegrationPut
     | AliyunTranslateIntegrationPut
     | EmbeddingIntegrationPut
@@ -179,7 +160,6 @@ PUT_MODELS: dict[str, type[IntegrationPut]] = {
     "github": GitHubIntegrationPut,
     "wechat": WeChatIntegrationPut,
     "feishu": FeishuIntegrationPut,
-    "translate_tencent": TencentTranslateIntegrationPut,
     "translate_baidu": BaiduTranslateIntegrationPut,
     "translate_aliyun": AliyunTranslateIntegrationPut,
     "embedding": EmbeddingIntegrationPut,

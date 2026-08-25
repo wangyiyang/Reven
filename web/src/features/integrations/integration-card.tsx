@@ -222,7 +222,7 @@ function StatusNotices({ definition, integration }: { definition: ProviderDefini
   )
 }
 
-const RUN_HEALTH_PROVIDERS: Provider[] = ["translate_tencent", "translate_baidu", "translate_aliyun", "embedding"]
+const RUN_HEALTH_PROVIDERS: Provider[] = ["translate_baidu", "translate_aliyun", "embedding"]
 
 function RunHealthNotice({ definition, run }: { definition: ProviderDefinition; run?: RssRunHealth | null }) {
   if (!RUN_HEALTH_PROVIDERS.includes(definition.provider) || run === undefined) return null

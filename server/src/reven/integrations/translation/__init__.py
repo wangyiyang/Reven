@@ -1,4 +1,4 @@
-"""机器翻译集成：腾讯/百度/阿里三家机翻的 API 客户端与连接测试适配器。"""
+"""百度与阿里机器翻译的 API 客户端和安全错误类型。"""
 
 
 class TranslationError(Exception):
