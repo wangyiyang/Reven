@@ -36,6 +36,25 @@ class FakeStore:
 
 
 @pytest.mark.anyio
+async def test_archives_without_cover_and_rewrites_body_media() -> None:
+    """封面缺失不再阻塞归档：只归档正文媒体，发布层自行拦截缺封面。"""
+    store = FakeStore()
+    archive = ContentMediaArchive(FakeDownloader(), store)
+    markdown = "![图](https://files.notion.so/image.png?sig=secret)\n\n正文"
+
+    result = await archive.archive(
+        "11111111-1111-1111-1111-111111111111",
+        markdown,
+        None,
+    )
+
+    assert [item.kind for item in result.media] == ["图片"]
+    assert len(store.hashes) == 1
+    assert "files.notion.so" not in result.portable_markdown
+    assert "https://assets.example/" in result.portable_markdown
+
+
+@pytest.mark.anyio
 async def test_archives_cover_and_markdown_media_then_rewrites_both_snapshot_forms() -> None:
     store = FakeStore()
     archive = ContentMediaArchive(FakeDownloader(), store)

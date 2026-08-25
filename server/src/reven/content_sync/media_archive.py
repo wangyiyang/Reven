@@ -60,12 +60,15 @@ class ContentMediaArchive:
         *,
         progress: MediaProgress | None = None,
     ) -> ArchivedContent:
-        if cover is None:
-            raise ContentSyncFailure("COVER_REQUIRED", "同步需要可下载的封面", media="封面")
+        # 封面在同步期可选：缺封面只影响发布（发布校验与快照准备双层兜底），
+        # 不应阻塞内容快照本身（预览/复制 Markdown 不依赖封面）。
         manifest = discover_media(markdown)
-        requests = (_cover_request(cover), *(_media_request(item) for item in manifest))
+        requests = (
+            *([_cover_request(cover)] if cover is not None else []),
+            *(_media_request(item) for item in manifest),
+        )
         archived = await self._download_and_archive(run_id, requests, progress)
-        body_assets = archived[1:]
+        body_assets = archived[1:] if cover is not None else archived
         canonical = rewrite_media(
             markdown,
             manifest,
