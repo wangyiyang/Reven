@@ -48,6 +48,14 @@ function guidanceItems(article: ArticleDetail, job: JobDetail | null): GuidanceI
   if (article.last_error) items.push(item("稿件", article.last_error, article.validation_errors))
   if (job?.blog.error) items.push(item("个人博客", job.blog.error, []))
   if (job?.wechat.error) items.push(item("微信公众号", job.wechat.error, []))
+  // 发布前校验的阻塞项也必须出现在处理建议里（#72：不能只标红不给指引）；
+  // 与上面的错误来源按建议内容去重，同一问题只报一次
+  for (const validation of article.validation_errors) {
+    const message = validation.message ?? validation.code ?? "未知校验错误"
+    const advice = adviceFor(`${validation.code ?? ""} ${validation.field ?? ""} ${message}`)
+    if (items.some((existing) => existing.advice === advice)) continue
+    items.push({ source: "发布前校验", error: redact(message), advice })
+  }
   return items
 }
 

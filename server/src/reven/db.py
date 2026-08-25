@@ -16,7 +16,10 @@ class Base(DeclarativeBase):
 def create_session_factory(settings: Settings) -> async_sessionmaker[AsyncSession]:
     engine = create_async_engine(
         settings.database_url.get_secret_value(),
-        pool_pre_ping=True,
+        # 远端库单语句 RTT ~430ms（Supabase 新加坡节点）：pre_ping 每个请求白付一整次
+        # 往返，改用 pool_recycle 在取用前回收超龄连接，避免使用已被对端关闭的连接。
+        pool_recycle=180,
+        pool_size=5,
     )
     return async_sessionmaker(engine, expire_on_commit=False)
 
