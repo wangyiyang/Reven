@@ -23,6 +23,7 @@ from reven.jobs.runner import build_background_runner
 from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher, ConfiguredRssInboxPusher
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
+from reven.security.headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,8 @@ def create_app(
     app.add_middleware(CsrfOriginMiddleware, public_base_url=public_base_url)
     # 后加的中间件在最外层：先过认证，再做 CSRF 校验
     app.add_middleware(AuthMiddleware)
+    # 最外层统一加安全响应头（#75）：登录页与 API 全覆盖
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(auth_router)
     app.include_router(articles_router)
     app.include_router(finance_router)
