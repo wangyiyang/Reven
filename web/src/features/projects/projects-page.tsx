@@ -123,11 +123,21 @@ export function ProjectsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest(`/projects/${id}`, { method: "DELETE" }),
-    onSuccess: async () => {
-      await invalidateProjects()
-      toast.success("项目已删除")
+    onMutate: async (id: string) => {
+      // 乐观删除：远端库延迟高，先移除行再给服务端对账
+      await queryClient.cancelQueries({ queryKey: ["projects"] })
+      const previous = queryClient.getQueriesData<Project[]>({ queryKey: ["projects"] })
+      queryClient.setQueriesData<Project[]>({ queryKey: ["projects"] }, (old) => old?.filter((project) => project.id !== id))
+      return { previous }
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "删除失败"),
+    onSuccess: () => toast.success("项目已删除"),
+    onError: (error, _id, context) => {
+      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
+      toast.error(error instanceof Error ? error.message : "删除失败")
+    },
+    onSettled: async () => {
+      await invalidateProjects()
+    },
   })
 
   function updateField<K extends keyof ProjectForm>(key: K, value: ProjectForm[K]) {
