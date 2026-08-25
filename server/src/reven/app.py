@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from reven.api.routes.articles import router as articles_router
 from reven.api.routes.auth import router as auth_router
+from reven.api.routes.crm import router as crm_router
 from reven.api.routes.finance import router as finance_router
 from reven.api.routes.integrations import router as integrations_router
 from reven.api.routes.playbooks import router as playbooks_router
@@ -133,6 +134,7 @@ def create_app(
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(auth_router)
     app.include_router(articles_router)
+    app.include_router(crm_router)
     app.include_router(finance_router)
     app.include_router(integrations_router)
     app.include_router(projects_router)

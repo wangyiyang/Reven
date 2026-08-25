@@ -28,3 +28,27 @@ grilling 访谈收敛需求后经 Trellis 任务 08-19-app-login 实现：单账
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 交付一人公司 CRM MVP
+
+**Date**: 2026-08-25
+**Task**: 交付一人公司 CRM MVP
+**Package**: web
+**Branch**: `codex/crm-mvp`
+
+### Summary
+
+完成客户、联系人、跟进时间线、当前行动与到期筛选的全栈实现；新增 0013_crm 迁移、API/前端回归测试和 CRM 可执行契约。全量后端覆盖率 85.90%，前端 132 个用例通过，并完成桌面、移动端与深色模式浏览器验收。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e9b25a4` | (see git log) |
+| `abb2746` | (see git log) |
+| `bed93c9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
