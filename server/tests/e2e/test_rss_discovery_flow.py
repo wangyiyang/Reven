@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from reven.rss.discovery import FeedEntry, LocalizedEntry, RssDiscoveryService
-from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, KeywordEmbeddingService
+from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, EmbedOutcome, KeywordEmbeddingService
 from reven.rss.inbox import RssInboxService
 from reven.rss.models import RssItem, RssSource
 from reven.rss.repository import RssSettingsRepository
@@ -34,9 +34,9 @@ class Embedder:
     model = BGE_M3_MODEL
     dimension = BGE_M3_DIMENSION
 
-    async def embed(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+    async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
         vector = tuple([1.0] + [0.0] * (self.dimension - 1))
-        return tuple(vector for _text in texts)
+        return EmbedOutcome(tuple(vector for _text in texts), tuple(None for _text in texts))
 
 
 class Notifier:

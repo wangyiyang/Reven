@@ -169,6 +169,7 @@ def test_get_list_and_detail_shapes(client: TestClient) -> None:
         "connection_status",
         "last_tested_at",
         "last_error",
+        "last_latency_ms",
     }
     assert items["github"]["secret_hint"] == "已配置 · ****1234"
 
@@ -330,5 +331,51 @@ def test_connection_test_with_corrupted_secret_returns_domain_error(client: Test
         assert response.status_code == 500
         assert response.json()["code"] == "INTEGRATION_SECRET_INVALID"
         assert "ntn_0000aaaa" not in response.text
+    finally:
+        unregister_connection_test_adapter("notion")
+
+
+def test_connection_test_persists_latency_and_response_exposes_it(client: TestClient) -> None:
+    async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
+        return ConnectionTestResult(success=True, latency_ms=87)
+
+    register_connection_test_adapter("notion", ok_adapter)
+    try:
+        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+        assert client.get("/api/integrations/notion").json()["last_latency_ms"] is None
+
+        response = client.post("/api/integrations/notion/test")
+
+        assert response.status_code == 200
+        assert response.json()["last_latency_ms"] == 87
+        stored = _fetch_integration("notion")
+        assert stored is not None
+        assert stored.last_latency_ms == 87
+
+        updated = client.put("/api/integrations/notion", json=_notion_payload())
+        assert updated.json()["last_latency_ms"] is None
+    finally:
+        unregister_connection_test_adapter("notion")
+
+
+def test_connection_test_failure_clears_latency(client: TestClient) -> None:
+    async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
+        return ConnectionTestResult(success=True, latency_ms=87)
+
+    async def failing_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
+        return ConnectionTestResult(success=False, message="网络不可达")
+
+    register_connection_test_adapter("notion", ok_adapter)
+    try:
+        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+        assert client.post("/api/integrations/notion/test").json()["last_latency_ms"] == 87
+        register_connection_test_adapter("notion", failing_adapter)
+
+        response = client.post("/api/integrations/notion/test")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["connection_status"] == "连接失败"
+        assert body["last_latency_ms"] is None
     finally:
         unregister_connection_test_adapter("notion")

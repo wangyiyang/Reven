@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { apiRequest } from "@/lib/api"
 import {
   fetchIntegrations,
+  fetchLatestRssRun,
   runIntegrationAction,
   type EgressResponse,
   type IntegrationAction,
@@ -19,6 +20,11 @@ export function useIntegrationsController() {
   const egress = useQuery({
     queryKey: ["egress-ip"],
     queryFn: () => apiRequest<EgressResponse>("/system/egress-ip"),
+    enabled: integrations.isSuccess,
+  })
+  const latestRun = useQuery({
+    queryKey: ["rss-latest-run"],
+    queryFn: fetchLatestRssRun,
     enabled: integrations.isSuccess,
   })
   const mutation = useMutation({
@@ -46,6 +52,7 @@ export function useIntegrationsController() {
   return {
     integrations,
     egress,
+    latestRun,
     execute,
     isActionLocked,
     busyAction: mutation.isPending ? `${mutation.variables.provider}:${mutation.variables.action}` : undefined,
