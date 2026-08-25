@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
+import { Activity, BookOpenCheck, ChevronRight, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -31,6 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getTheme)
   const location = useLocation()
   const navRef = useRef<HTMLElement>(null)
+  const [canScrollRight, setCanScrollRight] = useState(false)
 
   // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条）
   useEffect(() => {
@@ -38,6 +39,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       ?.querySelector(".nav-link.active")
       ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
   }, [location.pathname])
+
+  // 移动端 tab 条溢出提示：还能右滑时显示渐隐 + 箭头，滑到底隐藏
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const update = () => setCanScrollRight(nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4)
+    update()
+    nav.addEventListener("scroll", update, { passive: true })
+    const observer = new ResizeObserver(update)
+    observer.observe(nav)
+    return () => {
+      nav.removeEventListener("scroll", update)
+      observer.disconnect()
+    }
+  }, [])
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
@@ -73,11 +89,23 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ))}
               </ul>
             </nav>
-            {/* 移动端右缘渐隐，提示 tab 条可横向滑动 */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[var(--panel)] to-transparent lg:hidden"
-            />
+            {/* 移动端右缘渐隐 + 箭头：仅当 tab 条还能右滑时显示，提示后面还有模块 */}
+            {canScrollRight && (
+              <>
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 right-0 w-14 bg-gradient-to-l from-[var(--panel)] via-[var(--panel)]/70 to-transparent lg:hidden"
+                />
+                <button
+                  aria-label="还有更多模块，向右滑动查看"
+                  className="absolute top-1/2 right-0.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--panel)] text-[var(--muted)] shadow-sm lg:hidden"
+                  onClick={() => navRef.current?.scrollBy({ left: 220, behavior: "smooth" })}
+                  type="button"
+                >
+                  <ChevronRight aria-hidden size={16} />
+                </button>
+              </>
+            )}
           </div>
           <div className="flex gap-2 lg:flex-col lg:gap-3">
             <button
