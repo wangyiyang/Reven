@@ -1,0 +1,10 @@
+{"file":".trellis/spec/reven-server/backend/index.md","reason":"Check server implementation against the package's full required conventions."}
+{"file":".trellis/spec/reven-server/backend/database-guidelines.md","reason":"Verify migration precision, downgrade semantics, and preservation of unrelated rows."}
+{"file":".trellis/spec/reven-server/backend/error-handling.md","reason":"Verify failure isolation, fallback, redaction, and partial-result behavior."}
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"Check cross-layer provider registry, retirement, credential, and runtime invariants."}
+{"file":".trellis/spec/reven-server/backend/quality-guidelines.md","reason":"Check backend coverage and required static validation."}
+{"file":".trellis/spec/web/frontend/index.md","reason":"Check that the CMS removal follows package conventions."}
+{"file":".trellis/spec/web/frontend/type-safety.md","reason":"Check provider exhaustiveness and unknown-row boundary behavior."}
+{"file":".trellis/spec/web/frontend/quality-guidelines.md","reason":"Check frontend tests, lint, types, and build expectations."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the provider contract consistently across migration, API, runtime, and UI."}
+{"file":".trellis/tasks/08-25-rss-machine-translation/research/provider-api-status.md","reason":"Verify limits, chunking, rate control, and Tencent-removal assumptions against research."}
