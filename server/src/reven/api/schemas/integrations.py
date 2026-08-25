@@ -6,14 +6,24 @@ material: only ``secret_configured`` and an irreversible ``secret_hint``.
 """
 
 from datetime import datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from reven.integrations.models import Integration
 from reven.integrations.service import public_config_without_hint, secret_hint_of
 
-PROVIDERS = ("notion", "github", "wechat", "feishu")
+PROVIDERS = (
+    "notion",
+    "github",
+    "wechat",
+    "feishu",
+    "translate_tencent",
+    "translate_baidu",
+    "translate_aliyun",
+    "embedding",
+)
 
 _OWNER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
 _REPO_PATTERN = r"^[A-Za-z0-9._-]{1,100}$"
@@ -64,6 +74,55 @@ class FeishuSecret(_Strict):
     signing_secret: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class TranslationPublicConfig(_Strict):
+    """机翻集成的公开配置：priority 决定故障切换顺序，enabled 控制是否参与翻译。"""
+
+    priority: int = Field(ge=1, le=99)
+    enabled: bool = True
+
+
+class EmbeddingPublicConfig(_Strict):
+    base_url: str
+    model: str = "BAAI/bge-m3"
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        localhost = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        valid_scheme = parsed.scheme == "https" or (parsed.scheme == "http" and localhost)
+        if (
+            not valid_scheme
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Embedding base_url 必须是 HTTPS origin；仅 localhost 测试可使用 HTTP")
+        return value.rstrip("/")
+
+
+class TencentTranslateSecret(_Strict):
+    secret_id: str = Field(min_length=1, max_length=256)
+    secret_key: str = Field(min_length=1, max_length=256)
+
+
+class BaiduTranslateSecret(_Strict):
+    app_id: str = Field(min_length=1, max_length=256)
+    app_key: str = Field(min_length=1, max_length=256)
+
+
+class AliyunTranslateSecret(_Strict):
+    access_key_id: str = Field(min_length=1, max_length=256)
+    access_key_secret: str = Field(min_length=1, max_length=256)
+
+
+class EmbeddingSecret(_Strict):
+    api_key: str = Field(min_length=1, max_length=256)
+
+
 class NotionIntegrationPut(_Strict):
     public_config: NotionPublicConfig
     secret: NotionSecret | None = None
@@ -84,13 +143,46 @@ class FeishuIntegrationPut(_Strict):
     secret: FeishuSecret | None = None
 
 
-IntegrationPut = NotionIntegrationPut | GitHubIntegrationPut | WeChatIntegrationPut | FeishuIntegrationPut
+class TencentTranslateIntegrationPut(_Strict):
+    public_config: TranslationPublicConfig
+    secret: TencentTranslateSecret | None = None
+
+
+class BaiduTranslateIntegrationPut(_Strict):
+    public_config: TranslationPublicConfig
+    secret: BaiduTranslateSecret | None = None
+
+
+class AliyunTranslateIntegrationPut(_Strict):
+    public_config: TranslationPublicConfig
+    secret: AliyunTranslateSecret | None = None
+
+
+class EmbeddingIntegrationPut(_Strict):
+    public_config: EmbeddingPublicConfig
+    secret: EmbeddingSecret | None = None
+
+
+IntegrationPut = (
+    NotionIntegrationPut
+    | GitHubIntegrationPut
+    | WeChatIntegrationPut
+    | FeishuIntegrationPut
+    | TencentTranslateIntegrationPut
+    | BaiduTranslateIntegrationPut
+    | AliyunTranslateIntegrationPut
+    | EmbeddingIntegrationPut
+)
 
 PUT_MODELS: dict[str, type[IntegrationPut]] = {
     "notion": NotionIntegrationPut,
     "github": GitHubIntegrationPut,
     "wechat": WeChatIntegrationPut,
     "feishu": FeishuIntegrationPut,
+    "translate_tencent": TencentTranslateIntegrationPut,
+    "translate_baidu": BaiduTranslateIntegrationPut,
+    "translate_aliyun": AliyunTranslateIntegrationPut,
+    "embedding": EmbeddingIntegrationPut,
 }
 
 
@@ -102,6 +194,7 @@ class IntegrationResponse(BaseModel):
     connection_status: str
     last_tested_at: datetime | None
     last_error: str | None
+    last_latency_ms: int | None
 
 
 class BootstrapSchemaResponse(BaseModel):
@@ -120,4 +213,5 @@ def to_response(integration: Integration) -> IntegrationResponse:
         connection_status=integration.connection_status,
         last_tested_at=integration.last_tested_at,
         last_error=integration.last_error,
+        last_latency_ms=integration.last_latency_ms,
     )

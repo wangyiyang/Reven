@@ -24,16 +24,24 @@ from reven.api.schemas.integrations import (
     to_response,
 )
 from reven.config import get_settings
+from reven.integrations.embedding.service import register_embedding_adapter
 from reven.integrations.feishu.service import register_feishu_adapter
 from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
+from reven.integrations.translation.aliyun import register_aliyun_adapter
+from reven.integrations.translation.baidu import register_baidu_adapter
+from reven.integrations.translation.tencent import register_tencent_adapter
 from reven.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
-# 显式注册 Notion 连接测试适配器，使 POST /api/integrations/notion/test 可用
+# 显式注册连接测试适配器，使 POST /api/integrations/{provider}/test 可用
 register_notion_adapter()
 register_feishu_adapter()
+register_tencent_adapter()
+register_baidu_adapter()
+register_aliyun_adapter()
+register_embedding_adapter()
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:

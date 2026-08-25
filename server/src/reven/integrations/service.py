@@ -28,6 +28,10 @@ SECRET_HINT_FIELDS = {
     "github": "token",
     "wechat": "app_secret",
     "feishu": "webhook_url",
+    "translate_tencent": "secret_key",
+    "translate_baidu": "app_key",
+    "translate_aliyun": "access_key_secret",
+    "embedding": "api_key",
 }
 
 
@@ -45,6 +49,7 @@ class IntegrationError(Exception):
 class ConnectionTestResult:
     success: bool
     message: str | None = None
+    latency_ms: int | None = None
 
 
 ConnectionTestAdapter = Callable[
@@ -128,6 +133,7 @@ class IntegrationService:
         integration.connection_status = STATUS_UNTESTED
         integration.last_tested_at = None
         integration.last_error = None
+        integration.last_latency_ms = None
         return await self.repository.save(integration)
 
     async def delete_secret(self, provider: str) -> Integration:
@@ -143,6 +149,7 @@ class IntegrationService:
         integration.connection_status = STATUS_UNTESTED
         integration.last_tested_at = None
         integration.last_error = None
+        integration.last_latency_ms = None
         return await self.repository.save(integration)
 
     async def run_connection_test(self, provider: str) -> Integration:
@@ -172,6 +179,7 @@ class IntegrationService:
             result = ConnectionTestResult(success=False, message=str(exc))
 
         integration.last_tested_at = utc_now()
+        integration.last_latency_ms = result.latency_ms
         if result.success:
             integration.connection_status = STATUS_OK
             integration.last_error = None

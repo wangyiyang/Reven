@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { delay, HttpResponse, http } from "msw"
 import { toast } from "sonner"
@@ -18,6 +18,47 @@ const configuredWechat = {
   connection_status: "连接正常",
   last_tested_at: "2026-07-30T00:01:00Z",
   last_error: null,
+  last_latency_ms: null,
+}
+
+const configuredTencent = {
+  provider: "translate_tencent",
+  public_config: { priority: 2, enabled: true },
+  secret_configured: true,
+  secret_hint: "已配置 · ****key1",
+  connection_status: "连接正常",
+  last_tested_at: "2026-08-20T00:01:00Z",
+  last_error: null,
+  last_latency_ms: 235,
+}
+
+const configuredEmbedding = {
+  provider: "embedding",
+  public_config: { base_url: "https://api.siliconflow.cn", model: "BAAI/bge-m3" },
+  secret_configured: true,
+  secret_hint: "已配置 · ****key2",
+  connection_status: "未测试",
+  last_tested_at: null,
+  last_error: null,
+  last_latency_ms: null,
+}
+
+const latestRun = {
+  run_date: "2026-08-25",
+  status: "completed",
+  started_at: "2026-08-25T00:00:00Z",
+  finished_at: "2026-08-25T00:05:00Z",
+  candidate_count: 12,
+  failure_count: 0,
+  errors: [],
+  notification_error: null,
+}
+
+async function findCard(title: string) {
+  const heading = await screen.findByRole("heading", { name: title })
+  const article = heading.closest("article")
+  if (!article) throw new Error(`找不到 ${title} 卡片`)
+  return within(article as HTMLElement)
 }
 
 function renderPage() {
@@ -83,6 +124,7 @@ describe("IntegrationsPage", () => {
       connection_status: "未测试",
       last_tested_at: null,
       last_error: null,
+      last_latency_ms: null,
     }
     server.use(http.get("/api/integrations", () => HttpResponse.json([github])))
     renderPage()
@@ -167,6 +209,7 @@ describe("IntegrationsPage", () => {
       connection_status: "未测试",
       last_tested_at: null,
       last_error: null,
+      last_latency_ms: null,
     }
     const tests: string[] = []
     server.use(
@@ -195,6 +238,7 @@ describe("IntegrationsPage", () => {
       connection_status: "未测试",
       last_tested_at: null,
       last_error: null,
+      last_latency_ms: null,
     }
     let calls = 0
     server.use(
@@ -221,6 +265,7 @@ describe("IntegrationsPage", () => {
       connection_status: "未测试",
       last_tested_at: null,
       last_error: null,
+      last_latency_ms: null,
     }
     server.use(
       http.get("/api/integrations", () => HttpResponse.json([configuredWechat, feishu])),
@@ -272,6 +317,7 @@ describe("IntegrationsPage", () => {
       connection_status: "连接正常",
       last_tested_at: null,
       last_error: null,
+      last_latency_ms: null,
     }
     let calls = 0
     server.use(
@@ -335,5 +381,164 @@ describe("IntegrationsPage", () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("集成配置响应格式无效"))
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("renders translate and embedding cards with their defaults", async () => {
+    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
+    renderPage()
+
+    const tencent = await findCard("腾讯翻译")
+    expect(screen.getByRole("heading", { name: "百度翻译" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "阿里翻译" })).toBeInTheDocument()
+    const embedding = await findCard("Embedding")
+
+    expect(tencent.getByLabelText("优先级")).toHaveValue(1)
+    expect(tencent.getByLabelText("参与故障切换")).toBeChecked()
+    expect(tencent.getByLabelText("SecretID")).toHaveValue("")
+    expect(embedding.getByLabelText("Base URL")).toHaveValue("https://api.siliconflow.cn")
+    expect(embedding.getByLabelText("模型")).toHaveValue("BAAI/bge-m3")
+  })
+
+  it("serializes translate public config with number and boolean types", async () => {
+    let requestBody: unknown
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([])),
+      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({
+          provider: "translate_tencent",
+          public_config: { priority: 3, enabled: false },
+          secret_configured: false,
+          secret_hint: null,
+          connection_status: "未测试",
+          last_tested_at: null,
+          last_error: null,
+          last_latency_ms: null,
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = await findCard("腾讯翻译")
+    const priority = card.getByLabelText("优先级")
+    await user.clear(priority)
+    await user.type(priority, "3")
+    await user.click(card.getByLabelText("参与故障切换"))
+    await user.click(card.getByRole("button", { name: "保存腾讯翻译配置" }))
+
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: { priority: 3, enabled: false },
+    }))
+  })
+
+  it("requires every secret field before replacing translate credentials", async () => {
+    let requestBody: unknown
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredTencent])),
+      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json(configuredTencent)
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = await findCard("腾讯翻译")
+    const replaceButton = card.getByRole("button", { name: "替换腾讯翻译密钥" })
+    expect(replaceButton).toBeDisabled()
+
+    await user.type(card.getByLabelText("SecretID"), "tencent-id")
+    expect(replaceButton).toBeDisabled()
+
+    await user.type(card.getByLabelText("SecretKey"), "tencent-key")
+    expect(replaceButton).toBeEnabled()
+    await user.click(replaceButton)
+
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: { priority: 2, enabled: true },
+      secret: { secret_id: "tencent-id", secret_key: "tencent-key" },
+    }))
+  })
+
+  it("keeps existing translate secrets when saving config with empty secret inputs", async () => {
+    let requestBody: unknown
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredTencent])),
+      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json(configuredTencent)
+      }),
+    )
+    renderPage()
+
+    const card = await findCard("腾讯翻译")
+    await userEvent.click(card.getByRole("button", { name: "保存腾讯翻译配置" }))
+
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: { priority: 2, enabled: true },
+    }))
+  })
+
+  it("tests an embedding provider connection", async () => {
+    const tests: string[] = []
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredEmbedding])),
+      http.post("/api/integrations/embedding/test", () => {
+        tests.push("embedding")
+        return HttpResponse.json({ ...configuredEmbedding, connection_status: "连接正常", last_latency_ms: 180 })
+      }),
+    )
+    renderPage()
+
+    const card = await findCard("Embedding")
+    await userEvent.click(card.getByRole("button", { name: "测试Embedding连接" }))
+
+    await waitFor(() => expect(tests).toEqual(["embedding"]))
+    expect(toast.success).toHaveBeenCalledWith("连接测试已完成")
+  })
+
+  it("shows the last test latency next to the test time", async () => {
+    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredTencent])))
+    renderPage()
+
+    const card = await findCard("腾讯翻译")
+    expect(card.getByText(/· 235 ms/)).toBeInTheDocument()
+  })
+
+  it("shows daily run health on translate and embedding cards", async () => {
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([])),
+      http.get("/api/rss/runs/latest", () => HttpResponse.json(latestRun)),
+    )
+    renderPage()
+
+    expect(await screen.findAllByText("最近每日任务：成功")).toHaveLength(4)
+  })
+
+  it("lists deduplicated error types when the daily run is degraded", async () => {
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([])),
+      http.get("/api/rss/runs/latest", () => HttpResponse.json({
+        ...latestRun,
+        status: "partial",
+        failure_count: 2,
+        errors: [
+          { stage: "embedding", error_type: "embedding_timeout" },
+          { stage: "translate", error_type: "translate_http_429" },
+          { stage: "embedding", error_type: "embedding_timeout" },
+        ],
+      })),
+    )
+    renderPage()
+
+    expect(await screen.findAllByText("最近每日任务：降级 · embedding_timeout、translate_http_429")).toHaveLength(4)
+  })
+
+  it("shows an empty state when no daily run has been recorded", async () => {
+    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
+    renderPage()
+
+    expect(await screen.findAllByText("最近每日任务：暂无运行记录")).toHaveLength(4)
   })
 })
