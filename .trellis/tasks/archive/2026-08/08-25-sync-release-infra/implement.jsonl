@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-25-sync-release-infra/prd.md", "reason": "Requirements and acceptance criteria"}
+{"file": ".trellis/tasks/08-25-sync-release-infra/design.md", "reason": "Deployment synchronization design"}
+{"file": ".trellis/tasks/08-25-sync-release-infra/implement.md", "reason": "Ordered implementation and validation plan"}
