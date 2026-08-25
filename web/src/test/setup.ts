@@ -11,6 +11,12 @@ beforeAll(() => {
   Element.prototype.setPointerCapture ??= () => undefined
   Element.prototype.releasePointerCapture ??= () => undefined
   Element.prototype.scrollIntoView ??= () => undefined
+  // jsdom 无 ResizeObserver：打桩为 no-op（测试用 scroll 事件驱动更新）
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
 })
 afterEach(() => {
   cleanup()

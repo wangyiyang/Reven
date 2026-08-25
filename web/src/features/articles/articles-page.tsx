@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useSearchParams } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -16,6 +16,9 @@ const PAGE_SIZE = 20
 
 export function ArticlesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  // 进入详情时携带当前列表 URL，详情「返回稿件索引」据此还原分页/筛选（#73）
+  const listContext = `${location.pathname}${location.search}`
   const filters = readFilters(searchParams)
   const queryString = buildQuery(filters)
   const articles = useQuery({
@@ -37,8 +40,8 @@ export function ArticlesPage() {
       {articles.isSuccess && articles.data.items.length === 0 && <EmptyState />}
       {articles.isSuccess && articles.data.items.length > 0 && (
         <>
-          <DesktopTable items={articles.data.items} />
-          <MobileList items={articles.data.items} />
+          <DesktopTable items={articles.data.items} listContext={listContext} />
+          <MobileList items={articles.data.items} listContext={listContext} />
           <Pagination
             page={articles.data.page}
             pageSize={articles.data.page_size}
@@ -63,25 +66,25 @@ function Header() {
   )
 }
 
-function DesktopTable({ items }: { items: ArticleSummary[] }) {
+function DesktopTable({ items, listContext }: { items: ArticleSummary[]; listContext: string }) {
   return (
     <div className="mt-6 hidden overflow-x-auto xl:block">
       <table className="w-full min-w-[1180px] border-collapse text-left text-xs">
         <thead><tr className="border-b border-[var(--line)] text-xs font-medium text-[var(--muted)]">
           {["标题", "Notion 状态", "自动化状态", "内容同步", "封面", "目标渠道", "计划时间", "博客", "微信", "成功同步"].map((title) => <th className="px-2 py-3 font-medium" key={title}>{title}</th>)}
         </tr></thead>
-        <tbody>{items.map((article) => <ArticleRow article={article} key={article.id} />)}</tbody>
+        <tbody>{items.map((article) => <ArticleRow article={article} key={article.id} listContext={listContext} />)}</tbody>
       </table>
     </div>
   )
 }
 
-function ArticleRow({ article }: { article: ArticleSummary }) {
+function ArticleRow({ article, listContext }: { article: ArticleSummary; listContext: string }) {
   return (
     <tr className="group border-b border-[var(--line)] align-top hover:bg-[var(--faint)]">
       <td className="w-[21%] px-2 py-5">
-        <Link className="text-lg font-bold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
-        <RowActions article={article} />
+        <Link className="text-lg font-bold leading-tight" state={{ from: listContext }} to={`/articles/${article.id}`}>{article.title}</Link>
+        <RowActions article={article} listContext={listContext} />
       </td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.notion_status} /></td>
       <td className="px-2 py-5"><ArticleStatus compact status={article.automation_status} /></td>
@@ -96,12 +99,12 @@ function ArticleRow({ article }: { article: ArticleSummary }) {
   )
 }
 
-function MobileList({ items }: { items: ArticleSummary[] }) {
+function MobileList({ items, listContext }: { items: ArticleSummary[]; listContext: string }) {
   return (
     <div className="mt-6 grid gap-4 xl:hidden">
       {items.map((article) => (
         <article aria-label={`${article.title}移动摘要`} className="rounded-lg border border-[var(--line)] bg-[var(--faint)] p-5" key={article.id}>
-          <Link className="text-lg font-semibold leading-tight" to={`/articles/${article.id}`}>{article.title}</Link>
+          <Link className="text-lg font-semibold leading-tight" state={{ from: listContext }} to={`/articles/${article.id}`}>{article.title}</Link>
           <div className="mt-4 flex flex-wrap gap-2"><ArticleStatus status={article.content_sync.status} /><ArticleStatus status={article.automation_status} /><ArticleStatus status={article.notion_status} /></div>
           <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
             <Meta label="渠道" value={channelLabel(article.target_channels, "、")} />
@@ -113,20 +116,20 @@ function MobileList({ items }: { items: ArticleSummary[] }) {
             <ChannelSummary label="博客" status={article.blog_status} />
             <ChannelSummary label="微信" status={article.wechat_status} />
           </div>
-          <RowActions article={article} />
+          <RowActions article={article} listContext={listContext} />
         </article>
       ))}
     </div>
   )
 }
 
-function RowActions({ article }: { article: ArticleSummary }) {
+function RowActions({ article, listContext }: { article: ArticleSummary; listContext: string }) {
   const notionUrl = safeNotionUrl(article.notion_url)
   return (
     <div className="mt-3 flex flex-wrap gap-1">
       {notionUrl && <a className="inline-flex min-h-9 items-center gap-1 px-2 text-xs hover:bg-[var(--faint)]" href={notionUrl} rel="noopener noreferrer" target="_blank">Notion <ArrowUpRight aria-hidden size={12} /></a>}
       <ContentSyncControl article={article} compact />
-      <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-[var(--faint)]" to={`/articles/${article.id}`}>任务详情</Link>
+      <Link className="inline-flex min-h-9 items-center px-2 text-xs hover:bg-[var(--faint)]" state={{ from: listContext }} to={`/articles/${article.id}`}>任务详情</Link>
     </div>
   )
 }
