@@ -121,6 +121,8 @@
 - **ART-012 畸形响应**：列表/详情/预览/动作返回非法 JSON 或缺字段时，显示本地错误，不报假成功。
 - **ART-013 陌生渠道值容错**：`target_channels` 含发布链路外的规划渠道（如「掘金」）时，列表/详情正常渲染并原样展示，不报「响应格式无效」（回归 #66）。
 - **ART-014 翻页巡检**：列表至少翻到第 2 页及末页，确认每页均正常渲染；分页器边界（首页/末页/超出页码）不报错。
+- **ART-015 详情返回上下文**：从第 2 页或筛选态进入详情，「返回稿件索引」必须还原来源 URL（含 page/query/status/channel）；直达详情时回退列表首页（回归 #73，实现为 Link state 传递 + /articles 前缀校验）。
+- **ART-016 状态一致性**：发布门禁标红（封面校验/发布前校验）时，「下一步怎么处理」必须列出对应问题与建议，不得显示「当前没有需要处理的错误」（回归 #72）。
 
 ---
 
@@ -153,6 +155,8 @@
 - **RSS-008 关键词互斥**：同一 term 不得同时存在正/反；编辑不得制造重复。
 - **RSS-009 非法配置**：非法 URL、空 term、错误 kind 均被拒并保留输入。
 - **RSS-010 重建 embedding**：显式触发；返回重建结果；失败不脱敏泄露。
+- **RSS-011 语义分降级排查**：候选「正向/反向语义 0.000」= 该批次 embedding degraded。查库：`SELECT embedding_status, count(*) FROM rss_items GROUP BY 1`；degraded 时看 `screening_error`（EmbeddingError=限流/网络，RuntimeError=未配 key）。根因常是 SiliconFlow 余额/RPM——`GET /v1/user/info` 看 balance。修复方向见 issue #77（退避重试 + 回填）。
+- **RSS-012 候选分页性能**：`/api/rss/candidates` 必须分页返回（page/page_size/total）。回归基线：page=1 应在 ~2s 内返回 30 条（远端 Supabase RTT 约 430ms/语句）；若一次返回全量（>5MB）即退化。
 
 ---
 
@@ -285,6 +289,7 @@
 ### 用例
 - **JOB-001 状态可见**：等待/处理中/成功/失败/阻塞/取消在 UI 有一致映射。
 - **JOB-002 失败恢复建议**：封面缺失、微信白名单、GitHub 构建、Notion 字段分别给出对应建议。
+- **JOB-005 同步链路依赖面**：内容同步依次依赖 Notion 可读 → 封面（仅发布期强校验，#68 起同步期容忍）→ **腾讯 COS 归档**（缺 `COS_BUCKET/COS_REGION/COS_SECRET_ID/COS_SECRET_KEY/COS_PUBLIC_BASE_URL` 任一即 `COS_NOT_CONFIGURED` 硬失败）。巡检到同步失败先按此链分诊；`content_sync_runs.error_code` 精确定位断点。
 - **JOB-003 重试幂等**：重复点击不产生重复成功 toast；服务端 revision 只增加一次。
 - **JOB-004 错误脱敏**：日志/toast/页面不出现 token、密钥、数据库连接串。
 
@@ -299,6 +304,8 @@
 - **SEC-005 401 跳转**：非 auth API 401 统一跳登录；auth API 401 不循环跳转。
 - **SEC-006 限流**：登录连续失败触发 429；恢复后可登录。
 - **SEC-007 输入校验**：所有表单服务端再校验；前端禁用不等于安全。
+- **SEC-008 安全响应头**：登录页与 API 响应均携带 HSTS / CSP / nosniff / Referrer-Policy / X-Frame-Options。注意静态页由 Caddy 直出（不经 uvicorn），两头都要查：`curl -sI <url>` 看 `server: Caddy`（无 via）vs `via: 1.1 Caddy`。
+- **SEC-009 静态缓存策略**：`/assets/*` 指纹文件应 `immutable`；SPA 入口 HTML 必须 `no-cache`。发版后开新页（勿强刷，模拟真实用户）核对 `document.querySelector('script[src]')` 的 hash 是否已切换——2026-08-25 实测旧 tab 会卡在旧 bundle。
 
 ---
 
