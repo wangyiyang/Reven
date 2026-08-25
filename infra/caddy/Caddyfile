@@ -13,7 +13,16 @@ dev.wangyiyang.cc {
 		reverse_proxy reven:8000
 	}
 
+	# 指纹资产长缓存；HTML/SPA 入口 no-cache——否则部署后浏览器继续跑旧 bundle
+	#（2026-08-25 实测：发版后页面仍加载旧 index-*.js，需强刷才拿到新包）
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv/reven/current
+		file_server
+	}
+
 	handle {
+		header Cache-Control "no-cache"
 		root * /srv/reven/current
 		try_files {path} /index.html
 		file_server
