@@ -1,0 +1,127 @@
+"""Persistence queries for CRM customers, contacts, and follow-ups."""
+
+from datetime import date
+from uuid import UUID
+
+from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from reven.crm.models import Contact, Customer, FollowUp
+from reven.scheduling import utc_now
+
+
+class CrmRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_customers(
+        self,
+        *,
+        status: str | None,
+        due: str | None,
+        query: str | None,
+        today: date,
+    ) -> list[Customer]:
+        statement = select(Customer)
+        if status:
+            statement = statement.where(Customer.status == status)
+        statement = self._filter_due(statement, due, today)
+        if query:
+            statement = statement.where(self._customer_search(query))
+        statement = statement.order_by(
+            Customer.next_follow_up_on.is_(None),
+            Customer.next_follow_up_on,
+            Customer.updated_at.desc(),
+            func.lower(Customer.name),
+        )
+        return list((await self.session.scalars(statement)).all())
+
+    @staticmethod
+    def _filter_due(statement, due: str | None, today: date):  # type: ignore[no-untyped-def]
+        if due == "overdue":
+            return statement.where(Customer.next_follow_up_on < today)
+        if due == "today":
+            return statement.where(Customer.next_follow_up_on == today)
+        if due == "upcoming":
+            return statement.where(Customer.next_follow_up_on > today)
+        if due == "none":
+            return statement.where(Customer.next_follow_up_on.is_(None))
+        return statement
+
+    @staticmethod
+    def _customer_search(query: str):  # type: ignore[no-untyped-def]
+        pattern = f"%{query}%"
+        contact_match = exists(
+            select(Contact.id).where(
+                Contact.customer_id == Customer.id,
+                or_(
+                    Contact.name.ilike(pattern),
+                    Contact.phone.ilike(pattern),
+                    Contact.email.ilike(pattern),
+                    Contact.wechat.ilike(pattern),
+                ),
+            )
+        )
+        return or_(
+            Customer.name.ilike(pattern),
+            Customer.source.ilike(pattern),
+            Customer.notes.ilike(pattern),
+            contact_match,
+        )
+
+    async def get_customer(self, customer_id: UUID) -> Customer | None:
+        return await self.session.get(Customer, customer_id)
+
+    async def add_customer(self, values: dict[str, object]) -> Customer:
+        customer = Customer(**values)
+        self.session.add(customer)
+        await self.session.flush()
+        return customer
+
+    async def list_contacts(self, customer_id: UUID) -> list[Contact]:
+        statement = (
+            select(Contact)
+            .where(Contact.customer_id == customer_id)
+            .order_by(Contact.is_primary.desc(), func.lower(Contact.name), Contact.created_at)
+        )
+        return list((await self.session.scalars(statement)).all())
+
+    async def get_contact(self, customer_id: UUID, contact_id: UUID) -> Contact | None:
+        statement = select(Contact).where(Contact.id == contact_id, Contact.customer_id == customer_id)
+        result = await self.session.scalars(statement)
+        return result.one_or_none()
+
+    async def clear_primary_contact(self, customer_id: UUID) -> None:
+        await self.session.execute(
+            update(Contact)
+            .where(Contact.customer_id == customer_id, Contact.is_primary.is_(True))
+            .values(is_primary=False, updated_at=utc_now())
+        )
+
+    async def add_contact(self, customer_id: UUID, values: dict[str, object]) -> Contact:
+        contact = Contact(customer_id=customer_id, **values)
+        self.session.add(contact)
+        await self.session.flush()
+        return contact
+
+    async def list_follow_ups(self, customer_id: UUID) -> list[FollowUp]:
+        statement = (
+            select(FollowUp)
+            .where(FollowUp.customer_id == customer_id)
+            .order_by(FollowUp.occurred_on.desc(), FollowUp.created_at.desc())
+        )
+        return list((await self.session.scalars(statement)).all())
+
+    async def get_follow_up(self, customer_id: UUID, follow_up_id: UUID) -> FollowUp | None:
+        statement = select(FollowUp).where(
+            FollowUp.id == follow_up_id,
+            FollowUp.customer_id == customer_id,
+        )
+        result = await self.session.scalars(statement)
+        return result.one_or_none()
+
+    async def add_follow_up(self, customer_id: UUID, values: dict[str, object]) -> FollowUp:
+        follow_up = FollowUp(customer_id=customer_id, **values)
+        self.session.add(follow_up)
+        await self.session.flush()
+        return follow_up

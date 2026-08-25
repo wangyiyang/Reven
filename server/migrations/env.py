@@ -7,6 +7,7 @@ from logging.config import fileConfig
 from alembic import context
 from reven.articles.models import Article  # noqa: F401
 from reven.content_sync.models import ContentSnapshot, ContentSyncRun, SnapshotAsset  # noqa: F401
+from reven.crm.models import Contact, Customer, FollowUp  # noqa: F401
 from reven.db import Base
 from reven.finance.models import FinanceEntry  # noqa: F401
 from reven.integrations.models import Integration  # noqa: F401
