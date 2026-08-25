@@ -109,11 +109,21 @@ export function PlaybooksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest(`/playbooks/${id}`, { method: "DELETE" }),
-    onSuccess: async () => {
-      await invalidatePlaybooks()
-      toast.success("Playbook 已删除")
+    onMutate: async (id: string) => {
+      // 乐观删除：远端库延迟高，先移除行再给服务端对账
+      await queryClient.cancelQueries({ queryKey: ["playbooks"] })
+      const previous = queryClient.getQueriesData<Playbook[]>({ queryKey: ["playbooks"] })
+      queryClient.setQueriesData<Playbook[]>({ queryKey: ["playbooks"] }, (old) => old?.filter((playbook) => playbook.id !== id))
+      return { previous }
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "删除失败"),
+    onSuccess: () => toast.success("Playbook 已删除"),
+    onError: (error, _id, context) => {
+      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
+      toast.error(error instanceof Error ? error.message : "删除失败")
+    },
+    onSettled: async () => {
+      await invalidatePlaybooks()
+    },
   })
 
   function updateField<K extends keyof PlaybookForm>(key: K, value: PlaybookForm[K]) {
