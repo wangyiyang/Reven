@@ -108,6 +108,22 @@ describe("ArticleDetailPage", () => {
     expect(screen.getByText("在 Notion 补充封面图片并重新同步，然后重试失败渠道。")).toBeInTheDocument()
   })
 
+  it("back link restores list pagination/filter context carried via router state (#73)", async () => {
+    useDetailHandlers()
+    renderPage({ pathname: `/articles/${id}`, state: { from: "/articles?page=3&query=LangChain" } })
+
+    await screen.findByRole("heading", { name: "测试稿件" })
+    expect(screen.getByRole("link", { name: "返回稿件索引" })).toHaveAttribute("href", "/articles?page=3&query=LangChain")
+  })
+
+  it("back link falls back to list home on direct visit or foreign state (#73)", async () => {
+    useDetailHandlers()
+    renderPage({ pathname: `/articles/${id}`, state: { from: "https://evil.example/phish" } })
+
+    await screen.findByRole("heading", { name: "测试稿件" })
+    expect(screen.getByRole("link", { name: "返回稿件索引" })).toHaveAttribute("href", "/articles")
+  })
+
   it("renders returned HTML only in a fully sandboxed iframe", async () => {
     useDetailHandlers()
     renderPage()
@@ -373,11 +389,11 @@ function useDetailHandlers(options: {
   )
 }
 
-function renderPage() {
+function renderPage(entry?: { pathname: string; state?: unknown }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[`/articles/${id}`]}>
+      <MemoryRouter initialEntries={[entry ?? `/articles/${id}`]}>
         <Routes><Route element={<ArticleDetailPage />} path="/articles/:articleId" /></Routes>
       </MemoryRouter>
     </QueryClientProvider>,
