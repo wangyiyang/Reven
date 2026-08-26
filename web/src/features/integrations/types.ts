@@ -1,6 +1,6 @@
 export type Provider =
   | "notion" | "github" | "wechat" | "feishu"
-  | "translate_tencent" | "translate_baidu" | "translate_aliyun" | "embedding"
+  | "translate_baidu" | "translate_aliyun" | "embedding"
 
 export interface Integration {
   provider: Provider
@@ -81,23 +81,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     secretFields: [{ key: "webhook_url", label: "Webhook", type: "password", placeholder: "输入新 Webhook URL" }],
   },
   {
-    provider: "translate_tencent",
-    number: "05",
-    title: "腾讯翻译",
-    eyebrow: "机器翻译",
-    description: "专业机翻引擎，按优先级参与故障切换。",
-    publicFields: [
-      { key: "priority", label: "优先级", type: "number", defaultValue: "1" },
-      { key: "enabled", label: "参与故障切换", type: "checkbox", defaultValue: "true" },
-    ],
-    secretFields: [
-      { key: "secret_id", label: "SecretID", placeholder: "输入 SecretID" },
-      { key: "secret_key", label: "SecretKey", type: "password", placeholder: "输入 SecretKey" },
-    ],
-  },
-  {
     provider: "translate_baidu",
-    number: "06",
+    number: "05",
     title: "百度翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -112,7 +97,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_aliyun",
-    number: "07",
+    number: "06",
     title: "阿里翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -127,7 +112,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "embedding",
-    number: "08",
+    number: "07",
     title: "Embedding",
     eyebrow: "语义向量",
     description: "候选语义打分使用的向量服务，默认 SiliconFlow bge-m3，兼容 OpenAI 端点。",

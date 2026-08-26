@@ -15,6 +15,7 @@ from reven.integrations.notion.client import NotionClient
 from reven.integrations.notion.configuration import IntegrationConfigurationError, load_notion_inbox_config
 from reven.integrations.notion.models import NotionError
 from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
+from reven.integrations.translation.configuration import load_translation_configs
 from reven.publishing.notifications import DeliveryNotifier
 from reven.rss.ai import SiliconFlowChatClient
 from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, RssDiscoveryService
@@ -33,6 +34,7 @@ from reven.rss.models import RssDiscoveryRun
 from reven.rss.scheduler import RssScheduleTick
 from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
+from reven.rss.translation import configured_translation_localizer
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn"
 SILICONFLOW_TIMEOUT = httpx.Timeout(45.0)
@@ -109,40 +111,43 @@ class ConfiguredRssDiscoveryTick:
             else None
         )
         embedding_config = await load_embedding_config(self._factory)
+        translation_configs = await load_translation_configs(self._factory)
         async with httpx.AsyncClient(
             base_url=SILICONFLOW_BASE_URL,
             timeout=SILICONFLOW_TIMEOUT,
             trust_env=False,
         ) as chat_http:
-            localizer: EntryLocalizer
+            fallback: EntryLocalizer
             judge: BoundaryJudge | None
             if api_key is None:
-                localizer = _UnavailableSiliconFlow()
+                fallback = _UnavailableSiliconFlow()
                 judge = None
             else:
-                localizer = SiliconFlowChatClient(
+                chat = SiliconFlowChatClient(
                     api_key,
                     model=self._settings.siliconflow_chat_model,
                     http=chat_http,
                 )
-                judge = localizer if self._settings.rss_model_review_enabled else None
-            async with configured_embedder(embedding_config) as embedder:
-                embeddings = KeywordEmbeddingService(self._factory, embedder)
-                screening = RssScreeningService(
-                    self._factory,
-                    embeddings,
-                    RssScreeningEngine(judge=judge),
-                )
-                discovery = RssDiscoveryService(
-                    self._factory,
-                    SecureFeedReader(),
-                    localizer,
-                    self._notifier,
-                    screener=screening,
-                    candidate_url=f"{self._settings.public_base_url}/rss/candidates",
-                )
-                result = await discovery.run(run_date)
-                await self._backfill_degraded(screening, result.run_id)
+                fallback = chat
+                judge = chat if self._settings.rss_model_review_enabled else None
+            async with configured_translation_localizer(translation_configs, fallback) as localizer:
+                async with configured_embedder(embedding_config) as embedder:
+                    embeddings = KeywordEmbeddingService(self._factory, embedder)
+                    screening = RssScreeningService(
+                        self._factory,
+                        embeddings,
+                        RssScreeningEngine(judge=judge),
+                    )
+                    discovery = RssDiscoveryService(
+                        self._factory,
+                        SecureFeedReader(),
+                        localizer,
+                        self._notifier,
+                        screener=screening,
+                        candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                    )
+                    result = await discovery.run(run_date)
+                    await self._backfill_degraded(screening, result.run_id)
         await self._remember_completion(run_date)
         return result
 

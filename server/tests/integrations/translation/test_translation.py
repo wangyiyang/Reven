@@ -1,5 +1,4 @@
 import hashlib
-import json
 from urllib.parse import parse_qsl
 
 import httpx
@@ -10,8 +9,6 @@ from reven.integrations.translation.aliyun import AliyunTranslateClient
 from reven.integrations.translation.aliyun import test_aliyun_translation as aliyun_adapter
 from reven.integrations.translation.baidu import BaiduTranslateClient
 from reven.integrations.translation.baidu import test_baidu_translation as baidu_adapter
-from reven.integrations.translation.tencent import TencentTranslateClient
-from reven.integrations.translation.tencent import test_tencent_translation as tencent_adapter
 
 
 @pytest.mark.anyio
@@ -91,45 +88,7 @@ async def test_aliyun_client_raises_on_http_error() -> None:
 
 
 @pytest.mark.anyio
-async def test_tencent_client_returns_translation() -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
-        payload = json.loads(request.content)
-        assert payload == {"SourceText": "hello", "Source": "en", "Target": "zh", "ProjectId": 0}
-        assert request.headers["x-tc-action"] == "TextTranslate"
-        assert "TC3-HMAC-SHA256" in request.headers["authorization"]
-        return httpx.Response(200, json={"Response": {"TargetText": "你好", "RequestId": "req"}})
-
-    async with httpx.AsyncClient(
-        base_url="https://tmt.tencentcloudapi.com",
-        transport=httpx.MockTransport(handler),
-    ) as http:
-        assert await TencentTranslateClient("AKIDexample", "key", http=http).translate("hello") == "你好"
-
-
-@pytest.mark.anyio
-async def test_tencent_client_raises_on_business_error() -> None:
-    body = {"Response": {"Error": {"Code": "AuthFailure.SecretIdNotFound", "Message": "bad"}, "RequestId": "req"}}
-    async with httpx.AsyncClient(
-        base_url="https://tmt.tencentcloudapi.com",
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body)),
-    ) as http:
-        with pytest.raises(TranslationError, match="AuthFailure.SecretIdNotFound"):
-            await TencentTranslateClient("AKIDexample", "key", http=http).translate("hello")
-
-
-@pytest.mark.anyio
-async def test_tencent_client_raises_on_http_error() -> None:
-    async with httpx.AsyncClient(
-        base_url="https://tmt.tencentcloudapi.com",
-        transport=httpx.MockTransport(lambda request: httpx.Response(502)),
-    ) as http:
-        with pytest.raises(TranslationError, match="HTTP 502"):
-            await TencentTranslateClient("AKIDexample", "key", http=http).translate("hello")
-
-
-@pytest.mark.anyio
 async def test_adapters_report_missing_secrets() -> None:
-    assert (await tencent_adapter({}, None)).success is False
     assert (await baidu_adapter({}, None)).message == "百度翻译 Secret 尚未配置"
     result = await aliyun_adapter({}, {"access_key_id": "only-id"})
     assert result.success is False

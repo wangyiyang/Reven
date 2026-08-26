@@ -21,8 +21,8 @@ const configuredWechat = {
   last_latency_ms: null,
 }
 
-const configuredTencent = {
-  provider: "translate_tencent",
+const configuredBaidu = {
+  provider: "translate_baidu",
   public_config: { priority: 2, enabled: true },
   secret_configured: true,
   secret_hint: "已配置 · ****key1",
@@ -387,14 +387,14 @@ describe("IntegrationsPage", () => {
     server.use(http.get("/api/integrations", () => HttpResponse.json([])))
     renderPage()
 
-    const tencent = await findCard("腾讯翻译")
-    expect(screen.getByRole("heading", { name: "百度翻译" })).toBeInTheDocument()
+    const baidu = await findCard("百度翻译")
     expect(screen.getByRole("heading", { name: "阿里翻译" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "腾讯翻译" })).not.toBeInTheDocument()
     const embedding = await findCard("Embedding")
 
-    expect(tencent.getByLabelText("优先级")).toHaveValue(1)
-    expect(tencent.getByLabelText("参与故障切换")).toBeChecked()
-    expect(tencent.getByLabelText("SecretID")).toHaveValue("")
+    expect(baidu.getByLabelText("优先级")).toHaveValue(1)
+    expect(baidu.getByLabelText("参与故障切换")).toBeChecked()
+    expect(baidu.getByLabelText("AppID")).toHaveValue("")
     expect(embedding.getByLabelText("Base URL")).toHaveValue("https://api.siliconflow.cn")
     expect(embedding.getByLabelText("模型")).toHaveValue("BAAI/bge-m3")
   })
@@ -403,10 +403,10 @@ describe("IntegrationsPage", () => {
     let requestBody: unknown
     server.use(
       http.get("/api/integrations", () => HttpResponse.json([])),
-      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+      http.put("/api/integrations/translate_baidu", async ({ request }) => {
         requestBody = await request.json()
         return HttpResponse.json({
-          provider: "translate_tencent",
+          provider: "translate_baidu",
           public_config: { priority: 3, enabled: false },
           secret_configured: false,
           secret_hint: null,
@@ -420,12 +420,12 @@ describe("IntegrationsPage", () => {
     const user = userEvent.setup()
     renderPage()
 
-    const card = await findCard("腾讯翻译")
+    const card = await findCard("百度翻译")
     const priority = card.getByLabelText("优先级")
     await user.clear(priority)
     await user.type(priority, "3")
     await user.click(card.getByLabelText("参与故障切换"))
-    await user.click(card.getByRole("button", { name: "保存腾讯翻译配置" }))
+    await user.click(card.getByRole("button", { name: "保存百度翻译配置" }))
 
     await waitFor(() => expect(requestBody).toEqual({
       public_config: { priority: 3, enabled: false },
@@ -435,45 +435,45 @@ describe("IntegrationsPage", () => {
   it("requires every secret field before replacing translate credentials", async () => {
     let requestBody: unknown
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredTencent])),
-      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])),
+      http.put("/api/integrations/translate_baidu", async ({ request }) => {
         requestBody = await request.json()
-        return HttpResponse.json(configuredTencent)
+        return HttpResponse.json(configuredBaidu)
       }),
     )
     const user = userEvent.setup()
     renderPage()
 
-    const card = await findCard("腾讯翻译")
-    const replaceButton = card.getByRole("button", { name: "替换腾讯翻译密钥" })
+    const card = await findCard("百度翻译")
+    const replaceButton = card.getByRole("button", { name: "替换百度翻译密钥" })
     expect(replaceButton).toBeDisabled()
 
-    await user.type(card.getByLabelText("SecretID"), "tencent-id")
+    await user.type(card.getByLabelText("AppID"), "baidu-id")
     expect(replaceButton).toBeDisabled()
 
-    await user.type(card.getByLabelText("SecretKey"), "tencent-key")
+    await user.type(card.getByLabelText("密钥"), "baidu-key")
     expect(replaceButton).toBeEnabled()
     await user.click(replaceButton)
 
     await waitFor(() => expect(requestBody).toEqual({
       public_config: { priority: 2, enabled: true },
-      secret: { secret_id: "tencent-id", secret_key: "tencent-key" },
+      secret: { app_id: "baidu-id", app_key: "baidu-key" },
     }))
   })
 
   it("keeps existing translate secrets when saving config with empty secret inputs", async () => {
     let requestBody: unknown
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredTencent])),
-      http.put("/api/integrations/translate_tencent", async ({ request }) => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])),
+      http.put("/api/integrations/translate_baidu", async ({ request }) => {
         requestBody = await request.json()
-        return HttpResponse.json(configuredTencent)
+        return HttpResponse.json(configuredBaidu)
       }),
     )
     renderPage()
 
-    const card = await findCard("腾讯翻译")
-    await userEvent.click(card.getByRole("button", { name: "保存腾讯翻译配置" }))
+    const card = await findCard("百度翻译")
+    await userEvent.click(card.getByRole("button", { name: "保存百度翻译配置" }))
 
     await waitFor(() => expect(requestBody).toEqual({
       public_config: { priority: 2, enabled: true },
@@ -499,10 +499,10 @@ describe("IntegrationsPage", () => {
   })
 
   it("shows the last test latency next to the test time", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredTencent])))
+    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])))
     renderPage()
 
-    const card = await findCard("腾讯翻译")
+    const card = await findCard("百度翻译")
     expect(card.getByText(/· 235 ms/)).toBeInTheDocument()
   })
 
@@ -513,7 +513,7 @@ describe("IntegrationsPage", () => {
     )
     renderPage()
 
-    expect(await screen.findAllByText("最近每日任务：成功")).toHaveLength(4)
+    expect(await screen.findAllByText("最近每日任务：成功")).toHaveLength(3)
   })
 
   it("lists deduplicated error types when the daily run is degraded", async () => {
@@ -532,13 +532,13 @@ describe("IntegrationsPage", () => {
     )
     renderPage()
 
-    expect(await screen.findAllByText("最近每日任务：降级 · embedding_timeout、translate_http_429")).toHaveLength(4)
+    expect(await screen.findAllByText("最近每日任务：降级 · embedding_timeout、translate_http_429")).toHaveLength(3)
   })
 
   it("shows an empty state when no daily run has been recorded", async () => {
     server.use(http.get("/api/integrations", () => HttpResponse.json([])))
     renderPage()
 
-    expect(await screen.findAllByText("最近每日任务：暂无运行记录")).toHaveLength(4)
+    expect(await screen.findAllByText("最近每日任务：暂无运行记录")).toHaveLength(3)
   })
 })

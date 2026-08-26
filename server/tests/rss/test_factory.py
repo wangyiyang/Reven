@@ -2,7 +2,8 @@
 
 import base64
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime
+from urllib.parse import parse_qsl
 from uuid import uuid4
 
 import httpx
@@ -11,16 +12,19 @@ import respx
 from reven.config import get_settings
 from reven.integrations.embedding.configuration import EmbeddingConfig
 from reven.integrations.models import Integration
+from reven.rss.discovery import FeedEntry
 from reven.rss.embedding import BGE_M3_MODEL, EmbeddingError, SiliconFlowEmbeddingClient
 from reven.rss.factory import (
     ConfiguredKeywordEmbeddingRefresher,
+    ConfiguredRssDiscoveryTick,
     _UnavailableSiliconFlow,
     configured_embedder,
     record_backfill_error,
 )
-from reven.rss.models import RssDiscoveryRun
+from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.repository import RssSettingsRepository
 from reven.security.secrets import SecretBox
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -113,3 +117,68 @@ async def test_refresher_uses_db_config(db_session: AsyncSession, settings_env: 
 
     assert await ConfiguredKeywordEmbeddingRefresher(factory).refresh() == 1
     assert route.calls[0].request.headers["authorization"] == "Bearer sk-db"
+
+
+class _SingleEntryFeedReader:
+    async def fetch(self, source: RssSource) -> tuple[FeedEntry, ...]:
+        del source
+        return (
+            FeedEntry(
+                guid="factory-translation",
+                url="https://example.com/factory-translation",
+                title="Agent systems",
+                summary="",
+                published_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+
+
+class _RecordingNotifier:
+    def __init__(self) -> None:
+        self.notifications: list[object] = []
+
+    async def send(self, notification: object) -> None:
+        self.notifications.append(notification)
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_discovery_tick_uses_db_translation_without_qwen(
+    db_session: AsyncSession,
+    settings_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.add_all(
+        [
+            RssSource(name="Example", feed_url="https://example.com/feed.xml", enabled=True),
+            Integration(
+                provider="translate_baidu",
+                public_config={"priority": 1, "enabled": True},
+                encrypted_secret=SecretBox.from_base64(TEST_MASTER_KEY).encrypt(
+                    {"app_id": "baidu-app-id", "app_key": "baidu-app-key"}
+                ),
+            ),
+        ]
+    )
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    monkeypatch.setattr("reven.rss.factory.SecureFeedReader", _SingleEntryFeedReader)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(parse_qsl(request.url.query.decode()))
+        assert params["q"] == "Agent systems"
+        assert params["from"] == "auto"
+        return httpx.Response(200, json={"trans_result": [{"src": "Agent systems", "dst": "智能体系统"}]})
+
+    route = respx.get("https://fanyi-api.baidu.com/api/trans/vip/translate").mock(side_effect=handler)
+    notifier = _RecordingNotifier()
+
+    await ConfiguredRssDiscoveryTick(factory, get_settings(), notifier).run(date(2026, 8, 25))
+
+    async with factory() as session:
+        item = await session.scalar(select(RssItem))
+    assert item is not None
+    assert item.title_zh == "智能体系统"
+    assert item.summary_zh == ""
+    assert route.call_count == 1
+    assert len(notifier.notifications) == 1

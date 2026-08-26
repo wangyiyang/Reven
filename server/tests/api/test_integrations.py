@@ -52,6 +52,25 @@ def _corrupt_encrypted_secret(provider: str) -> None:
     asyncio.run(_update())
 
 
+def _insert_legacy_integration(provider: str, encrypted_secret: str) -> None:
+    async def _insert() -> None:
+        engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory.begin() as session:
+                session.add(
+                    Integration(
+                        provider=provider,
+                        public_config={"legacy_marker": "must-not-leak"},
+                        encrypted_secret=encrypted_secret,
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_insert())
+
+
 def test_short_secret_hint_does_not_leak_plaintext(client: TestClient) -> None:
     response = client.put("/api/integrations/notion", json=_notion_payload("ab"))
 
@@ -178,6 +197,20 @@ def test_get_list_and_detail_shapes(client: TestClient) -> None:
     assert detail_response.json() == notion
     assert "ntn_0000aaaa" not in list_response.text
     assert "github-token-1234" not in list_response.text
+
+
+def test_list_filters_unsupported_legacy_provider(client: TestClient) -> None:
+    configured = client.put("/api/integrations/notion", json=_notion_payload("notion-secret"))
+    assert configured.status_code == 200
+    _insert_legacy_integration("translate_tencent", "legacy-ciphertext-must-not-leak")
+
+    response = client.get("/api/integrations")
+
+    assert response.status_code == 200
+    assert [item["provider"] for item in response.json()] == ["notion"]
+    assert "translate_tencent" not in response.text
+    assert "legacy-ciphertext-must-not-leak" not in response.text
+    assert "notion-secret" not in response.text
 
 
 def test_get_missing_integration_returns_404(client: TestClient) -> None:

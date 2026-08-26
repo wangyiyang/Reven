@@ -30,7 +30,6 @@ from reven.integrations.notion.service import bootstrap_notion_schema, register_
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import register_aliyun_adapter
 from reven.integrations.translation.baidu import register_baidu_adapter
-from reven.integrations.translation.tencent import register_tencent_adapter
 from reven.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
@@ -38,7 +37,6 @@ router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 # 显式注册连接测试适配器，使 POST /api/integrations/{provider}/test 可用
 register_notion_adapter()
 register_feishu_adapter()
-register_tencent_adapter()
 register_baidu_adapter()
 register_aliyun_adapter()
 register_embedding_adapter()
@@ -95,7 +93,7 @@ async def _parse_put_body(provider: str, request: Request) -> IntegrationPut:
 async def list_integrations(session: SessionDep) -> list[IntegrationResponse]:
     service = IntegrationService(session, _secret_box())
     integrations = await service.list_integrations()
-    return [to_response(integration) for integration in integrations]
+    return [to_response(integration) for integration in integrations if integration.provider in PROVIDERS]
 
 
 @router.get("/{provider}", response_model=IntegrationResponse)
