@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [CRM Aggregate Contract](./crm-contract.md) | Customer/contact/follow-up API and persistence invariants | Active |
+| [Talents Aggregate Contract](./talents-contract.md) | Talent/interaction API and persistence invariants | Active |
 
 ---
 

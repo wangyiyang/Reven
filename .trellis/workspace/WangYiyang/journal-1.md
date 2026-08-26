@@ -52,3 +52,25 @@ grilling 访谈收敛需求后经 Trellis 任务 08-19-app-login 实现：单账
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: 人才库（Talents）模块 MVP 落地
+
+**Date**: 2026-08-26
+**Task**: 人才库（Talents）模块 MVP 落地
+**Package**: web
+**Branch**: `main`
+
+### Summary
+
+从 git pull 冲突切入：本地未提交的旧 CRM/talents/reminders 实现与远端 #84 冲突，备份到 ~/Reven-local-backup-20260826 后放弃本地、对齐远端。随后立项 08-26-talents-mvp，经 grilling 确认设计（B 类自由职业者对接为骨架 + C 类跟进机制；tags/费率/评分结构化；砍 domain 与 Notion 耦合；不做提醒模块），按 CRM #84 风格实现后端 + Web 前端并通过质检（修复 tags 显式 null 穿透 500 问题）。沉淀 talents-contract.md 规范。pytest 660 过、pnpm test 154 过、mypy/ruff/build 全绿。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e368e38` | (see git log) |
+
+### Status
+
+[OK] **Completed**

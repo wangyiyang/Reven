@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 ROOT = Path(__file__).parents[3]
 MERGE_REVISION = "0014_merge_crm_and_integration"
-FINAL_REVISION = "0015_remove_tencent_translation"
+TALENTS_REVISION = "0015_talents"
+REMOVE_TENCENT_REVISION = "0015_remove_tencent_translation"
+FINAL_REVISION = "0016_merge_talents_tencent"
 
 
 def _alembic_config(database_url: str | None = None) -> Config:
@@ -44,7 +46,7 @@ def test_migration_graph_has_one_head() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
 
     assert script.get_heads() == [FINAL_REVISION]
-    assert script.get_revision(FINAL_REVISION).down_revision == MERGE_REVISION
+    assert script.get_revision(FINAL_REVISION).down_revision == (TALENTS_REVISION, REMOVE_TENCENT_REVISION)
 
 
 @pytest.mark.parametrize("starting_revision", ["0013_crm", "0013_integration_last_latency_ms"])
