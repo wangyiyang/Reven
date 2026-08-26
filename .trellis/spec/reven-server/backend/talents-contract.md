@@ -39,7 +39,10 @@ exactly `面谈`, `电话语音`, `微信`, and `邮件`. `rate_unit` is exactly
 
 `due` accepts `overdue`, `today`, `upcoming`, or `none`; it compares the
 talent's earliest `next_due_on` across all interactions against the
-Asia/Shanghai calendar date. `q` matches name/organization with ilike
+Asia/Shanghai calendar date. As in the CRM contract, "today" must come from
+`reven.scheduling.SHANGHAI` in both route and test code; `date.today()`
+follows the runner's local timezone and flakes in CI when UTC and Shanghai
+straddle midnight. `q` matches name/organization with ilike
 (`\`, `%`, `_` escaped). `tag` is an exact single-tag match against the
 JSONB array; tags are free-form strings with no backend normalization —
 consistency is a frontend autocomplete concern only.
