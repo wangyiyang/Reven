@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 ROOT = Path(__file__).parents[3]
 MERGE_REVISION = "0014_merge_crm_and_integration"
+HEAD_REVISION = "0015_talents"
 
 
 def _alembic_config(database_url: str | None = None) -> Config:
@@ -42,7 +43,7 @@ async def _schema_state(database_url: str) -> tuple[set[str], bool, bool]:
 def test_migration_graph_has_one_head() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
 
-    assert script.get_heads() == [MERGE_REVISION]
+    assert script.get_heads() == [HEAD_REVISION]
 
 
 @pytest.mark.parametrize("starting_revision", ["0013_crm", "0013_integration_last_latency_ms"])
@@ -61,7 +62,7 @@ def test_existing_branch_head_upgrades_to_merged_head(starting_revision: str) ->
 
         command.upgrade(config, "head")
         versions, customer_table, latency_column = asyncio.run(_schema_state(database_url))
-        assert versions == {MERGE_REVISION}
+        assert versions == {HEAD_REVISION}
         assert customer_table
         assert latency_column
     finally:

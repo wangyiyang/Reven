@@ -13,6 +13,8 @@ import { ProjectsPage } from "@/features/projects/projects-page"
 import { RssSettingsPage } from "@/features/rss/rss-settings-page"
 import { RssCandidatesPage } from "@/features/rss/rss-candidates-page"
 import { SystemPage } from "@/features/system/system-page"
+import { TalentDetailPage } from "@/features/talents/talent-detail-page"
+import { TalentsPage } from "@/features/talents/talents-page"
 
 export function App() {
   return (
@@ -38,6 +40,8 @@ function ShellRoutes() {
         <Route element={<RssSettingsPage />} path="/rss" />
         <Route element={<RssCandidatesPage />} path="/rss/candidates" />
         <Route element={<SystemPage />} path="/system" />
+        <Route element={<TalentsPage />} path="/talents" />
+        <Route element={<TalentDetailPage />} path="/talents/:talentId" />
         <Route element={<Navigate replace to="/articles" />} path="*" />
       </Routes>
     </AppShell>

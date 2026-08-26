@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Wallet } from "lucide-react"
+import { Activity, BookOpenCheck, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Users, Wallet } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -19,6 +19,7 @@ async function logout() {
 const navigation = [
   { to: "/articles", label: "稿件", icon: FileText },
   { to: "/crm", label: "CRM", icon: ContactRound },
+  { to: "/talents", label: "人才库", icon: Users },
   { to: "/finance", label: "财务", icon: Wallet },
   { to: "/projects", label: "项目", icon: FolderKanban },
   { to: "/playbooks", label: "SOP/话术", icon: BookOpenCheck },

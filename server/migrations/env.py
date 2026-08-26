@@ -17,6 +17,7 @@ from reven.playbooks.models import Playbook  # noqa: F401
 from reven.projects.models import Project  # noqa: F401
 from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource  # noqa: F401
 from reven.system.models import SystemState  # noqa: F401
+from reven.talents.models import Talent, TalentInteraction  # noqa: F401
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 

@@ -18,6 +18,7 @@ from reven.api.routes.projects import router as projects_router
 from reven.api.routes.rss import router as rss_router
 from reven.api.routes.sync import router as sync_router
 from reven.api.routes.system import router as system_router
+from reven.api.routes.talents import router as talents_router
 from reven.config import get_settings
 from reven.db import create_session_factory
 from reven.jobs.runner import build_background_runner
@@ -142,6 +143,7 @@ def create_app(
     app.include_router(rss_router)
     app.include_router(sync_router)
     app.include_router(system_router)
+    app.include_router(talents_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

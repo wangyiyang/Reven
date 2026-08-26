@@ -1,0 +1,1 @@
+"""Talents domain package."""
