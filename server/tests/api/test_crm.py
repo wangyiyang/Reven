@@ -1,7 +1,14 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from reven.scheduling import SHANGHAI
+
+
+def _today() -> date:
+    # 服务端按上海时区计算“今天”（见 api/routes/crm.py），测试必须用同一时钟，
+    # 否则在 UTC 16:00-24:00 窗口内（CI Runner 为 UTC）两侧日期差一天，due=today 匹配为空
+    return datetime.now(SHANGHAI).date()
 
 
 def _create_customer(client, **overrides):  # type: ignore[no-untyped-def]
@@ -11,7 +18,7 @@ def _create_customer(client, **overrides):  # type: ignore[no-untyped-def]
         "source": "朋友介绍",
         "notes": "关注内容运营",
         "next_action": "安排需求访谈",
-        "next_follow_up_on": (date.today() + timedelta(days=2)).isoformat(),
+        "next_follow_up_on": (_today() + timedelta(days=2)).isoformat(),
     }
     payload.update(overrides)
     response = client.post("/api/crm/customers", json=payload)
@@ -38,10 +45,10 @@ def _create_contact(client, customer_id: str, **overrides):  # type: ignore[no-u
 def _create_follow_up(client, customer_id: str, **overrides):  # type: ignore[no-untyped-def]
     payload = {
         "kind": "会议",
-        "occurred_on": date.today().isoformat(),
+        "occurred_on": _today().isoformat(),
         "summary": "确认了内容运营需求",
         "next_action": "发送方案",
-        "next_follow_up_on": (date.today() + timedelta(days=3)).isoformat(),
+        "next_follow_up_on": (_today() + timedelta(days=3)).isoformat(),
         "set_as_current": True,
     }
     payload.update(overrides)
@@ -56,7 +63,7 @@ def test_customer_crud_search_and_filters(workbench) -> None:  # type: ignore[no
         client,
         name="逾期客户",
         status="跟进中",
-        next_follow_up_on=(date.today() - timedelta(days=1)).isoformat(),
+        next_follow_up_on=(_today() - timedelta(days=1)).isoformat(),
     )
     _create_customer(client, name="无计划客户", status="合作客户", next_action=None, next_follow_up_on=None)
     _create_contact(client, overdue["id"], name="可搜索联系人", phone="13900000000")
@@ -85,7 +92,7 @@ def test_customer_validation_is_explicit(workbench) -> None:  # type: ignore[no-
     client, _factory = workbench
     missing_action = client.post(
         "/api/crm/customers",
-        json={"name": "无行动客户", "next_follow_up_on": date.today().isoformat()},
+        json={"name": "无行动客户", "next_follow_up_on": _today().isoformat()},
     )
     assert missing_action.status_code == 422
     assert client.post("/api/crm/customers", json={"name": "未知字段", "secret": "no"}).status_code == 422
@@ -94,11 +101,11 @@ def test_customer_validation_is_explicit(workbench) -> None:  # type: ignore[no-
 
 def test_customer_due_filters_cover_today_upcoming_and_none(workbench) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
-    today = _create_customer(client, name="今日客户", next_follow_up_on=date.today().isoformat())
+    today = _create_customer(client, name="今日客户", next_follow_up_on=_today().isoformat())
     upcoming = _create_customer(
         client,
         name="未来客户",
-        next_follow_up_on=(date.today() + timedelta(days=5)).isoformat(),
+        next_follow_up_on=(_today() + timedelta(days=5)).isoformat(),
     )
     no_plan = _create_customer(client, name="无计划客户", next_action=None, next_follow_up_on=None)
 
@@ -151,7 +158,7 @@ def test_follow_ups_sync_current_action_and_preserve_contact_snapshot(workbench)
         client,
         customer["id"],
         contact_id=contact["id"],
-        occurred_on=(date.today() - timedelta(days=1)).isoformat(),
+        occurred_on=(_today() - timedelta(days=1)).isoformat(),
         next_action="仅历史行动",
         set_as_current=False,
     )

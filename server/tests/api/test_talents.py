@@ -1,7 +1,14 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from reven.scheduling import SHANGHAI
+
+
+def _today() -> date:
+    # 服务端按上海时区计算“今天”（见 api/routes/talents.py），测试必须用同一时钟，
+    # 否则在 UTC 16:00-24:00 窗口内（CI Runner 为 UTC）两侧日期差一天，due=today 匹配为空
+    return datetime.now(SHANGHAI).date()
 
 
 def _create_talent(client, **overrides):  # type: ignore[no-untyped-def]
@@ -26,11 +33,11 @@ def _create_talent(client, **overrides):  # type: ignore[no-untyped-def]
 
 def _create_interaction(client, talent_id: str, **overrides):  # type: ignore[no-untyped-def]
     payload = {
-        "occurred_on": date.today().isoformat(),
+        "occurred_on": _today().isoformat(),
         "channel": "微信",
         "summary": "沟通了品牌设计需求",
         "next_action": "发送作品集",
-        "next_due_on": (date.today() + timedelta(days=3)).isoformat(),
+        "next_due_on": (_today() + timedelta(days=3)).isoformat(),
     }
     payload.update(overrides)
     response = client.post(f"/api/talents/{talent_id}/interactions", json=payload)
@@ -81,12 +88,12 @@ def test_talent_crud_and_filters(workbench) -> None:  # type: ignore[no-untyped-
 def test_talent_due_filters_use_earliest_next_due(workbench) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
     overdue = _create_talent(client, name="逾期人才")
-    _create_interaction(client, overdue["id"], next_due_on=(date.today() - timedelta(days=1)).isoformat())
-    _create_interaction(client, overdue["id"], next_due_on=(date.today() + timedelta(days=5)).isoformat())
+    _create_interaction(client, overdue["id"], next_due_on=(_today() - timedelta(days=1)).isoformat())
+    _create_interaction(client, overdue["id"], next_due_on=(_today() + timedelta(days=5)).isoformat())
     today = _create_talent(client, name="今日人才")
-    _create_interaction(client, today["id"], next_due_on=date.today().isoformat())
+    _create_interaction(client, today["id"], next_due_on=_today().isoformat())
     upcoming = _create_talent(client, name="未来人才")
-    _create_interaction(client, upcoming["id"], next_due_on=(date.today() + timedelta(days=2)).isoformat())
+    _create_interaction(client, upcoming["id"], next_due_on=(_today() + timedelta(days=2)).isoformat())
     none = _create_talent(client, name="无计划人才")
     _create_interaction(client, none["id"], next_due_on=None)
 
@@ -151,7 +158,7 @@ def test_each_interaction_channel_can_be_saved(workbench, channel: str) -> None:
     assert (
         client.post(
             f"/api/talents/{talent['id']}/interactions",
-            json={"occurred_on": date.today().isoformat(), "channel": "飞书"},
+            json={"occurred_on": _today().isoformat(), "channel": "飞书"},
         ).status_code
         == 422
     )
@@ -192,7 +199,7 @@ def test_interactions_nested_scoped_and_cascade(workbench) -> None:  # type: ign
     older = _create_interaction(
         client,
         talent["id"],
-        occurred_on=(date.today() - timedelta(days=2)).isoformat(),
+        occurred_on=(_today() - timedelta(days=2)).isoformat(),
         summary="初次沟通",
     )
     newer = _create_interaction(client, talent["id"])
@@ -220,7 +227,7 @@ def test_interactions_nested_scoped_and_cascade(workbench) -> None:  # type: ign
     assert client.get(f"/api/talents/{uuid4()}/interactions").status_code == 404
     not_found = client.post(
         f"/api/talents/{uuid4()}/interactions",
-        json={"occurred_on": date.today().isoformat(), "channel": "微信"},
+        json={"occurred_on": _today().isoformat(), "channel": "微信"},
     )
     assert not_found.status_code == 404
     assert not_found.json()["code"] == "TALENT_NOT_FOUND"
