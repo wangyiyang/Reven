@@ -34,7 +34,11 @@ and `已流失`. Follow-up kinds are exactly `电话`, `会议`, `微信`, `邮�
 `其他`.
 
 `due` accepts `overdue`, `today`, `upcoming`, or `none`; comparisons use the
-Asia/Shanghai calendar date. Search covers customer name/source/notes and
+Asia/Shanghai calendar date. Any code or test that needs "today" must take it
+from `reven.scheduling.SHANGHAI` (`datetime.now(SHANGHAI).date()`), never
+`date.today()` — the latter follows the runner's local timezone and flakes in
+CI during the UTC 16:00–24:00 window when Shanghai has already crossed
+midnight but UTC has not. Search covers customer name/source/notes and
 contact name/phone/email/WeChat through an `EXISTS` subquery so one customer is
 never duplicated by multiple matching contacts.
 
