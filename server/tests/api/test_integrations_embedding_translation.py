@@ -4,11 +4,10 @@ import httpx
 import respx
 from fastapi.testclient import TestClient
 
-TENCENT_BASE = "https://tmt.tencentcloudapi.com"
 EMBEDDING_BASE = "https://api.siliconflow.cn"
 
 
-def _tencent_payload(secret: dict[str, str] | None = None) -> dict[str, object]:
+def _translation_payload(secret: dict[str, str] | None = None) -> dict[str, object]:
     payload: dict[str, object] = {"public_config": {"priority": 1, "enabled": True}}
     if secret is not None:
         payload["secret"] = secret
@@ -24,7 +23,6 @@ def _embedding_payload(api_key: str | None = None) -> dict[str, object]:
 
 def test_translation_providers_roundtrip_with_masked_hint(client: TestClient) -> None:
     cases = [
-        ("translate_tencent", {"secret_id": "AKIDexample", "secret_key": "tencent-key-8888"}, "已配置 · ****8888"),
         ("translate_baidu", {"app_id": "2026082500001", "app_key": "baidu-key-6666"}, "已配置 · ****6666"),
         (
             "translate_aliyun",
@@ -33,7 +31,7 @@ def test_translation_providers_roundtrip_with_masked_hint(client: TestClient) ->
         ),
     ]
     for provider, secret, hint in cases:
-        response = client.put(f"/api/integrations/{provider}", json=_tencent_payload(secret))
+        response = client.put(f"/api/integrations/{provider}", json=_translation_payload(secret))
 
         assert response.status_code == 200, provider
         body = response.json()
@@ -56,8 +54,8 @@ def test_translation_providers_roundtrip_with_masked_hint(client: TestClient) ->
 
 def test_translation_public_config_validation(client: TestClient) -> None:
     bad_priority = client.put(
-        "/api/integrations/translate_tencent",
-        json={"public_config": {"priority": 0}, "secret": {"secret_id": "a", "secret_key": "b"}},
+        "/api/integrations/translate_baidu",
+        json={"public_config": {"priority": 0}, "secret": {"app_id": "a", "app_key": "b"}},
     )
     assert bad_priority.status_code == 422
 
@@ -120,49 +118,44 @@ def test_embedding_base_url_must_be_https_origin(client: TestClient) -> None:
     assert trailing_slash.json()["public_config"]["base_url"] == "https://embedding.example.com"
 
 
-def test_tencent_connection_test_via_api(client: TestClient) -> None:
-    client.put(
-        "/api/integrations/translate_tencent",
-        json=_tencent_payload({"secret_id": "AKIDexample", "secret_key": "tencent-key-8888"}),
+def test_tencent_translation_routes_are_unknown(client: TestClient) -> None:
+    requests = (
+        client.get("/api/integrations/translate_tencent"),
+        client.put("/api/integrations/translate_tencent", json=_translation_payload()),
+        client.delete("/api/integrations/translate_tencent/secret"),
+        client.post("/api/integrations/translate_tencent/test"),
     )
 
-    with respx.mock(base_url=TENCENT_BASE) as router:
-        request = router.post("/").mock(
-            return_value=httpx.Response(200, json={"Response": {"TargetText": "你好", "Source": "en", "Target": "zh"}})
-        )
-        response = client.post("/api/integrations/translate_tencent/test")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["connection_status"] == "连接正常"
-    assert body["last_latency_ms"] is not None and body["last_latency_ms"] >= 0
-    sent = request.calls[0].request
-    assert sent.headers["authorization"].startswith("TC3-HMAC-SHA256 Credential=AKIDexample/")
-    assert sent.headers["x-tc-action"] == "TextTranslate"
-    assert "tencent-key-8888" not in response.text
+    for response in requests:
+        assert response.status_code == 404
+        assert response.json()["code"] == "INTEGRATION_PROVIDER_UNKNOWN"
 
 
-def test_tencent_connection_test_business_error_via_api(client: TestClient) -> None:
+def test_baidu_and_aliyun_connection_tests_remain_registered(client: TestClient) -> None:
     client.put(
-        "/api/integrations/translate_tencent",
-        json=_tencent_payload({"secret_id": "AKIDexample", "secret_key": "tencent-key-8888"}),
+        "/api/integrations/translate_baidu",
+        json=_translation_payload({"app_id": "baidu-app-id", "app_key": "baidu-app-key"}),
     )
-
-    with respx.mock(base_url=TENCENT_BASE) as router:
-        router.post("/").mock(
-            return_value=httpx.Response(
-                200,
-                json={"Response": {"Error": {"Code": "AuthFailure", "Message": "鉴权失败"}, "RequestId": "req-1"}},
-            )
+    with respx.mock(base_url="https://fanyi-api.baidu.com") as router:
+        router.get("/api/trans/vip/translate").mock(
+            return_value=httpx.Response(200, json={"trans_result": [{"src": "hello", "dst": "你好"}]})
         )
-        response = client.post("/api/integrations/translate_tencent/test")
+        baidu = client.post("/api/integrations/translate_baidu/test")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["connection_status"] == "连接失败"
-    assert "AuthFailure" in body["last_error"]
-    assert body["last_latency_ms"] is None
-    assert "tencent-key-8888" not in response.text
+    client.put(
+        "/api/integrations/translate_aliyun",
+        json=_translation_payload({"access_key_id": "aliyun-access-id", "access_key_secret": "aliyun-access-secret"}),
+    )
+    with respx.mock(base_url="https://mt.cn-hangzhou.aliyuncs.com") as router:
+        router.get("/").mock(return_value=httpx.Response(200, json={"Code": "200", "Data": {"Translated": "你好"}}))
+        aliyun = client.post("/api/integrations/translate_aliyun/test")
+
+    for response in (baidu, aliyun):
+        assert response.status_code == 200
+        assert response.json()["connection_status"] == "连接正常"
+        assert response.json()["last_latency_ms"] is not None
+    assert "baidu-app-key" not in baidu.text
+    assert "aliyun-access-secret" not in aliyun.text
 
 
 def test_embedding_connection_test_via_api(client: TestClient) -> None:

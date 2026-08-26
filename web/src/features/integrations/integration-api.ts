@@ -86,7 +86,7 @@ function isIntegration(value: unknown): value is Integration {
 
 function isProvider(value: unknown): value is Provider {
   return value === "notion" || value === "github" || value === "wechat" || value === "feishu"
-    || value === "translate_tencent" || value === "translate_baidu" || value === "translate_aliyun" || value === "embedding"
+    || value === "translate_baidu" || value === "translate_aliyun" || value === "embedding"
 }
 
 function isRssRunHealth(value: unknown): value is RssRunHealth {

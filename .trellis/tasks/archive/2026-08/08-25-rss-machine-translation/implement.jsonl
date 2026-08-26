@@ -1,0 +1,11 @@
+{"file":".trellis/spec/reven-server/backend/index.md","reason":"Backend package entry point and required conventions for server changes."}
+{"file":".trellis/spec/reven-server/backend/database-guidelines.md","reason":"Guidance for the exact, irreversible Tencent integration data migration."}
+{"file":".trellis/spec/reven-server/backend/error-handling.md","reason":"Provider failover, safe error wrapping, and PartialLocalizationError behavior."}
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"Executable cross-layer provider registry, secret, retirement, and RSS runtime contract captured by this task."}
+{"file":".trellis/spec/reven-server/backend/quality-guidelines.md","reason":"Backend testing, typing, and verification expectations."}
+{"file":".trellis/spec/web/frontend/index.md","reason":"Frontend package entry point for removing the Tencent integration surface."}
+{"file":".trellis/spec/web/frontend/type-safety.md","reason":"Provider union and API response type changes must remain exhaustive."}
+{"file":".trellis/spec/web/frontend/quality-guidelines.md","reason":"CMS regression testing and frontend validation expectations."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Coordinates database, API, runtime, and CMS provider-contract changes."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing integration repository, secret handling, and RSS localization semantics."}
+{"file":".trellis/tasks/08-25-rss-machine-translation/research/provider-api-status.md","reason":"Primary-source provider limits and the confirmed Tencent removal decision."}
