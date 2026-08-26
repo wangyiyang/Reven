@@ -54,6 +54,11 @@ uv run alembic -c server/migrations/alembic.ini upgrade head
 #### 3. Contracts
 
 - Every revision ID is unique and immutable after release.
+- Revision IDs must fit 32 characters: `alembic_version.version_num` is
+  `character varying(32)`, so an overlong ID passes static checks and fails
+  only at runtime with `StringDataRightTruncationError: value too long for
+  character varying(32)` (real case: `0016_merge_talents_and_remove_tencent`
+  was rejected at upgrade time; `0016_merge_talents_tencent` fits).
 - Before merge and deployment, `alembic heads` must return exactly one revision.
 - Resolve concurrent heads with a new no-op merge revision whose `down_revision` tuple contains every current head.
 - `upgrade head` must work from a fresh database and from a database stamped at any merged sibling head.
@@ -66,6 +71,7 @@ uv run alembic -c server/migrations/alembic.ini upgrade head
 | `alembic heads` returns multiple rows | Fail validation; add a merge revision before deployment |
 | Database is at one sibling head | `upgrade head` applies the missing sibling and then stamps the merge revision |
 | A released revision would need editing | Reject the edit; append a corrective or merge revision |
+| Revision ID longer than 32 characters | `upgrade` fails with `StringDataRightTruncationError: value too long for character varying(32)`; shorten the ID before release |
 | `DATABASE_URL` is missing or unreachable | Migration exits non-zero and deployment must not continue |
 
 #### 5. Good / Base / Bad Cases
