@@ -19,7 +19,7 @@ Notion 稿件库
 - 前端：React、TypeScript、Vite、shadcn/ui、Tailwind CSS、pnpm。
 - 后端：Python 3.12、FastAPI、SQLAlchemy、Alembic、uv。
 - 数据库：Supabase Postgres。
-- 部署：`dev.wangyiyang.cc`，Caddy 自动 HTTPS，一个 Reven 容器。
+- 部署：`dev.wangyiyang.cc`，Caddy 仅提供 HTTP，一个 Reven 容器。
 - 架构：前后端代码分离、后端模块化单体、整体统一部署。
 
 ## 2. 背景
@@ -101,7 +101,7 @@ Caddy · dev.wangyiyang.cc
 - API 请求只创建或查询任务，不在请求生命周期执行长任务。
 - 后台任务状态持久化到 Postgres。
 - 各业务模块在进程内直接调用，不通过内部 HTTP。
-- Caddy 统一提供 HTTPS、静态文件和 `/api` 反向代理。
+- Caddy 统一提供 HTTP、静态文件和 `/api` 反向代理。
 
 这不是微服务架构。
 
@@ -453,18 +453,18 @@ Supabase Storage 和其他对象存储不参与正文图片访问。
 
 ### 11.1 访问控制
 
-- Caddy 为工作台启用 Basic Auth。
-- Basic Auth 使用独立密码，不复用 SSH 密码。
+- 应用登录页为工作台启用管理员会话认证。
+- 管理员密码独立配置，不复用 SSH 密码。
 - Reven 后端只绑定本机或 Docker 内网端口。
-- 公网只开放 Caddy 的 80/443。
-- HTTP 自动跳转 HTTPS。
+- 公网只开放 Caddy 的 80 端口。
+- Caddy 不监听 443，也不申请 TLS 证书。
 
 第一版不引入 Supabase Auth。
 
 ### 11.2 Secret 管理
 
-- `DATABASE_URL`、`REVEN_MASTER_KEY` 和 Caddy 密码哈希只存在服务器环境变量。
-- Notion、GitHub、微信和飞书 Secret 通过 HTTPS 提交给后端。
+- `DATABASE_URL`、`REVEN_MASTER_KEY` 和 `REVEN_ADMIN_PASSWORD` 只存在服务器环境变量。
+- Notion、GitHub、微信和飞书 Secret 通过受信网络内的 HTTP 提交给后端。
 - 后端使用版本化的 AES-256-GCM 密文保存到 Supabase。
 - 解密只发生在执行集成调用的后端进程内。
 - Access Token 由后端缓存和刷新，浏览器不可见。
@@ -526,7 +526,7 @@ Supabase Storage 和其他对象存储不参与正文图片访问。
 - 现有 3000 端口服务保持不变。
 - Reven 不使用服务器已有 PostgreSQL 和 MinIO。
 - Reven 后端使用独立端口，例如 `127.0.0.1:8000`。
-- Caddy 使用 80/443 并自动申请、续期 HTTPS 证书。
+- Caddy 仅使用 80 端口提供 HTTP。
 
 ### 14.2 部署单元
 
@@ -577,7 +577,7 @@ Supabase Storage 和其他对象存储不参与正文图片访问。
 - 任务状态展示。
 - 集成配置脱敏。
 - 微信 HTML 预览。
-- HTTPS 环境下复制 `text/html` 富文本。
+- 公网 HTTP 环境下不支持自动复制 `text/html` 时给出明确提示。
 
 ### 15.5 CI 验证
 
@@ -607,7 +607,7 @@ Supabase Storage 和其他对象存储不参与正文图片访问。
 
 MVP 稳定后再单独设计：
 
-1. OpenClaw 通过 HTTPS API 向 Reven 上报 RSS 线索。
+1. OpenClaw 通过 HTTP API 向 Reven 上报 RSS 线索。
 2. Reven 增加线索工作台和选题到 Notion 的创建流程。
 3. 增加原创性检查、品牌封面、其他内容渠道和发布数据回收。
 
