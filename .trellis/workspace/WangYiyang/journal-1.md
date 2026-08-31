@@ -74,3 +74,25 @@ grilling 访谈收敛需求后经 Trellis 任务 08-19-app-login 实现：单账
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: RSS 配置拆分：源/关键词独立路由 + 可折叠子菜单
+
+**Date**: 2026-08-31
+**Task**: RSS 配置拆分：源/关键词独立路由 + 可折叠子菜单
+**Package**: web
+**Branch**: `feat/rss-settings-split`
+
+### Summary
+
+grilling 收敛：关键词维持全局，/rss 拆为 /rss/sources + /rss/keywords 独立路由；中途改选可折叠子菜单（桌面折叠分组、移动端 tab 平铺）。修复搬迁引入的回归（onClick 丢箭头函数致 Radix 对话框自开 aria-hidden 全应用，5 测试挂），并用函数级 md5 比对验证搬迁代码与原件逐字节一致。trellis-check 复核通过，156 测试 + lint + tsc 全绿；spec 沉淀 AppShell 导航分组约定。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc962ec` | (see git log) |
+
+### Status
+
+[OK] **Completed**
