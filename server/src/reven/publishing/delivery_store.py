@@ -25,7 +25,7 @@ class SqlAlchemyDeliveryStore:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         workspace_root: Path,
-        public_base_url: str = "http://dev.wangyiyang.cc",
+        public_base_url: str = "http://dev.wangyiyang.cc:3001",
     ) -> None:
         self.session_factory = session_factory
         self.workspace_root = workspace_root

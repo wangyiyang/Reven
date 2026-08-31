@@ -67,8 +67,8 @@ REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 
 未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
 有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
-Caddy 仅通过 80 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
-记录必须指向服务器，公网 80 端口必须可达。Caddy 容器不接收任何认证变量，
+Caddy 仅通过 3001 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
+记录必须指向服务器，公网 3001 端口必须可达。Caddy 容器不接收任何认证变量，
 只负责反向代理与静态资源。
 
 HTTP 不会加密管理员密码、会话 Cookie 或业务数据，只能在可信网络或已有安全隧道的
@@ -101,7 +101,7 @@ Gem。博客依赖变化必须先更新 `infra/blog/runtime/Gemfile.lock`、重�
 完成 HTTP 与管理员登录配置后，访问：
 
 ```text
-http://dev.wangyiyang.cc/api/system/egress-ip
+http://dev.wangyiyang.cc:3001/api/system/egress-ip
 ```
 
 把响应中的固定公网 `ip` 加入微信公众号平台 IP 白名单。若云服务器出口 IP
@@ -225,17 +225,20 @@ Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听
 
 ## 9. 验证 HTTP、认证与健康状态
 
-依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS：
+依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS、
+80 端口也不再提供服务：
 
 ```bash
-curl -I http://dev.wangyiyang.cc
-curl -i http://dev.wangyiyang.cc/api/articles
-curl --fail http://dev.wangyiyang.cc/api/health
+curl -I http://dev.wangyiyang.cc:3001
+curl -i http://dev.wangyiyang.cc:3001/api/articles
+curl --fail http://dev.wangyiyang.cc:3001/api/health
 ! curl --fail --connect-timeout 3 https://dev.wangyiyang.cc
+! curl --fail --connect-timeout 3 http://dev.wangyiyang.cc
 ```
 
 预期依次为 HTTP 入口可访问、`401`、`{"service":"reven","status":"ok"}`，以及
-HTTPS 连接失败。随后用浏览器打开站点，确认跳转到登录页，并用 `.env` 中的
+HTTPS 与 80 端口连接失败。随后用浏览器打开 `http://dev.wangyiyang.cc:3001`，确认
+跳转到登录页，并用 `.env` 中的
 `REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
 
 ```bash
@@ -278,14 +281,14 @@ RSS_MODEL_REVIEW_ENABLED=true
 ```bash
 curl --fail -c /tmp/reven-cookie.jar \
   -H 'Content-Type: application/json' \
-  -H 'Origin: http://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc:3001' \
   -H 'X-Reven-CSRF: 1' \
   -d '{"password": "<ADMIN_PASSWORD>"}' \
-  -X POST http://dev.wangyiyang.cc/api/auth/login
+  -X POST http://dev.wangyiyang.cc:3001/api/auth/login
 curl --fail -b /tmp/reven-cookie.jar \
-  -H 'Origin: http://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc:3001' \
   -H 'X-Reven-CSRF: 1' \
-  -X POST http://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+  -X POST http://dev.wangyiyang.cc:3001/api/rss/embeddings/rebuild
 rm -f /tmp/reven-cookie.jar
 ```
 

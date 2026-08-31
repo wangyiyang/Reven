@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     reven_master_key: SecretStr
     reven_admin_password: SecretStr
     public_base_url: str = Field(
-        default="http://dev.wangyiyang.cc",
+        default="http://dev.wangyiyang.cc:3001",
         validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
     )
     sync_interval_seconds: int = 60
