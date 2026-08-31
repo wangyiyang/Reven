@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Users, Wallet } from "lucide-react"
+import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -16,15 +16,25 @@ async function logout() {
   window.location.assign("/login")
 }
 
-const navigation = [
+type NavLeaf = { to: string; label: string; icon: LucideIcon }
+type NavEntry = NavLeaf | { label: string; icon: LucideIcon; children: NavLeaf[] }
+
+const navigation: NavEntry[] = [
   { to: "/articles", label: "稿件", icon: FileText },
   { to: "/crm", label: "CRM", icon: ContactRound },
   { to: "/talents", label: "人才库", icon: Users },
   { to: "/finance", label: "财务", icon: Wallet },
   { to: "/projects", label: "项目", icon: FolderKanban },
   { to: "/playbooks", label: "SOP/话术", icon: BookOpenCheck },
-  { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
-  { to: "/rss", label: "RSS 配置", icon: Rss, end: true },
+  {
+    label: "RSS",
+    icon: Rss,
+    children: [
+      { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
+      { to: "/rss/sources", label: "RSS 源", icon: Rss },
+      { to: "/rss/keywords", label: "RSS 关键词", icon: Tags },
+    ],
+  },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
   { to: "/system", label: "系统状态", icon: Activity },
 ]
@@ -34,12 +44,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navRef = useRef<HTMLElement>(null)
   const [canScrollRight, setCanScrollRight] = useState(false)
+  const [rssOpen, setRssOpen] = useState(true)
 
-  // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条）
+  // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条；只看可见的链接，跳过桌面端分组按钮）
   useEffect(() => {
     navRef.current
-      ?.querySelector(".nav-link.active")
+      ?.querySelector("a.nav-link.active")
       ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
+  }, [location.pathname])
+
+  // 进入 RSS 子路由时自动展开分组，避免激活项被收起隐藏
+  useEffect(() => {
+    if (location.pathname.startsWith("/rss")) setRssOpen(true)
   }, [location.pathname])
 
   // 移动端 tab 条溢出提示：还能右滑时显示渐隐 + 箭头，滑到底隐藏
@@ -73,20 +89,28 @@ export function AppShell({ children }: { children: ReactNode }) {
               ref={navRef}
             >
               <ul className="flex gap-1 lg:flex-col lg:gap-2">
-                {navigation.map(({ to, label, icon: Icon, end }) => (
-                  <li className="shrink-0" key={to}>
-                    <NavLink
-                      aria-label={label}
-                      className={({ isActive }) => cn(
-                        "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
-                        isActive && "active",
-                      )}
-                      end={end}
-                      to={to}
-                    >
-                      <Icon aria-hidden size={17} />
-                      <span>{label}</span>
-                    </NavLink>
+                {navigation.map((entry) => (
+                  <li className="shrink-0" key={"to" in entry ? entry.to : entry.label}>
+                    {"to" in entry ? (
+                      <NavLink
+                        aria-label={entry.label}
+                        className={({ isActive }) => cn(
+                          "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
+                          isActive && "active",
+                        )}
+                        to={entry.to}
+                      >
+                        <entry.icon aria-hidden size={17} />
+                        <span>{entry.label}</span>
+                      </NavLink>
+                    ) : (
+                      <NavGroup
+                        active={entry.children.some((child) => location.pathname.startsWith(child.to))}
+                        entry={entry}
+                        onToggle={() => setRssOpen((open) => !open)}
+                        open={rssOpen}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -134,5 +158,53 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0">{children}</div>
       <Toaster position="bottom-right" theme={theme} />
     </div>
+  )
+}
+
+function NavGroup(props: {
+  entry: { label: string; icon: LucideIcon; children: NavLeaf[] }
+  open: boolean
+  active: boolean
+  onToggle: () => void
+}) {
+  const { entry } = props
+  const GroupIcon = entry.icon
+  return (
+    <>
+      <button
+        aria-expanded={props.open}
+        aria-label={entry.label}
+        className={cn(
+          "nav-link hidden min-h-11 w-full items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:flex lg:gap-3",
+          props.active && "active",
+        )}
+        onClick={props.onToggle}
+        type="button"
+      >
+        <GroupIcon aria-hidden size={17} />
+        <span>{entry.label}</span>
+        <ChevronDown aria-hidden className={cn("ml-auto transition-transform", props.open && "rotate-180")} size={14} />
+      </button>
+      <ul className={cn(
+        "flex gap-1 lg:ml-3 lg:flex-col lg:gap-2 lg:border-l lg:border-[var(--line)] lg:pl-3",
+        !props.open && "lg:hidden",
+      )}>
+        {entry.children.map(({ to, label, icon: Icon }) => (
+          <li className="shrink-0" key={to}>
+            <NavLink
+              aria-label={label}
+              className={({ isActive }) => cn(
+                "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
+                isActive && "active",
+              )}
+              to={to}
+            >
+              <Icon aria-hidden size={17} />
+              <span>{label}</span>
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }

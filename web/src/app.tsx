@@ -10,7 +10,8 @@ import { ArticlesPage } from "@/features/articles/articles-page"
 import { FinancePage } from "@/features/finance/finance-page"
 import { PlaybooksPage } from "@/features/playbooks/playbooks-page"
 import { ProjectsPage } from "@/features/projects/projects-page"
-import { RssSettingsPage } from "@/features/rss/rss-settings-page"
+import { RssKeywordsPage } from "@/features/rss/rss-keywords-page"
+import { RssSourcesPage } from "@/features/rss/rss-sources-page"
 import { RssCandidatesPage } from "@/features/rss/rss-candidates-page"
 import { SystemPage } from "@/features/system/system-page"
 import { TalentDetailPage } from "@/features/talents/talent-detail-page"
@@ -37,7 +38,9 @@ function ShellRoutes() {
         <Route element={<FinancePage />} path="/finance" />
         <Route element={<ProjectsPage />} path="/projects" />
         <Route element={<PlaybooksPage />} path="/playbooks" />
-        <Route element={<RssSettingsPage />} path="/rss" />
+        <Route element={<Navigate replace to="/rss/sources" />} path="/rss" />
+        <Route element={<RssSourcesPage />} path="/rss/sources" />
+        <Route element={<RssKeywordsPage />} path="/rss/keywords" />
         <Route element={<RssCandidatesPage />} path="/rss/candidates" />
         <Route element={<SystemPage />} path="/system" />
         <Route element={<TalentsPage />} path="/talents" />

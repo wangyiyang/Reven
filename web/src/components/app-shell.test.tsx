@@ -67,13 +67,28 @@ describe("AppShell 移动端布局", () => {
   it("导航项在移动端始终显示文字标签，且不折行", () => {
     renderShell()
     const nav = screen.getByRole("navigation", { name: "内容工作台主导航" })
-    for (const label of ["稿件", "CRM", "人才库", "财务", "项目", "SOP/话术", "RSS 候选", "RSS 配置", "集成设置", "系统状态"]) {
+    for (const label of ["稿件", "CRM", "人才库", "财务", "项目", "SOP/话术", "RSS 候选", "RSS 源", "RSS 关键词", "集成设置", "系统状态"]) {
       const link = screen.getByRole("link", { name: label })
       const labelSpan = link.querySelector("span")
       expect(labelSpan?.className).not.toContain("hidden")
       expect(link.className).toContain("whitespace-nowrap")
     }
     expect(nav.querySelector("ul")?.className).toContain("flex")
+  })
+
+  it("RSS 分组默认展开，点击折叠按钮切换子项在桌面端的显隐", async () => {
+    renderShell()
+    const toggle = screen.getByRole("button", { name: "RSS" })
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    // 移动端 tab 条不支持层级：折叠按钮仅桌面端可见，子项始终平铺
+    expect(toggle.className).toContain("hidden")
+    expect(toggle.className).toContain("lg:flex")
+    const sublist = () => toggle.parentElement?.querySelector("ul")
+    expect(sublist()?.className).not.toContain("lg:hidden")
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(sublist()?.className).toContain("lg:hidden")
   })
 
   it("移动端退出与主题按钮为 44px 纯图标按钮，桌面端恢复文字按钮", () => {
