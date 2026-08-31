@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { toast } from "sonner"
 
 import { server } from "@/test/server"
-import { RssSettingsPage } from "./rss-settings-page"
+import { RssSourcesPage } from "./rss-sources-page"
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -19,50 +19,29 @@ const source = {
   updated_at: "2026-08-11T00:00:00Z",
 }
 
-const keywords = [
-  {
-    id: "22222222-2222-2222-2222-222222222222",
-    term: "AI agents",
-    kind: "positive",
-    enabled: true,
-    created_at: "2026-08-11T00:00:00Z",
-    updated_at: "2026-08-11T00:00:00Z",
-  },
-  {
-    id: "33333333-3333-3333-3333-333333333333",
-    term: "sponsored post",
-    kind: "negative",
-    enabled: false,
-    created_at: "2026-08-11T00:00:00Z",
-    updated_at: "2026-08-11T00:00:00Z",
-  },
-]
-
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <RssSettingsPage />
+      <RssSourcesPage />
     </QueryClientProvider>,
   )
 }
 
-describe("RssSettingsPage", () => {
+describe("RssSourcesPage", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("shows configured sources and separates positive and negative keywords", async () => {
+  it("shows configured sources", async () => {
     server.use(
       http.get("/api/rss/sources", () => HttpResponse.json([source])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(keywords)),
+      http.get("/api/rss/keywords", () => HttpResponse.json([])),
     )
 
     renderPage()
 
-    expect(await screen.findByRole("heading", { name: "RSS 内容发现配置" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { level: 1, name: "RSS 源" })).toBeInTheDocument()
     expect(await screen.findByText("OpenAI Blog")).toBeInTheDocument()
     expect(await screen.findByRole("link", { name: "https://openai.com/blog/rss.xml" })).toBeInTheDocument()
-    expect(screen.getByRole("region", { name: "正向关键词" })).toHaveTextContent("AI agents")
-    expect(screen.getByRole("region", { name: "反向关键词" })).toHaveTextContent("sponsored post")
   })
 
   it("filters sources by keyword in name or feed URL", async () => {
@@ -74,7 +53,7 @@ describe("RssSettingsPage", () => {
     }
     server.use(
       http.get("/api/rss/sources", () => HttpResponse.json([source, other])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(keywords)),
+      http.get("/api/rss/keywords", () => HttpResponse.json([])),
     )
 
     renderPage()
@@ -197,103 +176,6 @@ describe("RssSettingsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "确认删除 OpenAI Blog" }))
 
     expect(await screen.findByText("尚未配置 RSS 源。")).toBeInTheDocument()
-    expect(deleteRequest).toHaveBeenCalledOnce()
-  })
-
-  it("adds a keyword to the selected negative list", async () => {
-    let currentKeywords: typeof keywords = []
-    let requestBody: unknown
-    server.use(
-      http.get("/api/rss/sources", () => HttpResponse.json([])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(currentKeywords)),
-      http.post("/api/rss/keywords", async ({ request }) => {
-        requestBody = await request.json()
-        const created = {
-          ...keywords[1],
-          id: "55555555-5555-5555-5555-555555555555",
-          term: "press release",
-          enabled: true,
-        }
-        currentKeywords = [created]
-        return HttpResponse.json(created, { status: 201 })
-      }),
-    )
-    renderPage()
-
-    await userEvent.type(await screen.findByLabelText("关键词"), "press release")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "关键词类型" }), "negative")
-    await userEvent.click(screen.getByRole("button", { name: "添加关键词" }))
-
-    expect(await screen.findByRole("region", { name: "反向关键词" })).toHaveTextContent("press release")
-    expect(requestBody).toEqual({ term: "press release", kind: "negative", enabled: true })
-  })
-
-  it("edits and reclassifies a keyword through the shared form", async () => {
-    let currentKeywords = keywords
-    let requestBody: unknown
-    server.use(
-      http.get("/api/rss/sources", () => HttpResponse.json([])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(currentKeywords)),
-      http.put("/api/rss/keywords/:id", async ({ params, request }) => {
-        requestBody = await request.json()
-        currentKeywords = currentKeywords.map((keyword) => (
-          keyword.id === params.id ? { ...keyword, ...(requestBody as object) } : keyword
-        ))
-        return HttpResponse.json(currentKeywords.find((keyword) => keyword.id === params.id))
-      }),
-    )
-    renderPage()
-
-    await userEvent.click(await screen.findByRole("button", { name: "编辑 AI agents" }))
-    await userEvent.clear(screen.getByLabelText("关键词"))
-    await userEvent.type(screen.getByLabelText("关键词"), "AI systems")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "关键词类型" }), "negative")
-    await userEvent.click(screen.getByRole("button", { name: "保存关键词" }))
-
-    expect(await screen.findByRole("region", { name: "反向关键词" })).toHaveTextContent("AI systems")
-    expect(screen.getByRole("region", { name: "正向关键词" })).not.toHaveTextContent("AI agents")
-    expect(requestBody).toEqual({ term: "AI systems", kind: "negative", enabled: true })
-  })
-
-  it("disables a keyword without changing its term or type", async () => {
-    let currentKeywords = [keywords[0]]
-    let requestBody: unknown
-    server.use(
-      http.get("/api/rss/sources", () => HttpResponse.json([])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(currentKeywords)),
-      http.put("/api/rss/keywords/:id", async ({ request }) => {
-        requestBody = await request.json()
-        currentKeywords = [{ ...keywords[0], ...(requestBody as object) }]
-        return HttpResponse.json(currentKeywords[0])
-      }),
-    )
-    renderPage()
-
-    await userEvent.click(await screen.findByRole("button", { name: "停用 AI agents" }))
-
-    expect(await screen.findByRole("region", { name: "正向关键词" })).toHaveTextContent("已停用")
-    expect(requestBody).toEqual({ term: "AI agents", kind: "positive", enabled: false })
-  })
-
-  it("requires confirmation before deleting a keyword", async () => {
-    let currentKeywords = [keywords[0]]
-    const deleteRequest = vi.fn()
-    server.use(
-      http.get("/api/rss/sources", () => HttpResponse.json([])),
-      http.get("/api/rss/keywords", () => HttpResponse.json(currentKeywords)),
-      http.delete("/api/rss/keywords/:id", () => {
-        deleteRequest()
-        currentKeywords = []
-        return new HttpResponse(null, { status: 204 })
-      }),
-    )
-    renderPage()
-
-    await userEvent.click(await screen.findByRole("button", { name: "删除 AI agents" }))
-    expect(deleteRequest).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole("button", { name: "确认删除 AI agents" }))
-
-    expect(await screen.findByRole("region", { name: "正向关键词" })).toHaveTextContent("尚未配置正向关键词")
     expect(deleteRequest).toHaveBeenCalledOnce()
   })
 
