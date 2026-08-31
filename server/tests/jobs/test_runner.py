@@ -226,7 +226,7 @@ def test_default_runner_injects_delivery_orchestrator(monkeypatch) -> None:
         scheduler_interval_seconds = 5
         rss_scheduler_interval_seconds = 60
         job_data_dir = "/tmp/reven-tests"
-        public_base_url = "https://dev.example.com"
+        public_base_url = "http://dev.example.com"
         renderer_command = "node /app/renderer/dist/cli.mjs"
         reven_master_key = type("Secret", (), {"get_secret_value": lambda self: "key"})()
 

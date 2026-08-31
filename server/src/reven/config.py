@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     reven_master_key: SecretStr
     reven_admin_password: SecretStr
     public_base_url: str = Field(
-        default="https://dev.wangyiyang.cc",
+        default="http://dev.wangyiyang.cc",
         validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
     )
     sync_interval_seconds: int = 60
@@ -35,10 +35,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_public_base_url(cls, value: str) -> str:
         parsed = urlsplit(value)
-        localhost = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        valid_scheme = parsed.scheme == "https" or (parsed.scheme == "http" and localhost)
         if (
-            not valid_scheme
+            parsed.scheme != "http"
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
@@ -46,7 +44,7 @@ class Settings(BaseSettings):
             or parsed.query
             or parsed.fragment
         ):
-            raise ValueError("PUBLIC_BASE_URL 必须是 HTTPS origin；仅 localhost 测试可使用 HTTP")
+            raise ValueError("PUBLIC_BASE_URL 必须是 HTTP origin")
         return value.rstrip("/")
 
 

@@ -52,7 +52,7 @@ class E2ESystem:
         self.delivery_writer = FakeDeliveryWriter(notion)
         self.preparation = PublicationJobService(factory, notion, self.materializer)
         self.orchestrator = PublicationOrchestrator(
-            SqlAlchemyDeliveryStore(factory, tmp_path, "https://reven.example"),
+            SqlAlchemyDeliveryStore(factory, tmp_path, "http://reven.example"),
             self.blog,
             self.wechat,
             self.delivery_writer,
@@ -183,7 +183,7 @@ async def test_production_publishers_consume_one_frozen_snapshot(e2e_system: E2E
         renderer,
         SqlAlchemyWeChatResultStore(e2e_system.factory, author="测试作者"),
     )
-    delivery_store = SqlAlchemyDeliveryStore(e2e_system.factory, tmp_path, "https://reven.example")
+    delivery_store = SqlAlchemyDeliveryStore(e2e_system.factory, tmp_path, "http://reven.example")
     record = await delivery_store.load(claim)
     notion_payload = _notion_properties(record, JobStatus.COMPLETED, "")
     assert notion_payload["状态"] == {"status": {"name": "已交付"}}

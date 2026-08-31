@@ -67,9 +67,14 @@ REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 
 未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
 有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
-Caddy 为 `dev.wangyiyang.cc` 自动申请并续期
-HTTPS 证书，因此域名 A/AAAA 记录必须指向服务器，公网 80/443 端口必须可达。
-Caddy 容器不再接收任何认证变量，只负责反向代理与静态资源。
+Caddy 仅通过 80 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
+记录必须指向服务器，公网 80 端口必须可达。Caddy 容器不接收任何认证变量，
+只负责反向代理与静态资源。
+
+HTTP 不会加密管理员密码、会话 Cookie 或业务数据，只能在可信网络或已有安全隧道的
+环境中使用；服务直接暴露到公网时，链路上的第三方可能窃听或篡改这些内容。
+旧版本已经下发过 HSTS；浏览器若仍缓存该策略，会继续把 HTTP 强制升级为 HTTPS。
+HTTP 响应无法清除已缓存的 HSTS，切换后需要在受影响客户端手动清除该域名的 HSTS 记录。
 
 ## 4. 安装博客 required check
 
@@ -93,10 +98,10 @@ Gem。博客依赖变化必须先更新 `infra/blog/runtime/Gemfile.lock`、重�
 
 ## 5. 配置微信出口 IP 白名单
 
-完成 HTTPS 与 Basic Auth 后，访问：
+完成 HTTP 与管理员登录配置后，访问：
 
 ```text
-https://dev.wangyiyang.cc/api/system/egress-ip
+http://dev.wangyiyang.cc/api/system/egress-ip
 ```
 
 把响应中的固定公网 `ip` 加入微信公众号平台 IP 白名单。若云服务器出口 IP
@@ -218,19 +223,20 @@ ss -lntp | grep ':3000 '
 Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听地址发生变化，
 立即停止 Reven 部署并调查，不要覆盖或重启该服务。
 
-## 9. 验证 HTTPS、认证与健康状态
+## 9. 验证 HTTP、认证与健康状态
 
-依次验证 HTTP 自动跳转 HTTPS、未认证业务请求被拒绝、健康检查公开可访问：
+依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS：
 
 ```bash
 curl -I http://dev.wangyiyang.cc
-curl -i https://dev.wangyiyang.cc/api/articles
-curl --fail https://dev.wangyiyang.cc/api/health
+curl -i http://dev.wangyiyang.cc/api/articles
+curl --fail http://dev.wangyiyang.cc/api/health
+! curl --fail --connect-timeout 3 https://dev.wangyiyang.cc
 ```
 
-预期分别为 HTTPS 重定向、`401`、以及
-`{"service":"reven","status":"ok"}`。随后用浏览器打开站点，确认跳转到登录页，
-用 `.env` 中的 `REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
+预期依次为 HTTP 入口可访问、`401`、`{"service":"reven","status":"ok"}`，以及
+HTTPS 连接失败。随后用浏览器打开站点，确认跳转到登录页，并用 `.env` 中的
+`REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
 
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
@@ -272,14 +278,14 @@ RSS_MODEL_REVIEW_ENABLED=true
 ```bash
 curl --fail -c /tmp/reven-cookie.jar \
   -H 'Content-Type: application/json' \
-  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
   -d '{"password": "<ADMIN_PASSWORD>"}' \
-  -X POST https://dev.wangyiyang.cc/api/auth/login
+  -X POST http://dev.wangyiyang.cc/api/auth/login
 curl --fail -b /tmp/reven-cookie.jar \
-  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
-  -X POST https://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+  -X POST http://dev.wangyiyang.cc/api/rss/embeddings/rebuild
 rm -f /tmp/reven-cookie.jar
 ```
 

@@ -106,8 +106,8 @@ async def test_production_app_mounts_sync_routes_with_database_dependency(
     monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
     get_settings.cache_clear()
 
-    headers = {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
-    with TestClient(create_app(start_background_tasks=False), base_url="https://testserver", headers=headers) as client:
+    headers = {"Origin": "http://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
+    with TestClient(create_app(start_background_tasks=False), base_url="http://testserver", headers=headers) as client:
         login = client.post("/api/auth/login", json={"password": "test-admin-password"})
         assert login.status_code == 200
         response = client.post("/api/sync/notion")

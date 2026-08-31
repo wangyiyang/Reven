@@ -11,7 +11,7 @@ from reven.config import get_settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "https://dev.wangyiyang.cc"
+ORIGIN = "http://dev.wangyiyang.cc"
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_anonymous_api_response_carries_security_headers(client: TestClient) -> 
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "SAMEORIGIN"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert "max-age=15552000" in response.headers["strict-transport-security"]
+    assert "strict-transport-security" not in response.headers
     csp = response.headers["content-security-policy"]
     assert "default-src 'self'" in csp
     assert "script-src 'self'" in csp

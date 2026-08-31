@@ -16,7 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "https://dev.wangyiyang.cc"
+ORIGIN = "http://dev.wangyiyang.cc"
 TEST_ADMIN_PASSWORD = "test-admin-password"
 WRITE_HEADERS = {"Origin": ORIGIN, "X-Reven-CSRF": "1"}
 
@@ -51,7 +51,7 @@ def auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, a
         session_factory=factory,
         public_base_url=ORIGIN,
     )
-    with TestClient(app, base_url="https://testserver", headers=WRITE_HEADERS) as client:
+    with TestClient(app, base_url="http://testserver", headers=WRITE_HEADERS) as client:
         yield client, factory
     asyncio.run(engine.dispose())
     get_settings.cache_clear()
@@ -81,6 +81,7 @@ def test_login_sets_session_cookie_and_unlocks_api(
     response = _login(client)
 
     assert response.status_code == 200
+    assert "secure" not in response.headers["set-cookie"].lower()
     cookie = client.cookies.get(SESSION_COOKIE)
     assert cookie
     assert client.get("/api/auth/me").status_code == 200
