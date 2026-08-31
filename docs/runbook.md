@@ -174,6 +174,13 @@ Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避�
 成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
+发布若涉及入口端口或协议变化，触发部署前必须先在服务器完成两项前置动作：
+`ss -lntp | grep ':3001 '` 确认入口端口未被其他进程占用，并确认防火墙/安全组已放行
+3001；同时先把 `.env` 的 `PUBLIC_BASE_URL` 同步为新入口地址（当前为
+`http://dev.wangyiyang.cc:3001`）。若 `.env` 与新镜像的配置约束不一致，新容器会拒绝
+启动，Reven 不健康时 Caddy 因 `depends_on` 不会启动，站点整体不可用（2026-08-31
+事故）。入口无变化的日常部署无需改动 `.env`。
+
 通过 Actions 的 `workflow_dispatch` 可选择：
 
 - `deploy`：输入已发布镜像对应的 commit SHA；留空时使用触发 workflow 的 commit；
@@ -261,6 +268,11 @@ DEPLOY_OPERATION=rollback /opt/reven/scripts/deploy_reven.sh
 数据库迁移必须保持向后兼容：先扩展、再迁移数据、最后在后续版本收缩。应用回滚
 不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 9
 步，并确认所有时间展示仍为上海时间。
+
+回滚到入口迁移（3001）之前的镜像时，Caddy 按该镜像配套 infra 重新监听 80，而
+`.env` 的 `PUBLIC_BASE_URL` 仍带 3001：服务可用，但飞书通知链接的端口与入口不一致。
+这是可接受的降级态；恢复后应尽快重新部署 3001 版本，或临时把 `PUBLIC_BASE_URL`
+改回 `http://dev.wangyiyang.cc` 并重建 Reven 容器。
 
 ## 11. RSS 内容发现与 OpenClaw 切换
 
