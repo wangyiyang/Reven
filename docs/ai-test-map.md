@@ -23,7 +23,7 @@
 
 | 项 | 值/方式 | 预期 |
 |---|---|---|
-| Web 入口 | `http://dev.wangyiyang.cc` | 200，静态资源加载成功 |
+| Web 入口 | `http://dev.wangyiyang.cc:3001` | 200，静态资源加载成功 |
 | 健康检查 | `GET /api/health` | `{"status":"ok"}` |
 | 登录页 | `GET /login` | 显示 Reven 登录页 |
 | 会话 Cookie | `reven_session` | `HttpOnly`；无 `Secure`；`SameSite=Lax` |

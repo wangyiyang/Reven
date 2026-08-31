@@ -67,8 +67,8 @@ REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 
 未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
 有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
-Caddy 仅通过 80 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
-记录必须指向服务器，公网 80 端口必须可达。Caddy 容器不接收任何认证变量，
+Caddy 仅通过 3001 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
+记录必须指向服务器，公网 3001 端口必须可达。Caddy 容器不接收任何认证变量，
 只负责反向代理与静态资源。
 
 HTTP 不会加密管理员密码、会话 Cookie 或业务数据，只能在可信网络或已有安全隧道的
@@ -101,7 +101,7 @@ Gem。博客依赖变化必须先更新 `infra/blog/runtime/Gemfile.lock`、重�
 完成 HTTP 与管理员登录配置后，访问：
 
 ```text
-http://dev.wangyiyang.cc/api/system/egress-ip
+http://dev.wangyiyang.cc:3001/api/system/egress-ip
 ```
 
 把响应中的固定公网 `ip` 加入微信公众号平台 IP 白名单。若云服务器出口 IP
@@ -174,6 +174,13 @@ Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避�
 成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
+发布若涉及入口端口或协议变化，触发部署前必须先在服务器完成两项前置动作：
+`ss -lntp | grep ':3001 '` 确认入口端口未被其他进程占用，并确认防火墙/安全组已放行
+3001；同时先把 `.env` 的 `PUBLIC_BASE_URL` 同步为新入口地址（当前为
+`http://dev.wangyiyang.cc:3001`）。若 `.env` 与新镜像的配置约束不一致，新容器会拒绝
+启动，Reven 不健康时 Caddy 因 `depends_on` 不会启动，站点整体不可用（2026-08-31
+事故）。入口无变化的日常部署无需改动 `.env`。
+
 通过 Actions 的 `workflow_dispatch` 可选择：
 
 - `deploy`：输入已发布镜像对应的 commit SHA；留空时使用触发 workflow 的 commit；
@@ -181,8 +188,10 @@ Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避�
   数据库降级。
 
 部署失败时 workflow 明确失败并发送失败通知；脚本会原位恢复 `.env` 中原有的
-`REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile。它不会伪造
-健康状态，也不会自动启动旧 Reven 镜像，因为失败镜像可能已经执行数据库迁移。
+`REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile——Caddy
+仍在运行时执行 reload；若失败发生在 Reven 健康检查阶段、Caddy 因 `depends_on` 从未
+启动，则以恢复后的 Caddyfile 直接拉起 Caddy（`--no-deps`），尽力恢复静态页访问。
+它不会伪造健康状态，也不会自动启动旧 Reven 镜像，因为失败镜像可能已经执行数据库迁移。
 
 若需要在故障处置时人工部署，仍只接受完整 digest，并调用服务器上的同一受限脚本，
 以确保镜像与基础设施保持同步：
@@ -225,17 +234,20 @@ Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听
 
 ## 9. 验证 HTTP、认证与健康状态
 
-依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS：
+依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS、
+80 端口也不再提供服务：
 
 ```bash
-curl -I http://dev.wangyiyang.cc
-curl -i http://dev.wangyiyang.cc/api/articles
-curl --fail http://dev.wangyiyang.cc/api/health
+curl -I http://dev.wangyiyang.cc:3001
+curl -i http://dev.wangyiyang.cc:3001/api/articles
+curl --fail http://dev.wangyiyang.cc:3001/api/health
 ! curl --fail --connect-timeout 3 https://dev.wangyiyang.cc
+! curl --fail --connect-timeout 3 http://dev.wangyiyang.cc
 ```
 
 预期依次为 HTTP 入口可访问、`401`、`{"service":"reven","status":"ok"}`，以及
-HTTPS 连接失败。随后用浏览器打开站点，确认跳转到登录页，并用 `.env` 中的
+HTTPS 与 80 端口连接失败。随后用浏览器打开 `http://dev.wangyiyang.cc:3001`，确认
+跳转到登录页，并用 `.env` 中的
 `REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
 
 ```bash
@@ -256,6 +268,11 @@ DEPLOY_OPERATION=rollback /opt/reven/scripts/deploy_reven.sh
 数据库迁移必须保持向后兼容：先扩展、再迁移数据、最后在后续版本收缩。应用回滚
 不会自动回滚数据库；若某次迁移不兼容上一镜像，禁止发布该版本。回滚后重复第 9
 步，并确认所有时间展示仍为上海时间。
+
+回滚到入口迁移（3001）之前的镜像时，Caddy 按该镜像配套 infra 重新监听 80，而
+`.env` 的 `PUBLIC_BASE_URL` 仍带 3001：服务可用，但飞书通知链接的端口与入口不一致。
+这是可接受的降级态；恢复后应尽快重新部署 3001 版本，或临时把 `PUBLIC_BASE_URL`
+改回 `http://dev.wangyiyang.cc` 并重建 Reven 容器。
 
 ## 11. RSS 内容发现与 OpenClaw 切换
 
@@ -278,14 +295,14 @@ RSS_MODEL_REVIEW_ENABLED=true
 ```bash
 curl --fail -c /tmp/reven-cookie.jar \
   -H 'Content-Type: application/json' \
-  -H 'Origin: http://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc:3001' \
   -H 'X-Reven-CSRF: 1' \
   -d '{"password": "<ADMIN_PASSWORD>"}' \
-  -X POST http://dev.wangyiyang.cc/api/auth/login
+  -X POST http://dev.wangyiyang.cc:3001/api/auth/login
 curl --fail -b /tmp/reven-cookie.jar \
-  -H 'Origin: http://dev.wangyiyang.cc' \
+  -H 'Origin: http://dev.wangyiyang.cc:3001' \
   -H 'X-Reven-CSRF: 1' \
-  -X POST http://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+  -X POST http://dev.wangyiyang.cc:3001/api/rss/embeddings/rebuild
 rm -f /tmp/reven-cookie.jar
 ```
 

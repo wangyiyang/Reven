@@ -11,7 +11,7 @@ from reven.config import get_settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "http://dev.wangyiyang.cc"
+ORIGIN = "http://dev.wangyiyang.cc:3001"
 
 
 @pytest.fixture

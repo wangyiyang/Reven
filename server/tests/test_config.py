@@ -11,7 +11,7 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
     settings = Settings(_env_file=None)
 
     assert settings.database_url.get_secret_value().startswith("postgresql+asyncpg://")
-    assert settings.public_base_url == "http://dev.wangyiyang.cc"
+    assert settings.public_base_url == "http://dev.wangyiyang.cc:3001"
     assert "notion" not in Settings.model_fields
     assert "wechat_app_secret" not in Settings.model_fields
     assert settings.cos_secret_id is None

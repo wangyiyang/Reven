@@ -56,9 +56,29 @@ case "$1" in
       pull)
         exit 0
         ;;
+      ps)
+        if [ -f "$FAKE_DOCKER_ROOT/caddy-running" ]; then
+          printf '%s\n' 'fake-caddy-container'
+        fi
+        ;;
       up)
-        configured_image="$(awk -F= '$1 == "REVEN_IMAGE" { print substr($0, length($1) + 2) }' "$FAKE_DEPLOY_DIR/.env")"
-        printf 'up-image=%s\n' "$configured_image" >>"$log_file"
+        starts_caddy=0
+        for up_arg in "$@"; do
+          [ "$up_arg" = caddy ] && starts_caddy=1
+        done
+        if [ "$starts_caddy" -eq 1 ]; then
+          : >"$FAKE_DOCKER_ROOT/caddy-running"
+          cp "$FAKE_DEPLOY_DIR/infra/caddy/Caddyfile" "$FAKE_DOCKER_ROOT/loaded-caddy"
+        else
+          configured_image="$(awk -F= '$1 == "REVEN_IMAGE" { print substr($0, length($1) + 2) }' "$FAKE_DEPLOY_DIR/.env")"
+          printf 'up-image=%s\n' "$configured_image" >>"$log_file"
+          # Reven 不健康时 depends_on(service_healthy) 阻止 Caddy 启动
+          if [ "$health_failure" -eq 0 ]; then
+            : >"$FAKE_DOCKER_ROOT/caddy-running"
+          else
+            rm -f "$FAKE_DOCKER_ROOT/caddy-running"
+          fi
+        fi
         ;;
       exec)
         [ "$1" = -T ] || exit 1
@@ -68,6 +88,8 @@ case "$1" in
             [ "$health_failure" -eq 0 ] || exit 1
             ;;
           caddy)
+            # 对已停止的容器执行 exec 必然失败（真实 docker 行为）
+            [ -f "$FAKE_DOCKER_ROOT/caddy-running" ] || exit 1
             reload_count=0
             if [ -f "$FAKE_DOCKER_ROOT/reload-count" ]; then
               reload_count="$(cat "$FAKE_DOCKER_ROOT/reload-count")"

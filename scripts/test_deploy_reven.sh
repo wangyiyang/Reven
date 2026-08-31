@@ -192,7 +192,8 @@ test_health_failure_restores_without_old_start() {
   assert_equal "$image_c" "$(cat "$host_root/.previous-healthy-image")" 'health failure changed previous healthy history'
   assert_contains "up-image=$image_a" "$fake_root/docker.log"
   assert_not_contains "up-image=$image_b" "$fake_root/docker.log"
-  assert_equal '1' "$(cat "$fake_root/reload-count")" 'restored Caddy config should reload once after health failure'
+  assert_not_contains 'exec -T caddy caddy reload' "$fake_root/docker.log"
+  assert_contains 'up -d --no-deps --no-build caddy' "$fake_root/docker.log"
   assert_equal 'caddy-b' "$(cat "$fake_root/loaded-caddy")" 'health failure did not restore loaded Caddy config'
   assert_no_temporary_resources
 }
@@ -215,9 +216,28 @@ test_reload_failure_restores_config_and_infra() {
   assert_no_temporary_resources
 }
 
+test_health_failure_with_stopped_caddy_recovers_via_up() {
+  setup_case stopped-caddy "$image_b"
+
+  output_file="$case_root/deploy-output"
+  if run_deploy deploy "$image_a" 1 0 >"$output_file" 2>&1; then
+    fail 'health failure with stopped Caddy unexpectedly succeeded'
+  fi
+
+  assert_contains 'up -d --no-deps --no-build caddy' "$fake_root/docker.log"
+  assert_not_contains 'exec -T caddy caddy reload' "$fake_root/docker.log"
+  assert_contains 'restored REVEN_IMAGE and infra' "$output_file"
+  assert_not_contains 'automatic restoration was incomplete' "$output_file"
+  assert_equal 'caddy-b' "$(cat "$fake_root/loaded-caddy")" 'stopped Caddy did not load the restored config'
+  assert_equal "$image_b" "$(awk -F= '$1 == "REVEN_IMAGE" { print substr($0, length($1) + 2) }' "$host_root/.env")" \
+    'health failure did not restore the prior image config'
+  assert_no_temporary_resources
+}
+
 test_changed_caddy_success
 test_unchanged_caddy_skips_reload
 test_rollback_exports_recorded_image
 test_health_failure_restores_without_old_start
 test_reload_failure_restores_config_and_infra
+test_health_failure_with_stopped_caddy_recovers_via_up
 printf '%s\n' 'deploy_reven integration tests passed'

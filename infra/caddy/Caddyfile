@@ -1,4 +1,4 @@
-http://dev.wangyiyang.cc {
+http://dev.wangyiyang.cc:3001 {
 	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
 	# API 响应若已被 SecurityHeadersMiddleware 设置，这里的值会覆盖为相同内容
 	header {

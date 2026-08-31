@@ -19,7 +19,7 @@ from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 TEST_ADMIN_PASSWORD = "test-admin-password"
-WRITE_HEADERS = {"Origin": "http://dev.wangyiyang.cc", "X-Reven-CSRF": "1"}
+WRITE_HEADERS = {"Origin": "http://dev.wangyiyang.cc:3001", "X-Reven-CSRF": "1"}
 
 
 class _FakePreview:
@@ -99,7 +99,7 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
     app = create_app(
         start_background_tasks=False,
         session_factory=factory,
-        public_base_url="http://dev.wangyiyang.cc",
+        public_base_url="http://dev.wangyiyang.cc:3001",
     )
     app.state.wechat_preview_service = _FakePreview()
     with TestClient(app, base_url="http://testserver", headers=WRITE_HEADERS) as test_client:

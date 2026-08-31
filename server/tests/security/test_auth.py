@@ -16,7 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "http://dev.wangyiyang.cc"
+ORIGIN = "http://dev.wangyiyang.cc:3001"
 TEST_ADMIN_PASSWORD = "test-admin-password"
 WRITE_HEADERS = {"Origin": ORIGIN, "X-Reven-CSRF": "1"}
 
