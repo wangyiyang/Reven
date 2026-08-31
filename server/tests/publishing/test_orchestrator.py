@@ -120,7 +120,7 @@ def make_record(tmp_path: Path, *, used_default: bool = False) -> DeliveryRecord
         uuid4(),
         "page",
         "https://www.notion.so/page",
-        f"https://dev.example.com/articles/{job_id}",
+        f"http://dev.example.com/articles/{job_id}",
         "稿件",
         (TargetChannel.BLOG, TargetChannel.WECHAT),
         used_default,

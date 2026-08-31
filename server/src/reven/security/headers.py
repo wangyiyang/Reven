@@ -3,7 +3,6 @@
 刻意保持基线可运行：
 - CSP 允许 style 'unsafe-inline'（Tailwind/shadcn 内联样式），脚本仅 'self'
 - X-Frame-Options 用 SAMEORIGIN 而非 DENY（详情页微信预览是同源 srcdoc iframe）
-- HSTS 仅在 HTTPS 站点启用语义上才有意义，但加上对 HTTP 响应无害
 """
 
 from collections.abc import Awaitable, Callable
@@ -26,7 +25,6 @@ _CONTENT_SECURITY_POLICY = (
 _HEADERS: dict[str, str] = {
     "content-security-policy": _CONTENT_SECURITY_POLICY,
     "referrer-policy": "strict-origin-when-cross-origin",
-    "strict-transport-security": "max-age=15552000; includeSubDomains",
     "x-content-type-options": "nosniff",
     "x-frame-options": "SAMEORIGIN",
 }

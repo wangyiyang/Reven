@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **现行部署变更：** 当前 Reven 对外入口仅使用 HTTP。本文保留初始实施过程中的 HTTPS 示例作为历史记录；部署与运维以 `docs/runbook.md` 为准。
+
 **Goal:** 将 Reven 重建为一个单用户内容发布工作台：Notion 稿件进入“待发布”后，系统按上海时间自动发布博客、生成微信公众号草稿，并通过飞书报告结果。
 
 **Architecture:** 前后端代码分离、统一部署。React 工作台只调用 FastAPI；FastAPI 内部运行数据库驱动的同步器、调度器和发布执行器，所有状态持久化到 Supabase Postgres，不拆独立 Worker，不引入 Redis、对象存储或微服务。

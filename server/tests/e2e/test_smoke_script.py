@@ -24,7 +24,7 @@ def test_smoke_health_check_needs_no_credentials(tmp_path: Path) -> None:
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "ARGV_RECORD": str(record),
-        "REVEN_BASE_URL": "https://dev.example.test",
+        "REVEN_BASE_URL": "http://dev.example.test",
         "TMPDIR": str(tmp_path),
     }
     for key in ("REVEN_BASIC_AUTH_USER", "REVEN_BASIC_AUTH_PASSWORD"):
@@ -44,3 +44,24 @@ def test_smoke_health_check_needs_no_credentials(tmp_path: Path) -> None:
     argv = json.loads(record.read_text(encoding="utf-8"))["argv"]
     assert "--netrc-file" not in argv
     assert "--user" not in argv
+
+
+def test_smoke_rejects_https_base_url(tmp_path: Path) -> None:
+    environment = {
+        **os.environ,
+        "REVEN_BASE_URL": "https://dev.example.test",
+        "TMPDIR": str(tmp_path),
+    }
+
+    result = subprocess.run(
+        ["bash", "scripts/smoke.sh"],
+        cwd=Path(__file__).parents[3],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+
+    assert result.returncode == 2
+    assert "REVEN_BASE_URL must use HTTP" in result.stderr

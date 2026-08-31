@@ -88,7 +88,7 @@ async def test_rss_discovery_to_human_confirmed_notion_inbox_is_idempotent(
         Localizer(),
         notifier,
         screener=screening,
-        candidate_url="https://reven.example/rss/candidates",
+        candidate_url="http://reven.example/rss/candidates",
     )
 
     first = await discovery.run(date(2026, 8, 11))

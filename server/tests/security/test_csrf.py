@@ -9,7 +9,7 @@ from reven.config import get_settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "https://dev.wangyiyang.cc"
+ORIGIN = "http://dev.wangyiyang.cc"
 TEST_ADMIN_PASSWORD = "test-admin-password"
 
 
@@ -33,7 +33,7 @@ def csrf_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def csrf_probe() -> dict[str, bool]:
         return {"ok": True}
 
-    with TestClient(app, base_url="https://testserver") as client:
+    with TestClient(app, base_url="http://testserver") as client:
         login = client.post(
             "/api/auth/login",
             json={"password": TEST_ADMIN_PASSWORD},
@@ -58,8 +58,8 @@ def test_same_origin_write_with_csrf_header_succeeds(csrf_client: TestClient) ->
         {"X-Reven-CSRF": "1"},
         {"Origin": "https://evil.example", "X-Reven-CSRF": "1"},
         {"Origin": "null", "X-Reven-CSRF": "1"},
-        {"Origin": "https://dev.wangyiyang.cc.evil.example", "X-Reven-CSRF": "1"},
-        {"Origin": "http://dev.wangyiyang.cc", "X-Reven-CSRF": "1"},
+        {"Origin": "http://dev.wangyiyang.cc.evil.example", "X-Reven-CSRF": "1"},
+        {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"},
     ],
 )
 def test_unsafe_requests_fail_closed(csrf_client: TestClient, headers: dict[str, str]) -> None:
