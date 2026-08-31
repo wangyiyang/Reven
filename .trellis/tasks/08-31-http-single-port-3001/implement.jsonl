@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-31-http-single-port-3001/prd.md", "reason": "Requirements, constraints, and acceptance criteria"}
+{"file": ".trellis/tasks/08-31-http-single-port-3001/design.md", "reason": "Port migration surface, compatibility argument, rollback hardening design, release/rollback shape"}
+{"file": ".trellis/tasks/08-31-http-single-port-3001/implement.md", "reason": "Ordered checklist, validation commands, commit split, release checklist"}
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "Backend coding spec for server-side changes"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared project guides"}

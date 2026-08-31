@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/08-31-http-single-port-3001/prd.md", "reason": "Acceptance criteria the check must verify against"}
+{"file": ".trellis/tasks/08-31-http-single-port-3001/design.md", "reason": "Compatibility claims and rollback semantics to validate"}
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "Backend spec compliance baseline"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared project guides"}
