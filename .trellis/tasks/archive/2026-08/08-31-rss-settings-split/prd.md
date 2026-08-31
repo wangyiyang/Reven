@@ -20,7 +20,6 @@
 ## Out of Scope
 
 - 后端 `server` 包零改动；筛选引擎、API、数据模型均不动。
-- 不引入侧边栏子菜单/二级导航机制。
 - 不做按源关键词、关键词豁免等任何数据层能力。
 
 ## Acceptance Criteria
