@@ -181,8 +181,10 @@ Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避�
   数据库降级。
 
 部署失败时 workflow 明确失败并发送失败通知；脚本会原位恢复 `.env` 中原有的
-`REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile。它不会伪造
-健康状态，也不会自动启动旧 Reven 镜像，因为失败镜像可能已经执行数据库迁移。
+`REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile——Caddy
+仍在运行时执行 reload；若失败发生在 Reven 健康检查阶段、Caddy 因 `depends_on` 从未
+启动，则以恢复后的 Caddyfile 直接拉起 Caddy（`--no-deps`），尽力恢复静态页访问。
+它不会伪造健康状态，也不会自动启动旧 Reven 镜像，因为失败镜像可能已经执行数据库迁移。
 
 若需要在故障处置时人工部署，仍只接受完整 digest，并调用服务器上的同一受限脚本，
 以确保镜像与基础设施保持同步：

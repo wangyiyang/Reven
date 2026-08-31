@@ -179,7 +179,14 @@ start_and_check_health() {
 }
 
 reload_caddy() {
-  compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  if compose ps --status running -q caddy | grep -q .; then
+    compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  else
+    # Caddy 未运行（典型：Reven 健康检查失败，depends_on 阻止 Caddy 启动）。
+    # 用 --no-deps 绕过 depends_on，以恢复后的旧 Caddyfile 尽力拉起：
+    # 静态页可恢复访问，API 是否可用取决于 Reven 容器自身状态。
+    compose up -d --no-deps --no-build caddy
+  fi
 }
 
 activate_target() {
