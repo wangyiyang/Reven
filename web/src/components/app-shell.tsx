@@ -201,7 +201,7 @@ function NavGroup(props: {
         aria-expanded={props.open}
         aria-label={entry.label}
         className={cn(
-          "nav-link hidden min-h-11 w-full items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:flex lg:gap-3",
+          "nav-link nav-group-trigger hidden min-h-11 w-full items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:flex lg:gap-3",
           props.active && "active",
         )}
         onClick={props.onToggle}
