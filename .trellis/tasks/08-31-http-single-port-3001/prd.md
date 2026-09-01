@@ -14,7 +14,7 @@ Reven 入口从 80 端口迁移到自定义单端口 3001（保持 HTTP-only）�
 
 1. **入口迁移 3001**：Caddy 监听、Compose 端口映射、应用默认值、测试夹具、文档统一从 80 迁移到 3001，对外入口为 `http://dev.wangyiyang.cc:3001`。
 2. **保持 HTTP-only 不变量**：不引入 TLS、HSTS；现有安全响应头、缓存策略、SPA 回退行为不变。
-3. **收紧权限**：迁移到非特权端口后，移除 Caddy 容器的 `cap_add: NET_BIND_SERVICE`。
+3. ~~**收紧权限**：迁移到非特权端口后，移除 Caddy 容器的 `cap_add: NET_BIND_SERVICE`。~~ **修正（实施后证伪）**：Caddy 官方镜像给 `/usr/bin/caddy` 打了 `cap_net_bind_service=ep` 的 filecap，bounding set 缺该 cap 时 execve EPERM、容器无法启动。该 cap 是 exec 前提而非特权端口需求，必须保留（PR #93 修复并锁定 e2e 断言）。
 4. **部署回滚加固**：`restore_previous_state` 在 Caddy 容器未运行的失败模式下也能尽力恢复（不能用 `compose exec` 假设容器在跑）。
 5. **部署协调**：发布时必须同步更新服务器 `.env` 的 `PUBLIC_BASE_URL=http://dev.wangyiyang.cc:3001`（本次事故的直接教训），并在 runbook 中固化为部署步骤。
 
