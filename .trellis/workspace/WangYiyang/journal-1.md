@@ -96,3 +96,31 @@ grilling 收敛：关键词维持全局，/rss 拆为 /rss/sources + /rss/keywor
 ### Status
 
 [OK] **Completed**
+
+## Session 5: 入口迁移 HTTP 单端口 3001 + 部署回滚加固 + 生产事故处置
+
+**Date**: 2026-08-31 ~ 2026-09-01
+**Task**: 入口切换 HTTP 单端口 3001 并加固部署回滚
+**Package**: infra
+**Branch**: `feat/http-single-port-3001`、`fix/caddy-cap-net-bind-service`
+
+### Summary
+
+动机：宿主机多 HTTP 服务按域名+端口访问，HSTS 按主机名生效会打挂其他服务（#90 切 HTTP-only 的根因），80 不应特殊对待。实施：入口 80→3001（Caddyfile/compose/4 处默认值/7 测试文件/文档），回滚加固（reload_caddy 拆为在跑 reload / 不在跑 up -d --no-deps 尽力拉起）。部署事故链：#90 起三次部署连败，根因是服务器 .env 的 PUBLIC_BASE_URL 滞留 https 旧值，新镜像校验拒绝启动；本机 docker logs 实锤后改 .env 重部成功。次生事故：删除 cap_add 后 Caddy 崩溃循环——官方镜像二进制带 cap_net_bind_service=ep filecap，bounding set 缺失时 execve EPERM，PR #93 恢复并用 e2e 断言锁定。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26f24f2` | feat(infra)!: 入口迁移 HTTP 单端口 3001 + 回滚加固 (#92) |
+| `a5d9176` | fix(infra): 恢复 Caddy NET_BIND_SERVICE（#93） |
+
+### Lessons
+
+- 镜像配置校验约束变化时，服务器 .env 必须随发布同步；已固化进 runbook 第 7 节发布前置动作
+- 移除容器 capability 前先 getcap 检查二进制 filecap；安全收敛需在真实 compose 环境实测，CI 的 Caddyfile 语法校验覆盖不了
+- 部署脚本 restore 不能假设容器在跑（本次实弹验证了 --no-deps 拉起路径）
+
+### Status
+
+[OK] **Completed**（PR #93 待合并；生产已恢复并验收通过）
