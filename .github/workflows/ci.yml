@@ -9,6 +9,8 @@ on:
         default: false
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -32,6 +34,9 @@ jobs:
       container: ${{ steps.filter.outputs.container }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # paths-filter 在 push 事件下基于本地 git 对比提交范围，需要完整历史
+          fetch-depth: 0
       - id: filter
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         with:

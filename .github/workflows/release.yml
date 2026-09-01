@@ -2,17 +2,17 @@ name: Release and Deploy
 
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy a commit image or roll back to the prior healthy image.
+        description: Deploy a version image or roll back to the prior healthy image.
         required: true
         default: deploy
         type: choice
         options: [deploy, rollback]
-      commit_sha:
-        description: Commit SHA to deploy; defaults to the workflow commit.
+      version:
+        description: Version tag to deploy (e.g. v0.3.0); defaults to latest for deploy.
         required: false
         type: string
 
@@ -52,16 +52,20 @@ jobs:
           printf '%s' "$ACR_PASSWORD" | \
             docker login registry.cn-hangzhou.aliyuncs.com \
               --username "$ACR_USERNAME" --password-stdin
-      - name: Refuse an existing commit image tag
+      - name: Validate semver tag and refuse an existing version image
         run: |
-          version="sha-${GITHUB_SHA}"
+          version="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$version" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Tag must be strict semver like v1.2.3, got: ${version}" >&2
+            exit 1
+          fi
           if docker buildx imagetools inspect "${IMAGE}:${version}" >/dev/null 2>&1; then
-            echo "Commit image tag already exists: ${IMAGE}:${version}" >&2
+            echo "Version image already exists: ${IMAGE}:${version}" >&2
             exit 1
           fi
       - name: Build, scan, and push production image
         run: |
-          version="sha-${GITHUB_SHA}"
+          version="${GITHUB_REF_NAME}"
           docker build --pull --no-cache \
             -f infra/docker/Dockerfile \
             -t "${IMAGE}:${version}" \
@@ -79,11 +83,11 @@ jobs:
             -v "$PWD:/work" \
             aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
             image --scanners vuln --format cyclonedx \
-            --output /work/reven-sbom.cdx.json "${IMAGE}:sha-${GITHUB_SHA}"
+            --output /work/reven-sbom.cdx.json "${IMAGE}:${GITHUB_REF_NAME}"
       - id: push
         name: Resolve immutable image digest
         run: |
-          digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}" \
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${GITHUB_REF_NAME}" \
             --format '{{json .Manifest.Digest}}' | tr -d '"')"
           printf 'image=%s@%s\n' "$IMAGE" "$digest" >>"$GITHUB_OUTPUT"
       - name: Upload release evidence
@@ -115,7 +119,7 @@ jobs:
       - id: target
         name: Resolve deployment target
         env:
-          INPUT_COMMIT_SHA: ${{ inputs.commit_sha }}
+          INPUT_VERSION: ${{ inputs.version }}
           OPERATION: ${{ inputs.operation || 'deploy' }}
           PUSH_IMAGE: ${{ needs.image.outputs.image }}
         run: |
@@ -126,8 +130,8 @@ jobs:
           if [ -n "$PUSH_IMAGE" ]; then
             image="$PUSH_IMAGE"
           else
-            commit_sha="${INPUT_COMMIT_SHA:-$GITHUB_SHA}"
-            digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${commit_sha}" \
+            version="${INPUT_VERSION:-latest}"
+            digest="$(docker buildx imagetools inspect "${IMAGE}:${version}" \
               --format '{{json .Manifest.Digest}}' | tr -d '"')"
             image="${IMAGE}@${digest}"
           fi

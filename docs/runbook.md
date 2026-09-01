@@ -168,9 +168,10 @@ cd /opt/reven
 同步会删除新镜像中已移除的基础设施文件，但不会改动 `infra/` 之外的 `.env`、`.docker`、
 镜像历史文件或部署脚本。
 
-推送到 `main` 后，`.github/workflows/release.yml` 会先执行 CI，随后构建 ACR 镜像并
-推送 `sha-<commit SHA>` 与 `latest`。生产部署只接收解析后的完整 digest，不使用任意
-Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避免并发升级。
+推送形如 `v1.2.3` 的版本 Tag 后，`.github/workflows/release.yml` 会先执行完整 CI，
+随后构建 ACR 镜像并推送 `<版本 Tag>` 与 `latest`。推送到 `main` 只运行 CI，不再自动
+构建与部署。生产部署只接收解析后的完整 digest，不使用任意 Tag。workflow 使用
+GitHub `production` Environment 和全局并发锁，避免并发升级。
 成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
@@ -183,7 +184,7 @@ Tag。workflow 使用 GitHub `production` Environment 和全局并发锁，避�
 
 通过 Actions 的 `workflow_dispatch` 可选择：
 
-- `deploy`：输入已发布镜像对应的 commit SHA；留空时使用触发 workflow 的 commit；
+- `deploy`：输入已发布镜像的版本 Tag（如 `v1.2.3`）；留空时部署 `latest`；
 - `rollback`：切换到服务器记录的上一健康镜像，并同步该镜像内的配套基础设施；不会执行
   数据库降级。
 

@@ -4,12 +4,12 @@ ROOT = Path(__file__).parents[3]
 REPOSITORY = "registry.cn-hangzhou.aliyuncs.com/wangyiyang/reven"
 
 
-def test_release_workflow_builds_and_deploys_main_with_immutable_acr_image() -> None:
+def test_release_workflow_builds_and_deploys_version_tags_with_immutable_acr_image() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 
-    assert "branches: [main]" in workflow
+    assert "tags: ['v*']" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "sha-${GITHUB_SHA}" in workflow
+    assert "${GITHUB_REF_NAME}" in workflow
     assert "${IMAGE}:latest" in workflow
     assert REPOSITORY in workflow
     assert "environment: production" in workflow
