@@ -10,7 +10,7 @@
   "priority": "P1",
   "creator": "WangYiyang",
   "assignee": "WangYiyang",
-  "createdAt": "2026-08-19",
+  "createdAt": "2026-08-12",
   "completedAt": null,
   "branch": null,
   "base_branch": null,
@@ -22,10 +22,12 @@
   "parent": null,
   "relatedFiles": [
     ".trellis/spec/web/",
-    ".trellis/spec/reven-server/",
-    ".trellis/spec/reven-bot/",
-    ".trellis/spec/tool-contracts/"
+    ".trellis/spec/renderer/",
+    ".trellis/spec/core/",
+    ".trellis/spec/shared/",
+    ".trellis/spec/config/",
+    ".trellis/spec/reven-server/"
   ],
-  "notes": "First-time setup task created by trellis init (backend project)",
+  "notes": "First-time setup task created by trellis init (fullstack project)",
   "meta": {}
 }
