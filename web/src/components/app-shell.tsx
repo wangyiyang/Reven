@@ -7,6 +7,29 @@ import { apiRequest } from "@/lib/api"
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 
+const RSS_NAV_OPEN_KEY = "reven:nav:rss-open"
+
+// 折叠偏好：null 表示用户未手动操作过，此时跟随路由（RSS 页面内展开、其余收起）；
+// 一旦手动 toggle 就持久化到 localStorage，之后一律以存储值为准
+type RssOpenPreference = boolean | null
+
+function loadRssOpenPreference(): RssOpenPreference {
+  try {
+    const stored = localStorage.getItem(RSS_NAV_OPEN_KEY)
+    return stored === null ? null : stored === "true"
+  } catch {
+    return null
+  }
+}
+
+function saveRssOpenPreference(open: boolean) {
+  try {
+    localStorage.setItem(RSS_NAV_OPEN_KEY, String(open))
+  } catch {
+    // 隐私模式等存储不可用场景：仅保持会话内状态
+  }
+}
+
 async function logout() {
   try {
     await apiRequest("/auth/logout", { method: "POST" })
@@ -44,18 +67,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navRef = useRef<HTMLElement>(null)
   const [canScrollRight, setCanScrollRight] = useState(false)
-  const [rssOpen, setRssOpen] = useState(true)
+  const inRss = location.pathname.startsWith("/rss")
+  const [rssPreference, setRssPreference] = useState(loadRssOpenPreference)
+  const rssOpen = rssPreference ?? inRss
+
+  const toggleRss = () => {
+    const next = !rssOpen
+    saveRssOpenPreference(next)
+    setRssPreference(next)
+  }
 
   // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条；只看可见的链接，跳过桌面端分组按钮）
   useEffect(() => {
     navRef.current
       ?.querySelector("a.nav-link.active")
       ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" })
-  }, [location.pathname])
-
-  // 进入 RSS 子路由时自动展开分组，避免激活项被收起隐藏
-  useEffect(() => {
-    if (location.pathname.startsWith("/rss")) setRssOpen(true)
   }, [location.pathname])
 
   // 移动端 tab 条溢出提示：还能右滑时显示渐隐 + 箭头，滑到底隐藏
@@ -107,7 +133,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       <NavGroup
                         active={entry.children.some((child) => location.pathname.startsWith(child.to))}
                         entry={entry}
-                        onToggle={() => setRssOpen((open) => !open)}
+                        onToggle={toggleRss}
                         open={rssOpen}
                       />
                     )}
@@ -175,7 +201,7 @@ function NavGroup(props: {
         aria-expanded={props.open}
         aria-label={entry.label}
         className={cn(
-          "nav-link hidden min-h-11 w-full items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:flex lg:gap-3",
+          "nav-link nav-group-trigger hidden min-h-11 w-full items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:flex lg:gap-3",
           props.active && "active",
         )}
         onClick={props.onToggle}

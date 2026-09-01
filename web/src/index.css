@@ -97,8 +97,21 @@ blockquote {
 
 .nav-link.active {
   color: var(--ink);
-  background: var(--faint);
+  background: color-mix(in oklab, var(--signal) 12%, transparent);
   box-shadow: inset 3px 0 0 var(--signal);
+}
+
+/* 分组触发器仅作“子项激活”指示：去掉底色与竖条，避免与子项双重高亮 */
+.nav-link.nav-group-trigger.active {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 移动端横向 tab 条：左竖条语义不成立，active 仅保留淡蓝底药丸 */
+@media (width < 64rem) {
+  .nav-link.active {
+    box-shadow: none;
+  }
 }
 
 .nav-link.active svg {
