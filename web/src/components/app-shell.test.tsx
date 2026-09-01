@@ -1,13 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "./app-shell"
 
-function renderShell() {
+const RSS_NAV_OPEN_KEY = "reven:nav:rss-open"
+
+function renderShell(initialEntries = ["/"]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <AppShell>
         <div>内容</div>
       </AppShell>
@@ -16,6 +18,9 @@ function renderShell() {
 }
 
 describe("AppShell 移动端布局", () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
   it("移动端头部允许换行，避免整页横向溢出", () => {
     renderShell()
     const nav = screen.getByRole("navigation", { name: "内容工作台主导航" })
@@ -76,19 +81,37 @@ describe("AppShell 移动端布局", () => {
     expect(nav.querySelector("ul")?.className).toContain("flex")
   })
 
-  it("RSS 分组默认展开，点击折叠按钮切换子项在桌面端的显隐", async () => {
+  it("RSS 分组在非 RSS 页面默认收起，点击展开并持久化偏好", async () => {
     renderShell()
     const toggle = screen.getByRole("button", { name: "RSS" })
-    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
     // 移动端 tab 条不支持层级：折叠按钮仅桌面端可见，子项始终平铺
     expect(toggle.className).toContain("hidden")
     expect(toggle.className).toContain("lg:flex")
     const sublist = () => toggle.parentElement?.querySelector("ul")
-    expect(sublist()?.className).not.toContain("lg:hidden")
+    expect(sublist()?.className).toContain("lg:hidden")
 
     await userEvent.click(toggle)
-    expect(toggle).toHaveAttribute("aria-expanded", "false")
-    expect(sublist()?.className).toContain("lg:hidden")
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(sublist()?.className).not.toContain("lg:hidden")
+    expect(localStorage.getItem(RSS_NAV_OPEN_KEY)).toBe("true")
+  })
+
+  it("无存储偏好时，RSS 路由下分组自动展开", () => {
+    renderShell(["/rss/sources"])
+    expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("存储的收起偏好优先于路由：RSS 页面内也保持收起", () => {
+    localStorage.setItem(RSS_NAV_OPEN_KEY, "false")
+    renderShell(["/rss/sources"])
+    expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "false")
+  })
+
+  it("存储的展开偏好在非 RSS 页面同样生效", () => {
+    localStorage.setItem(RSS_NAV_OPEN_KEY, "true")
+    renderShell()
+    expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "true")
   })
 
   it("移动端退出与主题按钮为 44px 纯图标按钮，桌面端恢复文字按钮", () => {
