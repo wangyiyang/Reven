@@ -45,6 +45,7 @@ def test_anonymous_api_response_carries_security_headers(client: TestClient) -> 
     assert "default-src 'self'" in csp
     assert "script-src 'self'" in csp
     assert "frame-ancestors 'self'" in csp
+    assert "font-src 'self' data:" in csp
 
 
 def test_auth_endpoint_response_carries_security_headers(client: TestClient) -> None:
