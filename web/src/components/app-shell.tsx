@@ -159,7 +159,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </>
             )}
           </div>
-          <div className="flex gap-2 lg:flex-col lg:gap-3">
+          <div className="flex gap-2 lg:gap-3">
             <button
               aria-label="退出登录"
               className="flex h-11 w-11 items-center justify-center gap-2 rounded-md border border-[var(--line)] bg-[var(--bg)] text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)] lg:h-9 lg:min-h-9 lg:w-fit lg:justify-start lg:px-3"
