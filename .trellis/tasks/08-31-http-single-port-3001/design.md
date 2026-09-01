@@ -95,6 +95,7 @@ reload_caddy() {
 | 3001 被宿主机其他服务占用 | 发布前 `ss -lntp` 检查；runbook 固化为部署步骤 |
 | 防火墙/安全组未放行 3001，部署后公网不可达 | 发布前检查项；失败时 rollback 可回 80 |
 | 浏览器缓存的旧 HSTS 继续强制 HTTPS | #90 已接受，HTTP 无法清除；文档已说明需客户端手动清 |
+| ~~删除 cap_add 后 Caddy 无法启动~~（已发生，PR #93 修复） | Caddy 官方镜像二进制带 `cap_net_bind_service=ep` filecap；教训：移除容器 capability 前用 `getcap` 检查二进制依赖，且安全收敛需在真实 compose 环境实测 |
 | 部署后 `docker compose ps` 端口判断遗漏 | e2e 不变量测试锁定 compose ports |
 
 ## 验证总览

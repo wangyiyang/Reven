@@ -220,6 +220,11 @@ Reven 容器上限为 2 CPU、2 GiB 内存和 128 PID。Jekyll 子进程另有�
 renderer 使用 384 MiB V8 old-space，并限制 CPU、进程、文件描述符和文件大小。
 不要通过提高容器权限绕过限制；确有正常文章超限时，应先复现和缩小资源需求。
 
+Caddy 容器保留 `cap_add: NET_BIND_SERVICE` 不是特权端口需求：官方镜像的
+`/usr/bin/caddy` 带 `cap_net_bind_service=ep` filecap，bounding set 缺该 cap 时
+execve 直接 EPERM、容器无法启动（2026-09-01 实证）。调整容器 capability 前，
+先用 `getcap` 检查二进制是否声明了 filecap。
+
 ## 8. 确认 3000 端口未变化
 
 部署前后分别记录并比较：
