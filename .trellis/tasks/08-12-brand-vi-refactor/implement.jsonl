@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "web 前端编码规范，重构组件与页面样式时遵循"}
+{"file": ".trellis/spec/renderer/frontend/index.md", "reason": "renderer 渲染器规范，改微信预览主题时遵循"}
+{"file": ".trellis/tasks/08-12-brand-vi-refactor/design.md", "reason": "VI 重构技术设计：令牌/字体/深色模式/组件映射/渲染器主题"}

@@ -21,31 +21,45 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill guidelines for web
+- [ ] Fill guidelines for @reven/web
+- [ ] Fill guidelines for @reven/renderer
+- [ ] Fill guidelines for @md/core
+- [ ] Fill guidelines for @md/shared
+- [ ] Fill guidelines for @md/config
 - [ ] Fill guidelines for reven-server
-- [ ] Fill guidelines for reven-bot
-- [ ] Fill guidelines for tool-contracts
 - [ ] Add code examples
 
 ---
 
 ## Spec files to populate
 
-### Package: web (`spec/web/`)
+### Package: @reven/web (`spec/web/`)
 
 - Frontend guidelines: `.trellis/spec/web/frontend/`
+
+### Package: @reven/renderer (`spec/renderer/`)
+
+- Frontend guidelines: `.trellis/spec/renderer/frontend/`
+
+### Package: @md/core (`spec/core/`)
+
+- Backend guidelines: `.trellis/spec/core/backend/`
+
+- Frontend guidelines: `.trellis/spec/core/frontend/`
+
+### Package: @md/shared (`spec/shared/`)
+
+- Backend guidelines: `.trellis/spec/shared/backend/`
+
+- Frontend guidelines: `.trellis/spec/shared/frontend/`
+
+### Package: @md/config (`spec/config/`)
+
+- Frontend guidelines: `.trellis/spec/config/frontend/`
 
 ### Package: reven-server (`spec/reven-server/`)
 
 - Backend guidelines: `.trellis/spec/reven-server/backend/`
-
-### Package: reven-bot (`spec/reven-bot/`)
-
-- Backend guidelines: `.trellis/spec/reven-bot/backend/`
-
-### Package: tool-contracts (`spec/tool-contracts/`)
-
-- Backend guidelines: `.trellis/spec/tool-contracts/backend/`
 
 
 ### Thinking guides (already populated)

@@ -1,11 +1,12 @@
 http://dev.wangyiyang.cc:3001 {
 	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
-	# API 响应若已被 SecurityHeadersMiddleware 设置，这里的值会覆盖为相同内容
+	# 用 ? 前缀（仅在缺失时写入，且延迟到响应写出时才执行）：API 响应已由
+	# SecurityHeadersMiddleware 设置的保留上游值，静态页由 Caddy 补上，两端都不会重复
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		X-Frame-Options "SAMEORIGIN"
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		?X-Frame-Options "SAMEORIGIN"
 	}
 
 	handle /api/* {
