@@ -62,7 +62,7 @@ balance and a defined burn-rate period.
 | `income + 应收` | Add only to `receivable_cents` |
 | `expense + 应付` | Add only to `payable_cents` |
 | Either kind with `已记录` | Add to none of the five fields |
-| Unsupported kind/status pair | Entry validation rejects it; summary must not compensate for invalid data |
+| Any other stored status or mismatched kind/status pair | Add to none of the five fields; the summary must not infer a cash state |
 
 Existing authentication and CSRF behavior for finance routes remains in
 force. The summary endpoint does not accept client-supplied calculation rules.
