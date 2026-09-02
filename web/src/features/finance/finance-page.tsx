@@ -304,7 +304,7 @@ export function FinancePage() {
                   <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
-                  <Badge className={entry.kind === "income" ? "text-emerald-600" : "text-[var(--muted)]"}>
+                  <Badge className={entry.kind === "income" ? "text-[var(--signal)]" : "text-[var(--muted)]"}>
                     {entry.kind === "income" ? "收入" : "支出"}
                   </Badge>
                   <div className="flex gap-1">
@@ -341,7 +341,7 @@ export function FinancePage() {
                   <TableCell>{entry.occurred_on}</TableCell>
                   <TableCell>{entry.name}</TableCell>
                   <TableCell>
-                    <Badge className={entry.kind === "income" ? "text-emerald-600" : "text-[var(--muted)]"}>
+                    <Badge className={entry.kind === "income" ? "text-[var(--signal)]" : "text-[var(--muted)]"}>
                       {entry.kind === "income" ? "收入" : "支出"}
                     </Badge>
                   </TableCell>

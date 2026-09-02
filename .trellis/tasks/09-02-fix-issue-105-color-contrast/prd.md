@@ -20,10 +20,10 @@
 
 ## Acceptance Criteria
 
-- [ ] 正常文本和文字按钮对比度至少 4.5:1；大文本/非文字 UI 满足 WCAG AA 对应阈值。
-- [ ] `/crm`、`/articles` 及共用侧栏在浅色/深色下 axe-core `color-contrast` 无 serious/critical 违规。
-- [ ] focus、hover、disabled、active 状态仍可辨识。
-- [ ] token/组件测试、视觉回归、web lint/test/build 通过。
+- [x] 正常文本和文字按钮对比度至少 4.5:1；大文本/非文字 UI 满足 WCAG AA 对应阈值。
+- [x] `/crm`、`/articles` 及共用侧栏在浅色/深色下 axe-core `color-contrast` 无 serious/critical 违规。
+- [x] focus、hover、disabled、active 状态仍可辨识。
+- [x] token/组件测试、视觉回归、web lint/test/build 通过。
 
 ## Out of Scope
 
@@ -32,3 +32,14 @@
 ## Key Decision
 
 - 用户确认保留当前 Notion 风格蓝灰主题；本任务只做必要的可访问性修复，并同步纠正已过期的 Brand VI 规范。
+
+## Verification
+
+- 红灯复现：旧 token、固定白字和固定 emerald 断言失败；首次 opacity hover 的真实有效对比度仅 4.49:1。
+- 定向 CRM/theme/finance 测试：20/20 通过。
+- 完整 Web 测试：设置 Node `--localstorage-file` 后 19 个文件、170/170 通过；默认环境仅 `app-shell` 10 项因 Node 未提供 localStorage 文件而失败，相关测试与配置相对 HEAD 无差异。
+- Web ESLint、TypeScript build、Vite build、`git diff --check`：全部通过；仅有既存的大包体积提示。
+- axe-core 4.10.3：`/articles`、`/crm`、共用侧栏、登录、primary/danger hover 在浅色和深色下均为 0 violations。
+- 浏览器确认两主题 focus 可见、hover 为 `-1px`、active 为 `1px` 位移，颜色与 opacity 保持；disabled 仍可识别。
+- CRM notes textarea 的 axe 结果为原生 resize 覆盖导致的 `incomplete`，不是 violation；placeholder 已显式使用不透明 `--muted`。
+- 4 张截图确认继续保持 Notion 蓝灰视觉；详细证据见 `research/contrast-evidence.md`。

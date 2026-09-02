@@ -18,11 +18,13 @@
   --bg: #FFFFFF;
   --panel: #F7F7F5;
   --ink: #37352F;
-  --signal: #2383E2;
-  --muted: #9B9A97;
+  --signal: #0B65A3;
+  --on-signal: #FFFFFF;
+  --muted: #6B6A67;
   --faint: rgb(55 53 47 / 0.06);
   --line: #E9E9E7;
-  --danger: #EB5757;
+  --danger: #B42318;
+  --on-danger: #FFFFFF;
   --radius: 0.375rem;
   --font-sans: "Inter", "Noto Sans SC", "Source Han Sans SC", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -33,11 +35,13 @@ html[data-theme="dark"] {
   --bg: #191919;
   --panel: #202020;
   --ink: #D4D4D2;
-  --signal: #529CCA;
-  --muted: #8B8B89;
+  --signal: #6EB6E8;
+  --on-signal: #191919;
+  --muted: #A7A7A4;
   --faint: rgb(255 255 255 / 0.06);
   --line: #2F2F2F;
-  --danger: #EB5757;
+  --danger: #FF7B72;
+  --on-danger: #191919;
 }
 
 * {

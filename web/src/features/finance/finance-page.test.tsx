@@ -88,6 +88,9 @@ describe("FinancePage", () => {
     expect((await screen.findAllByText("¥150,000.00")).length).toBeGreaterThan(0)
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     expect(screen.getAllByText("DeepSeek 充值")[0]).toBeInTheDocument()
+    const incomeBadges = screen.getAllByText("收入").filter((element) => element.tagName === "SPAN")
+    expect(incomeBadges).toHaveLength(2)
+    for (const badge of incomeBadges) expect(badge).toHaveClass("text-[var(--signal)]")
   })
 
   it("creates an income entry and refreshes the list", async () => {
