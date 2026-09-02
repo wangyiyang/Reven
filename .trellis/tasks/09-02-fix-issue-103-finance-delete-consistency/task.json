@@ -3,7 +3,7 @@
   "name": "fix-issue-103-finance-delete-consistency",
   "title": "复核并处理 #103 财务连续删除一致性",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -105,21 +105,12 @@ export function FinancePage() {
   })
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest<null>(`/finance/entries/${id}`, { method: "DELETE" }),
-    onMutate: async (id: string) => {
-      // 乐观删除：远端库延迟高，先移除行再给服务端对账
-      await queryClient.cancelQueries({ queryKey: ["finance", "entries"] })
-      const previous = queryClient.getQueriesData<FinanceEntry[]>({ queryKey: ["finance", "entries"] })
-      queryClient.setQueriesData<FinanceEntry[]>({ queryKey: ["finance", "entries"] }, (old) => old?.filter((entry) => entry.id !== id))
-      return { previous }
-    },
-    onSuccess: () => toast.success("财务记录已删除"),
-    onError: (error, _id, context) => {
-      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      toast.error(error instanceof Error ? error.message : "财务记录删除失败")
-    },
-    onSettled: async () => {
+    onSuccess: async () => {
       await invalidateFinance()
+      toast.success("财务记录已删除")
+      setDeleting(null)
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "财务记录删除失败"),
   })
 
   const entries = entriesQuery.data ?? []
@@ -393,7 +384,7 @@ export function FinancePage() {
         onClose={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return
-          deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+          deleteMutation.mutate(deleting.id)
         }}
         open={deleting !== null}
         title="删除财务记录"

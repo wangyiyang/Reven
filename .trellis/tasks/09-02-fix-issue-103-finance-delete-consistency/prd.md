@@ -18,11 +18,20 @@
 
 ## Acceptance Criteria
 
-- [ ] 服务端响应挂起时目标行仍显示，不出现假空态。
-- [ ] 每次成功删除恰好发出一个对应 DELETE；连续删除 3–4 条后 UI/服务端一致。
-- [ ] DELETE 失败时行仍在、汇总不被错误清空且有错误提示。
-- [ ] 财务前端测试通过。
+- [x] 服务端响应挂起时目标行仍显示，不出现假空态。
+- [x] 每次成功删除恰好发出一个对应 DELETE；连续删除 3–4 条后 UI/服务端一致。
+- [x] DELETE 失败时行仍在、汇总不被错误清空且有错误提示。
+- [x] 财务前端测试通过。
 
 ## Out of Scope
 
 - 批量删除 API 或撤销删除功能。
+
+## Verification
+
+- 红灯复现：新增回归在旧实现上有 2 项失败，确认乐观删除会制造假成功窗口。
+- `pnpm --filter @reven/web exec vitest run src/features/finance/finance-page.test.tsx`：11/11 通过；连续删除场景额外并行重复 5 次，共 55/55 通过。
+- `pnpm --filter @reven/web lint`：通过。
+- `pnpm --filter @reven/web build`：通过；仅有既存的大包体积提示。
+- 验证 DELETE 挂起、成功与失败三种时序，以及 4 条记录逐条删除时每个 ID 恰好请求一次。
+- `git diff --check`：通过。
