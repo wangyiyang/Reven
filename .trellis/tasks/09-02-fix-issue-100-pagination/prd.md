@@ -18,10 +18,17 @@
 
 ## Acceptance Criteria
 
-- [ ] `page=abc`、`page=0`、`page=-5` 展示第 1 页且 URL 为 `page=1`。
-- [ ] `page=99` 在三页数据时展示第 3 页且 URL 为 `page=3`。
-- [ ] 规范化时不丢筛选参数，不产生循环请求。
-- [ ] 增加组件回归测试并通过。
+- [x] `page=abc`、`page=0`、`page=-5` 展示第 1 页且 URL 为 `page=1`。
+- [x] `page=99` 在三页数据时展示第 3 页且 URL 为 `page=3`。
+- [x] 规范化时不丢筛选参数，不产生循环请求。
+- [x] 增加组件回归测试并通过。
+
+## Verification
+
+- `pnpm -C web exec vitest run src/features/articles/articles-page.test.tsx`：15 项通过。
+- `pnpm --filter @reven/web lint`：通过。
+- `pnpm --filter @reven/web build`：TypeScript 与 Vite 构建通过，仅有既有 chunk size 警告。
+- 独立 `trellis-check` 复核了 replace 导航、筛选保留、请求次数、循环风险、空态屏蔽及测试有效性，无遗留发现。
 
 ## Out of Scope
 

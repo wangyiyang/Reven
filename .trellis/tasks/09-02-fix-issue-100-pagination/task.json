@@ -3,7 +3,7 @@
   "name": "fix-issue-100-pagination",
   "title": "修复 #100 稿件分页越界",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
