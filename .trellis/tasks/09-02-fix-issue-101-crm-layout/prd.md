@@ -18,11 +18,19 @@
 
 ## Acceptance Criteria
 
-- [ ] 1280px 视口完整显示 `YYYY/MM/DD` 日期及日历图标。
-- [ ] `zhangsan@example.com` 不在普通可用宽度下拆成孤立字符。
-- [ ] 两处“主要联系人”文案均不拆词。
-- [ ] 组件测试和浏览器截图回归通过。
+- [x] 1280px 视口完整显示 `YYYY/MM/DD` 日期及日历图标。
+- [x] `zhangsan@example.com` 不在普通可用宽度下拆成孤立字符。
+- [x] 两处“主要联系人”文案均不拆词。
+- [x] 组件测试和浏览器截图回归通过。
 
 ## Out of Scope
 
 - 重设 CRM 信息架构或移动端布局。
+
+## Verification
+
+- `pnpm --filter @reven/web exec vitest run src/features/crm/customer-detail-page.test.tsx`：7/7 通过。
+- `pnpm --filter @reven/web lint`：通过。
+- `pnpm --filter @reven/web build`：通过；仅有既存的大包体积提示。
+- 浏览器回归：1280px、1536px、390px 均无页面横向溢出；日期、邮箱和两处“主要联系人”显示完整。
+- `git diff --check`：通过。

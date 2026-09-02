@@ -109,7 +109,7 @@ function ContactChannelFields({ values, onChange }: ContactFormProps) {
       <div className="space-y-2"><Label htmlFor="crm-contact-phone">电话</Label><Input id="crm-contact-phone" onChange={(event) => onChange({ ...values, phone: event.target.value })} value={values.phone} /></div>
       <div className="space-y-2"><Label htmlFor="crm-contact-email">邮箱</Label><Input id="crm-contact-email" onChange={(event) => onChange({ ...values, email: event.target.value })} type="email" value={values.email} /></div>
       <div className="space-y-2"><Label htmlFor="crm-contact-wechat">微信</Label><Input id="crm-contact-wechat" onChange={(event) => onChange({ ...values, wechat: event.target.value })} value={values.wechat} /></div>
-      <label className="flex items-center gap-2 text-sm"><input checked={values.is_primary} onChange={(event) => onChange({ ...values, is_primary: event.target.checked })} type="checkbox" />设为主要联系人</label>
+      <label className="flex items-center gap-2 whitespace-nowrap text-sm md:col-span-3"><input checked={values.is_primary} onChange={(event) => onChange({ ...values, is_primary: event.target.checked })} type="checkbox" />设为主要联系人</label>
     </div>
   )
 }
@@ -138,8 +138,8 @@ function ContactCard({ contact, onEdit, onDelete }: { contact: Contact; onEdit: 
   const channels = [contact.phone, contact.email, contact.wechat].filter(Boolean).join(" · ")
   return (
     <article aria-label={`${contact.name} 联系人摘要`} className="rounded-lg border border-[var(--line)] p-4">
-      <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{contact.name}</p><p className="text-xs text-[var(--muted)]">{contact.role ?? "未填写职位"}</p></div>{contact.is_primary ? <Badge>主要联系人</Badge> : null}</div>
-      <p className="mt-3 break-all text-sm text-[var(--muted)]">{channels || "暂无联系方式"}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold">{contact.name}</p><p className="text-xs text-[var(--muted)]">{contact.role ?? "未填写职位"}</p></div>{contact.is_primary ? <Badge className="shrink-0 whitespace-nowrap">主要联系人</Badge> : null}</div>
+      <p className="mt-3 break-words text-sm text-[var(--muted)]">{channels || "暂无联系方式"}</p>
       <div className="mt-3 flex justify-end gap-1"><Button onClick={() => onEdit(contact)} size="sm" type="button" variant="ghost">编辑</Button><Button onClick={() => onDelete(contact)} size="sm" type="button" variant="ghost">删除</Button></div>
     </article>
   )

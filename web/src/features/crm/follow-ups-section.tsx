@@ -92,7 +92,7 @@ function FollowUpForm(props: FollowUpFormProps) {
 
 function FollowUpMetaFields({ values, contacts, onChange }: FollowUpFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(10rem,1fr)_minmax(0,1fr)]">
       <div className="space-y-2"><Label htmlFor="crm-follow-up-kind">方式</Label><select className={selectClassName} id="crm-follow-up-kind" onChange={(event) => onChange({ ...values, kind: event.target.value as FollowUpKind })} value={values.kind}>{FOLLOW_UP_KINDS.map((kind) => <option key={kind}>{kind}</option>)}</select></div>
       <div className="space-y-2"><Label htmlFor="crm-follow-up-date">发生日期</Label><Input id="crm-follow-up-date" onChange={(event) => onChange({ ...values, occurred_on: event.target.value })} required type="date" value={values.occurred_on} /></div>
       <div className="space-y-2"><Label htmlFor="crm-follow-up-contact">关联联系人</Label><select className={selectClassName} id="crm-follow-up-contact" onChange={(event) => onChange({ ...values, contact_id: event.target.value })} value={values.contact_id}><option value="">不关联</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</select></div>
