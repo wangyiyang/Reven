@@ -3,7 +3,7 @@
   "name": "fix-issue-102-talents-empty-form",
   "title": "修复 #102 人才库空态与标签丢失",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

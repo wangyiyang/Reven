@@ -17,11 +17,19 @@
 
 ## Acceptance Criteria
 
-- [ ] 桌面空态位于表头下方且跨六列，不存在表格外重复空态。
-- [ ] 验证失败后“插画”标签、姓名、金额均仍可见/保留。
-- [ ] 成功提交后的既有 reset 行为不变。
-- [ ] 相关组件测试通过。
+- [x] 桌面空态位于表头下方且跨六列，不存在表格外重复空态。
+- [x] 验证失败后“插画”标签、姓名、金额均仍可见/保留。
+- [x] 成功提交后的既有 reset 行为不变。
+- [x] 相关组件测试通过。
 
 ## Out of Scope
 
 - 重构人才表单状态库或改变服务端校验契约。
+
+## Verification
+
+- `pnpm --filter @reven/web exec vitest run src/features/talents/talents-page.test.tsx`：7/7 通过。
+- `pnpm --filter @reven/web lint`：通过。
+- `pnpm --filter @reven/web build`：通过；仅有既存的大包体积提示。
+- 回归断言覆盖桌面六列表头与 `colSpan=6` 空态、移动端独立空态、校验失败保留字段与标签，以及成功提交后的完整重置。
+- `git diff --check`：通过。
