@@ -64,11 +64,11 @@ describe("FinancePage", () => {
       http.get("/api/finance/entries", () => HttpResponse.json([income, expense])),
       http.get("/api/finance/summary", () =>
         HttpResponse.json({
-          income_cents: 15000000,
-          expense_cents: 10000,
-          net_cents: 14990000,
-          receivable_cents: 0,
-          payable_cents: 0,
+          income_cents: 80000,
+          expense_cents: 20000,
+          net_cents: 60000,
+          receivable_cents: 30000,
+          payable_cents: 40000,
         }),
       ),
     )
@@ -76,8 +76,16 @@ describe("FinancePage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "财务收支" })).toBeInTheDocument()
+    expect(screen.getByText("一人公司现金流台账：现金收付与应收应付。")).toBeInTheDocument()
+    expect(screen.queryByText(/跑道/)).not.toBeInTheDocument()
+    const summary = screen.getByRole("region", { name: "财务汇总" })
+    await within(summary).findByText("¥800.00")
+    expect(within(summary).getByText("已收收入").parentElement).toHaveTextContent("¥800.00")
+    expect(within(summary).getByText("已付花销").parentElement).toHaveTextContent("¥200.00")
+    expect(within(summary).getByText("现金净额").parentElement).toHaveTextContent("¥600.00")
+    expect(within(summary).getByText("应收").parentElement).toHaveTextContent("¥300.00")
+    expect(within(summary).getByText("应付").parentElement).toHaveTextContent("¥400.00")
     expect((await screen.findAllByText("¥150,000.00")).length).toBeGreaterThan(0)
-    expect(screen.getByRole("region", { name: "财务汇总" })).toHaveTextContent("¥100.00")
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     expect(screen.getAllByText("DeepSeek 充值")[0]).toBeInTheDocument()
   })

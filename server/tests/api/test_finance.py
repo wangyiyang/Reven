@@ -70,6 +70,41 @@ def test_finance_entries_crud_and_summary(workbench) -> None:  # type: ignore[no
     assert client.get(f"/api/finance/entries/{entry_id}").status_code == 404
 
 
+def test_finance_summary_uses_strict_cash_statuses(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    entries = [
+        ("income", "已收收入", 101.01, "已收"),
+        ("expense", "已付花销", 202.02, "已付"),
+        ("income", "待收款项", 303.03, "应收"),
+        ("expense", "待付款项", 404.04, "应付"),
+        ("income", "未确认收入", 505.05, "已记录"),
+        ("expense", "未确认支出", 606.06, "已记录"),
+    ]
+    for kind, name, amount, status in entries:
+        response = client.post(
+            "/api/finance/entries",
+            json={
+                "kind": kind,
+                "name": name,
+                "amount": amount,
+                "occurred_on": "2026-09-02",
+                "status": status,
+            },
+        )
+        assert response.status_code == 201
+
+    response = client.get("/api/finance/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "income_cents": 10101,
+        "expense_cents": 20202,
+        "net_cents": -10101,
+        "receivable_cents": 30303,
+        "payable_cents": 40404,
+    }
+
+
 def test_finance_entry_validation_rejects_bad_amount(workbench) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
     response = client.post(
