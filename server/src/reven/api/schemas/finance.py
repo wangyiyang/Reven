@@ -26,6 +26,12 @@ class FinanceEntryCreate(BaseModel):
     notes: str | None = None
 
 
+class FinanceEntryConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    occurred_on: date
+
+
 class FinanceEntryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
