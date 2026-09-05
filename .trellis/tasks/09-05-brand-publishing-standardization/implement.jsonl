@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/core/backend/index.md", "reason": "后端分层与数据库/错误处理/日志规范索引，品牌领域模块与 API 需遵循"}
+{"file": ".trellis/spec/core/backend/database-guidelines.md", "reason": "迁移与 ORM 约定（新表 + publication_jobs 扩展）"}
+{"file": ".trellis/spec/core/backend/error-handling.md", "reason": "品牌 API 与迁移的显式错误处理约定"}
+{"file": ".trellis/spec/renderer/frontend/index.md", "reason": "renderer 主题参数化改动需遵循渲染器包规范"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "设置页与稿件详情改动的前端规范索引"}
+{"file": ".trellis/spec/web/frontend/brand-vi.md", "reason": "工作台蓝灰主题保持独立（Active 规范），品牌色只进渠道产物"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/research/backend-publishing-seams.md", "reason": "发布链路集成接缝：orchestrator/校验/预览/渲染器/博客转换的现状与锚点"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/research/frontend-assets-notion.md", "reason": "前端模式、COS 素材存储复用、Notion 客户端能力与封面流转现状"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/design.md", "reason": "存储结构、版本/幂等模型与集成点的权威设计"}

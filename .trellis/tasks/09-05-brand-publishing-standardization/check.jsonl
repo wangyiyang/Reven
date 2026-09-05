@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/core/backend/index.md", "reason": "后端质量/错误处理/数据库规范核查"}
+{"file": ".trellis/spec/core/backend/quality-guidelines.md", "reason": "代码质量门槛与禁用模式"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "前端规范核查索引"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "前端质量门槛"}
+{"file": ".trellis/spec/web/frontend/brand-vi.md", "reason": "核查品牌色未污染工作台主题、对比度守护"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/prd.md", "reason": "对照验收标准 AC1-AC11 核查"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/research/backend-publishing-seams.md", "reason": "核查 legacy 兼容路径（无品牌绑定的旧任务行为不变）"}
+{"file": ".trellis/tasks/09-05-brand-publishing-standardization/research/frontend-assets-notion.md", "reason": "核查素材存储复用与封面流转未偏离现状约定"}
