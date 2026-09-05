@@ -18,6 +18,7 @@ class PublicationJob(Base):
             "article_id",
             "content_hash",
             "target_channels_hash",
+            "brand_binding_key",
             name="uq_job_article_version_channels",
         ),
         Index(
@@ -32,6 +33,14 @@ class PublicationJob(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     article_id: Mapped[UUID] = mapped_column(ForeignKey("articles.id"))
     snapshot_id: Mapped[UUID | None] = mapped_column(ForeignKey("content_snapshots.id", ondelete="RESTRICT"))
+    brand_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("brand_versions.id", ondelete="RESTRICT"))
+    wechat_template_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("channel_template_versions.id", ondelete="RESTRICT")
+    )
+    blog_template_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("channel_template_versions.id", ondelete="RESTRICT")
+    )
+    brand_binding_key: Mapped[str] = mapped_column(String(64), default="legacy")
     content_hash: Mapped[str | None] = mapped_column(String(64))
     target_channels: Mapped[list[str]] = mapped_column(JSONB)
     target_channels_hash: Mapped[str] = mapped_column(String(64))
@@ -56,3 +65,7 @@ class PublicationJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+# 注册 PublicationJob 的品牌外键目标，避免仅导入作业模型时元数据不完整。
+from reven.brand import models as brand_models  # noqa: E402,F401

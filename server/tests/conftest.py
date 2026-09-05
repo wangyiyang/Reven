@@ -50,6 +50,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
                 "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, articles, "
                 "crm_follow_ups, crm_contacts, crm_customers, talent_interactions, talents, "
                 "finance_entries, projects, sops, "
+                "brand_versions, channel_template_versions, brand_assets, brand_import_runs, "
                 "integrations, auth_sessions, "
                 "system_state RESTART IDENTITY CASCADE"
             )
