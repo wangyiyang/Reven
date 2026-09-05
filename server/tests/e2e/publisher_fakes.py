@@ -133,7 +133,7 @@ class ContractRenderer:
     def __init__(self) -> None:
         self.markdown: list[str] = []
 
-    async def render(self, markdown: str) -> str:
+    async def render(self, markdown: str, theme: object = None) -> str:
         self.markdown.append(markdown)
         return f"<section><p>{markdown}</p></section>"
 

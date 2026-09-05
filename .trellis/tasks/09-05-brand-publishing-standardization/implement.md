@@ -23,24 +23,24 @@ pnpm build                          # renderer + web 全量构建（最终回归
 
 目标：`brand_versions` / `channel_template_versions` / `brand_assets` / `brand_import_runs` 四表 + 品牌 CRUD/版本发布 API + 素材上传可用。
 
-- [ ] A1 迁移 `0017_brand_foundation`：四张新表 + `publication_jobs` 增列（`brand_version_id`、`wechat_template_version_id`、`blog_template_version_id`、`brand_binding_key` 非空默认 `'legacy'` 回填存量）+ 唯一约束扩展为 `(article_id, content_hash, target_channels_hash, brand_binding_key)`。downgrade 可完整回滚。
-- [ ] A2 `server/src/reven/brand/models.py` + `repository.py`：draft/published/archived 流转；部分唯一索引（每 channel 一 published 一 draft；品牌同理）。
-- [ ] A3 `brand/service.py`：草稿编辑（基于 published 拷贝）、发布（新版本号、旧版归档）、素材上传（复用 `ContentAssetStore.archive()`，解析图片尺寸入库）。
-- [ ] A4 `api/routes/brand.py` + schemas：profile/assets/templates 全组端点（不含 import）。错误显式处理，未配置 COS 时上传显式报错。
-- [ ] A5 测试：版本流转、唯一约束、素材上传/停用、legacy 默认值迁移。
-- [ ] **验证点 A**：`uv run pytest && uv run ruff check . && uv run mypy` 全绿 → 提交 `feat(server): add brand domain foundation`。
+- [x] A1 迁移 `0017_brand_foundation`：四张新表 + `publication_jobs` 增列（`brand_version_id`、`wechat_template_version_id`、`blog_template_version_id`、`brand_binding_key` 非空默认 `'legacy'` 回填存量）+ 唯一约束扩展为 `(article_id, content_hash, target_channels_hash, brand_binding_key)`。downgrade 可完整回滚。
+- [x] A2 `server/src/reven/brand/models.py` + `repository.py`：draft/published/archived 流转；部分唯一索引（每 channel 一 published 一 draft；品牌同理）。
+- [x] A3 `brand/service.py`：草稿编辑（基于 published 拷贝）、发布（新版本号、旧版归档）、素材上传（复用 `ContentAssetStore.archive()`，解析图片尺寸入库）。
+- [x] A4 `api/routes/brand.py` + schemas：profile/assets/templates 全组端点（不含 import）。错误显式处理，未配置 COS 时上传显式报错。
+- [x] A5 测试：版本流转、唯一约束、素材上传/停用、legacy 默认值迁移。
+- [x] **验证点 A**：`uv run pytest && uv run ruff check . && uv run mypy` 全绿（688 passed）→ 提交 `feat(server): add brand domain foundation`（已提交，中文 commit）。
 
 ## 阶段 B：发布链路集成（后端 + renderer）
 
 目标：品牌配置作为输入参数进入渲染/转换/校验/任务绑定，legacy 路径逐字节不变。
 
-- [ ] B1 renderer：`render.ts` 主题默认值抽参、`cli.ts` 输入协议加可选 `theme`；vitest 覆盖「不传 theme 输出不变」回归。`pnpm --filter @reven/renderer test`。
-- [ ] B2 `brand/application.py` 纯函数：`resolve_brand_config`、`apply_wechat_template`（文末模块追加 + 去重 + 提醒）、博客 frontmatter extras 计算。单测先行（含 dedup 三态：追加/跳过/不确定提醒）。
-- [ ] B3 `WechatRenderer.render(markdown, theme=None)` 透传 + Python 侧 theme 校验（颜色正则、长度上限）。
-- [ ] B4 链路接入：`WeChatPublisher`（渲染前应用模板、author/digest 取冻结配置）、`BlogConverter._frontmatter`（cover/og_image_url/author，封面图随文拷贝）、`ConfiguredWechatPreview`（当前配置实时预览 + 响应携带版本指纹）。
-- [ ] B5 任务绑定：`create_waiting` 调用处解析并冻结品牌/模板 FK + binding_key；新增 `POST /api/articles/{id}/jobs`（当前配置重新生成）与 `POST /api/articles/{id}/cover`（素材选封面）；retry 语义不变。
-- [ ] B6 校验扩展：`brand_asset_unreadable`(error)、`cover_aspect_ratio`/`footer_*`/`brand_not_configured`(warning)；署名来源切换（品牌优先，fallback 微信集成 author）。
-- [ ] **验证点 B**：后端三件套全绿 + renderer 测试绿；重点守护：legacy job（无品牌绑定）行为与输出不变的回归测试 → 提交 `feat(server,publishing): apply brand templates in delivery pipeline`。
+- [x] B1 renderer：`render.ts` 主题默认值抽参、`cli.ts` 输入协议加可选 `theme`；vitest 覆盖「不传 theme 输出不变」回归。`pnpm --filter @reven/renderer test`。
+- [x] B2 `brand/application.py` 纯函数：`resolve_brand_config`、`apply_wechat_template`（文末模块追加 + 去重 + 提醒）、博客 frontmatter extras 计算。单测先行（含 dedup 三态：追加/跳过/不确定提醒）。
+- [x] B3 `WechatRenderer.render(markdown, theme=None)` 透传 + Python 侧 theme 校验（颜色正则、长度上限）。
+- [x] B4 链路接入：`WeChatPublisher`（渲染前应用模板、author/digest 取冻结配置）、`BlogConverter._frontmatter`（cover/og_image_url/author，封面图随文拷贝）、`ConfiguredWechatPreview`（当前配置实时预览 + 响应携带版本指纹）。
+- [x] B5 任务绑定：`create_waiting` 调用处解析并冻结品牌/模板 FK + binding_key；新增 `POST /api/articles/{id}/jobs`（当前配置重新生成）与 `POST /api/articles/{id}/cover`（素材选封面）；retry 语义不变。
+- [x] B6 校验扩展：`brand_asset_unreadable`(error)、`cover_aspect_ratio`/`footer_*`/`brand_not_configured`(warning)；署名来源切换（品牌优先，fallback 微信集成 author）。
+- [x] **验证点 B**：后端三件套全绿 + renderer 测试绿；重点守护：legacy job（无品牌绑定）行为与输出不变的回归测试 （已达成：后端 714 passed / ruff / mypy 全绿；renderer 39 passed；pnpm build ✓。文末图片素材与正文同 staging 冻结、交付时续序占位符化）→ 提交 `feat(server,publishing): apply brand templates in delivery pipeline`。
 
 ## 阶段 C：前端设置页与稿件详情
 

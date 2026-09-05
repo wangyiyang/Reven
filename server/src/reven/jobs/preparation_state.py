@@ -9,16 +9,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.articles.models import Article
+from reven.brand.application import ResolvedBrand, cover_ratio_warning
 from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, WechatStage
 from reven.integrations.models import Integration
 from reven.integrations.notion.models import MappedNotionPage
+from reven.jobs.brand_preparation import BrandPreparation
 from reven.jobs.models import PublicationJob
 from reven.jobs.notification_outbox import enqueue_preparation_notification
 from reven.jobs.preparation_models import PersistedPreparation, PrepareResult
 from reven.jobs.repository import compute_target_channels_hash
 from reven.publishing.assets import MaterializedAssets
 from reven.publishing.snapshot import image_urls
-from reven.publishing.validation import PublicationCandidate, ValidationError, ValidationResult
+from reven.publishing.validation import PublicationCandidate, ValidationError, ValidationIssue, ValidationResult
 from reven.scheduling import resolve_scheduled_at, utc_now
 
 CONNECTION_TEST_MAX_AGE = timedelta(days=7)
@@ -32,8 +34,26 @@ async def candidate(
     unsupported: tuple[str, ...],
     assets: MaterializedAssets | None,
     asset_errors: tuple[ValidationError, ...],
+    brand: "BrandPreparation | None" = None,
 ) -> PublicationCandidate:
     integration_status, author, feishu_error = await _integration_status(session)
+    brand_errors: tuple[ValidationError, ...] = ()
+    brand_warnings: list[ValidationError] = []
+    footer_count = 0
+    if brand is not None:
+        brand_errors = brand.errors
+        brand_warnings.extend(brand.warnings)
+        footer_count = len(brand.footer_assets)
+        if brand.resolved is not None:
+            brand_author = brand.resolved.brand_payload.get("default_author")
+            if isinstance(brand_author, str) and brand_author:
+                author = brand_author
+            brand_warnings.extend(_template_missing_warnings(brand.resolved, channels))
+        if brand.cover_asset is not None:
+            for channel in channels:
+                issue = cover_ratio_warning(brand.cover_asset.width, brand.cover_asset.height, channel=channel.value)
+                if issue is not None:
+                    brand_warnings.append(issue)
     return PublicationCandidate(
         title=mapped.title,
         markdown=markdown,
@@ -41,13 +61,30 @@ async def candidate(
         author=author,
         cover=assets.cover if assets else None,
         image_count=len(image_urls(markdown)),
-        materialized_image_count=len(assets.images) if assets else 0,
+        materialized_image_count=(len(assets.images) - footer_count) if assets else 0,
         channels=channels,
         unsupported_channels=unsupported,
         integration_status=integration_status,
         materialization_errors=asset_errors,
         feishu_error=feishu_error,
+        brand_errors=brand_errors,
+        brand_warnings=tuple(brand_warnings),
     )
+
+
+def _template_missing_warnings(resolved: "ResolvedBrand", channels: tuple[TargetChannel, ...]) -> list[ValidationError]:
+    warnings: list[ValidationError] = []
+    for channel in channels:
+        payload = (
+            resolved.wechat_template_payload if channel == TargetChannel.WECHAT else resolved.blog_template_payload
+        )
+        if payload is None:
+            warnings.append(
+                ValidationIssue(
+                    "template_not_found", f"{channel.value}未配置已发布模板，将使用默认样式与行为", "template"
+                )
+            )
+    return warnings
 
 
 async def _integration_status(
@@ -106,6 +143,7 @@ async def existing_frozen(
     content_hash: str | None,
     channels: tuple[TargetChannel, ...],
     *,
+    binding_key: str = "legacy",
     exclude_id: UUID | None = None,
 ) -> PublicationJob | None:
     if content_hash is None:
@@ -114,6 +152,7 @@ async def existing_frozen(
         PublicationJob.article_id == article_id,
         PublicationJob.content_hash == content_hash,
         PublicationJob.target_channels_hash == compute_target_channels_hash([item.value for item in channels]),
+        PublicationJob.brand_binding_key == binding_key,
     )
     if exclude_id is not None:
         statement = statement.where(PublicationJob.id != exclude_id)

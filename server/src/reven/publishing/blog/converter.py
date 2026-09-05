@@ -19,10 +19,19 @@ _CALLOUT = re.compile(r"<callout>(.*?)</callout>", re.DOTALL)
 
 
 @dataclass(frozen=True)
+class BlogBrandFields:
+    """品牌绑定时写入 frontmatter 的扩展字段（冻结于任务元数据）。"""
+
+    author: str = ""
+    og_image_url: str | None = None  # 模板指定 OG 素材的绝对地址；None 表示由封面推导
+
+
+@dataclass(frozen=True)
 class BlogArticle:
     page_id: str
     snapshot: ContentSnapshot
     assets: MaterializedAssets
+    brand: BlogBrandFields | None = None
 
 
 @dataclass(frozen=True)
@@ -58,10 +67,16 @@ class BlogConverter:
         stage = root / f".reven-stage-{uuid4()}"
         stage.mkdir(mode=0o700)
         try:
-            body, image_paths = self._body(stage.resolve(), article, image_dir)
+            body, image_paths, cover_rel = self._body(stage.resolve(), article, image_dir)
             staged_post = _new_path(stage, relative_post)
             staged_post.parent.mkdir(parents=True, exist_ok=True)
-            staged_post.write_text(_frontmatter(article.snapshot, instant) + body, encoding="utf-8")
+            staged_post.write_text(
+                _frontmatter(
+                    article.snapshot, instant, brand=article.brand, cover_rel=cover_rel, site_url=self.site_url
+                )
+                + body,
+                encoding="utf-8",
+            )
             if image_paths:
                 final_image_dir.parent.mkdir(parents=True, exist_ok=True)
                 (stage / image_dir).replace(final_image_dir)
@@ -71,7 +86,9 @@ class BlogConverter:
             shutil.rmtree(stage, ignore_errors=True)
         return ConversionOutput(post_path, (relative_post, *image_paths), f"/{date[:4]}/{date[5:7]}/{date[8:]}/{slug}/")
 
-    def _body(self, root: Path, article: BlogArticle, image_dir: Path) -> tuple[str, tuple[Path, ...]]:
+    def _body(
+        self, root: Path, article: BlogArticle, image_dir: Path
+    ) -> tuple[str, tuple[Path, ...], Path | None]:
         body = _CALLOUT.sub(
             lambda match: "\n".join(f"> {line}" for line in match.group(1).strip().splitlines()) + "\n",
             article.snapshot.markdown,
@@ -93,18 +110,41 @@ class BlogConverter:
             public_urls.append(f"{self.site_url}/{relative.as_posix()}")
             copies.append((source, destination))
         body = replace_image_sources(body, tuple(public_urls))
+        cover_rel: Path | None = None
+        if article.brand is not None and article.assets.cover is not None:
+            source = _safe_frozen_file(article.assets.cover.path)
+            cover_rel = image_dir / f"cover{source.suffix.lower()}"
+            destination = _new_path(root, cover_rel)
+            paths.append(cover_rel)
+            copies.append((source, destination))
         for source, destination in copies:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
-        return body.strip() + "\n", tuple(paths)
+        return body.strip() + "\n", tuple(paths), cover_rel
 
 
-def _frontmatter(snapshot: ContentSnapshot, instant: datetime) -> str:
+def _frontmatter(
+    snapshot: ContentSnapshot,
+    instant: datetime,
+    *,
+    brand: BlogBrandFields | None = None,
+    cover_rel: Path | None = None,
+    site_url: str = "",
+) -> str:
     def quoted(value: str) -> str:
         return json.dumps(value, ensure_ascii=False)
 
     categories = "[" + ", ".join(quoted(item) for item in snapshot.categories) + "]"
     keywords = ", ".join(snapshot.categories)
+    extra = ""
+    if brand is not None:
+        if brand.author:
+            extra += f"author: {quoted(brand.author)}\n"
+        if cover_rel is not None:
+            cover_posix = cover_rel.as_posix()
+            extra += f"cover: {quoted(cover_posix)}\n"
+            og_image = brand.og_image_url or f"{site_url.rstrip('/')}/{cover_posix}"
+            extra += f"og_image_url: {quoted(og_image)}\n"
     return (
         "---\n"
         "layout: post\n"
@@ -113,6 +153,7 @@ def _frontmatter(snapshot: ContentSnapshot, instant: datetime) -> str:
         f"categories: {categories}\n"
         f"description: {quoted(snapshot.summary)}\n"
         f"keywords: {quoted(keywords)}\n"
+        f"{extra}"
         "mermaid: false\nsequence: false\nflow: false\nmathjax: false\n"
         "mindmap: false\nmindmap2: false\n---\n\n"
     )

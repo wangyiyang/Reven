@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
 class FakeRenderer:
-    async def render(self, markdown: str) -> str:
+    async def render(self, markdown: str, theme: object = None) -> str:
         return '<section><img src="reven-asset://image/1"></section>'
 
 
@@ -209,7 +209,7 @@ async def test_unknown_or_duplicate_image_index_is_blocked(tmp_path: Path) -> No
     materialized, metadata = assets(tmp_path)
 
     class BadRenderer:
-        async def render(self, markdown: str) -> str:
+        async def render(self, markdown: str, theme: object = None) -> str:
             return '<img src="reven-asset://image/2"><img src="reven-asset://image/2">'
 
     publisher = WeChatPublisher(FakeWeChat(), BadRenderer(), FakeStore(metadata), assets_loader=lambda _: materialized)
@@ -460,7 +460,7 @@ async def test_all_renderer_images_must_be_frozen_placeholders(tmp_path: Path, h
     materialized, metadata = assets(tmp_path)
 
     class UnsafeRenderer:
-        async def render(self, markdown: str) -> str:
+        async def render(self, markdown: str, theme: object = None) -> str:
             return html
 
     publisher = WeChatPublisher(

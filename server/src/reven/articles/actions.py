@@ -3,9 +3,12 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
+from reven.brand.domain import BrandAssetPurpose
+from reven.brand.models import BrandAsset
 from reven.domain import AutomationStatus, BlogStage, JobStatus, TargetChannel, WechatStage
 from reven.jobs.locking import lock_article_job
 from reven.jobs.models import PublicationJob
@@ -37,6 +40,55 @@ class ArticleActionService:
             job.finished_at = None
             article.automation_status = AutomationStatus.WAITING
             article.last_error = None
+
+    async def regenerate(self, article_id: UUID) -> UUID:
+        """按当前品牌配置重新生成发布任务（幂等：已有未开始的等待任务时直接复用）。"""
+        async with self.factory.begin() as session:
+            article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
+            if article is None:
+                raise ActionConflictError("ARTICLE_NOT_FOUND", "稿件不存在")
+            channels: list[str] = [c.value for c in TargetChannel if c.value in (article.target_channels or [])]
+            if not channels:
+                raise ActionConflictError("NO_CHANNELS", "稿件未配置目标渠道")
+            existing = await session.scalar(
+                select(PublicationJob)
+                .where(
+                    PublicationJob.article_id == article.id,
+                    PublicationJob.content_hash.is_(None),
+                    PublicationJob.overall_status == JobStatus.WAITING,
+                    PublicationJob.started_at.is_(None),
+                )
+                .limit(1)
+            )
+            if existing is not None:
+                return existing.id
+            now = await database_now(session)
+            job = await JobRepository(session).create_waiting(
+                article_id=article.id,
+                content_hash=None,
+                target_channels=channels,
+                scheduled_at=now,
+                used_default=bool(article.notion_metadata.get("target_channels_used_default")),
+            )
+            article.automation_status = AutomationStatus.WAITING
+            article.last_error = None
+            return job.id
+
+    async def select_cover(self, article_id: UUID, asset_id: UUID | None) -> None:
+        """稿件级封面选择：优先于 Notion 封面与模板回落；asset_id 为空表示清除选择。"""
+        async with self.factory.begin() as session:
+            article = await session.scalar(select(Article).where(Article.id == article_id).with_for_update())
+            if article is None:
+                raise ActionConflictError("ARTICLE_NOT_FOUND", "稿件不存在")
+            if asset_id is None:
+                article.selected_cover_asset_id = None
+                return
+            asset = await session.get(BrandAsset, asset_id)
+            if asset is None or not asset.enabled:
+                raise ActionConflictError("ASSET_UNAVAILABLE", "封面素材不存在或已停用")
+            if asset.purpose not in (BrandAssetPurpose.COVER.value, BrandAssetPurpose.OTHER.value):
+                raise ActionConflictError("ASSET_PURPOSE_MISMATCH", "素材用途不是封面或通用图片")
+            article.selected_cover_asset_id = asset.id
 
     async def cancel(self, article_id: UUID, job_id: UUID) -> None:
         async with self.factory.begin() as session:

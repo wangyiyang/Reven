@@ -90,6 +90,7 @@ class ArticleDetail(ArticleSummary):
     notion_url: str
     notion_metadata: dict[str, Any]
     cover_metadata: dict[str, Any]
+    selected_cover_asset_id: UUID | None
     last_error: str | None
     content_hash: str | None
     validation_errors: list[dict[str, Any]]
@@ -110,6 +111,8 @@ class JobDetail(JobSummary):
     wechat: ChannelResult
     wechat_html: str | None
     attempt_count: int
+    brand_binding_key: str
+    brand: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 
@@ -120,9 +123,15 @@ class RetryRequest(BaseModel):
     channels: list[str] = Field(min_length=1, max_length=2)
 
 
+class CoverSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: UUID | None = None
+
+
 class ActionResult(BaseModel):
     ok: bool = True
-    job_id: UUID
+    job_id: UUID | None = None
 
 
 class PreviewResponse(BaseModel):
