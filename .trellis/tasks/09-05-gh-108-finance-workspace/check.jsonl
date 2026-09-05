@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/reven-server/backend/finance-summary-contract.md", "reason": "质量核查时回归现金口径：month 参数不改变五字段精确条件；页面不得宣传跑道/余额类指标；五字段与 UI label 映射保持正确"}
+{"file": ".trellis/spec/web/frontend/brand-vi.md", "reason": "核查新增 UI（drawer、三页面、对话框）的颜色 token 使用与对比度合规"}
