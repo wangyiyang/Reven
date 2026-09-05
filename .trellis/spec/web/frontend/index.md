@@ -14,7 +14,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Brand VI](./brand-vi.md) | 翊行代码 VI v2.1 design tokens, theming, forbidden patterns | Active |
+| [Brand and Accessible Color](./brand-vi.md) | Notion blue/gray tokens, theme mechanics, and WCAG contrast guardrails | Active |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
 | [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |

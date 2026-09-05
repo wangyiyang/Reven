@@ -101,6 +101,7 @@ function CustomerNotesField({ values, onChange }: CustomerFormProps) {
     <div className="space-y-2">
       <Label htmlFor="crm-customer-notes">备注</Label>
       <Textarea
+        className="text-[var(--ink)] placeholder:text-[var(--muted)]"
         id="crm-customer-notes"
         onChange={(event) => onChange({ ...values, notes: event.target.value })}
         placeholder="背景、需求、限制条件…"

@@ -87,6 +87,22 @@ describe("TalentsPage", () => {
     expect(screen.getAllByText("已逾期")[0]).toBeInTheDocument()
   })
 
+  it("在桌面表格和移动端容器内分别展示空态", async () => {
+    server.use(http.get("/api/talents", () => HttpResponse.json([])))
+
+    renderPage()
+
+    const emptyMessages = await screen.findAllByText("暂无匹配人才。")
+    const table = screen.getByRole("table")
+    const desktopEmptyMessage = within(table).getByText("暂无匹配人才。")
+    const desktopEmptyCell = desktopEmptyMessage.closest("td")
+
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6)
+    expect(desktopEmptyCell).toHaveAttribute("colspan", "6")
+    expect(emptyMessages.filter((message) => message.closest("table") === null)).toHaveLength(1)
+    expect(screen.queryAllByRole("article")).toHaveLength(0)
+  })
+
   it("创建人才时提交标签、费率与评分并刷新列表", async () => {
     let requestBody: unknown
     let talents = [talent]
@@ -126,10 +142,12 @@ describe("TalentsPage", () => {
       notes: null,
     })
     expect(screen.getByLabelText("姓名")).toHaveValue("")
+    expect(screen.getByLabelText("费率金额")).toHaveValue(null)
+    expect(screen.queryByRole("button", { name: "移除标签 前端" })).not.toBeInTheDocument()
     expect((await screen.findAllByText("周航"))[0]).toBeInTheDocument()
   })
 
-  it("费率只填金额或单位时不提交", async () => {
+  it("客户端验证失败时保留已确认标签和表单字段", async () => {
     let posted = false
     server.use(http.post("/api/talents", () => {
       posted = true
@@ -138,11 +156,16 @@ describe("TalentsPage", () => {
 
     renderPage()
     await userEvent.type(await screen.findByLabelText("姓名"), "待验证人才")
+    await userEvent.type(screen.getByLabelText("标签"), "插画")
+    await userEvent.click(screen.getByRole("button", { name: "添加标签" }))
     await userEvent.type(screen.getByLabelText("费率金额"), "500")
     await userEvent.click(screen.getByRole("button", { name: "添加人才" }))
 
     expect(toast.error).toHaveBeenCalledWith("费率金额与单位需同时填写或同时留空")
     expect(posted).toBe(false)
+    expect(screen.getByLabelText("姓名")).toHaveValue("待验证人才")
+    expect(screen.getByRole("button", { name: "移除标签 插画" })).toBeInTheDocument()
+    expect(screen.getByLabelText("费率金额")).toHaveValue(500)
   })
 
   it("支持编辑人才，并在确认后删除", async () => {
@@ -182,7 +205,7 @@ describe("TalentsPage", () => {
 
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("人才已删除")
-    expect(await screen.findByText("暂无匹配人才。")).toBeInTheDocument()
+    expect(await screen.findAllByText("暂无匹配人才。")).toHaveLength(2)
   })
 
   it("请求失败时展示重试入口且不报告成功", async () => {

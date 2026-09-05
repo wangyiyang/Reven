@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from "react-router-dom"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -50,6 +50,67 @@ describe("ArticlesPage", () => {
     expect(screen.getByLabelText("搜索标题")).toHaveValue("测试")
     expect(requests[0]).toContain("page=2")
     expect(screen.getByTestId("location")).toHaveTextContent("status=待发布")
+  })
+
+  it.each(["abc", "0", "-5"])("normalizes invalid page %s to the first page", async (page) => {
+    const requests: URLSearchParams[] = []
+    server.use(http.get("/api/articles", ({ request }) => {
+      requests.push(new URL(request.url).searchParams)
+      return HttpResponse.json({ items: [article], total: 1, page: 1, page_size: 20 })
+    }))
+    renderPage(`/articles?status=待发布&channel=微信公众号&query=测试&page=${page}`)
+
+    expect(await screen.findAllByText("测试稿件")).not.toHaveLength(0)
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("page=1"))
+
+    const normalizedParams = new URLSearchParams(screen.getByTestId("location").textContent ?? "")
+    expect(normalizedParams.get("status")).toBe("待发布")
+    expect(normalizedParams.get("channel")).toBe("微信公众号")
+    expect(normalizedParams.get("query")).toBe("测试")
+    expect(screen.getByTestId("navigation-type")).toHaveTextContent("REPLACE")
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get("page")).toBe("1")
+  })
+
+  it("replaces an out-of-range page with the last page without showing the empty state", async () => {
+    const requestedPages: string[] = []
+    let showedEmptyState = false
+    const emptyStateObserver = new MutationObserver((records) => {
+      showedEmptyState ||= records.some((record) => [...record.addedNodes].some((node) => node.textContent?.includes("没有匹配稿件")))
+    })
+    emptyStateObserver.observe(document.body, { childList: true, subtree: true })
+    server.use(http.get("/api/articles", ({ request }) => {
+      const page = new URL(request.url).searchParams.get("page") ?? ""
+      requestedPages.push(page)
+      return HttpResponse.json({
+        items: page === "3" ? [article] : [],
+        total: 41,
+        page: Number(page),
+        page_size: 20,
+      })
+    }))
+
+    renderPage("/articles?status=待发布&channel=微信公众号&query=测试&page=99")
+
+    expect(await screen.findAllByText("测试稿件")).not.toHaveLength(0)
+    emptyStateObserver.disconnect()
+    expect(requestedPages).toEqual(["99", "3"])
+    expect(showedEmptyState).toBe(false)
+    expect(screen.queryByText("没有匹配稿件")).not.toBeInTheDocument()
+    const normalizedParams = new URLSearchParams(screen.getByTestId("location").textContent ?? "")
+    expect(normalizedParams.get("page")).toBe("3")
+    expect(normalizedParams.get("status")).toBe("待发布")
+    expect(normalizedParams.get("channel")).toBe("微信公众号")
+    expect(normalizedParams.get("query")).toBe("测试")
+    expect(screen.getByTestId("navigation-type")).toHaveTextContent("REPLACE")
+  })
+
+  it("keeps the empty state for a genuinely empty result", async () => {
+    server.use(http.get("/api/articles", () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 })))
+    renderPage("/articles?status=待发布&page=1")
+
+    expect(await screen.findByText("没有匹配稿件")).toBeInTheDocument()
+    expect(screen.getByTestId("location")).toHaveTextContent("status=待发布&page=1")
   })
 
   it("updates filters and sends them to the API", async () => {
@@ -160,7 +221,8 @@ function renderPage(initialEntry: string) {
 
 function Location() {
   const location = useLocation()
-  return <output data-testid="location">{location.search}</output>
+  const navigationType = useNavigationType()
+  return <><output data-testid="location">{location.search}</output><output data-testid="navigation-type">{navigationType}</output></>
 }
 
 function syncRun() {

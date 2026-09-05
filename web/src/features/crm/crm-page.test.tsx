@@ -50,6 +50,7 @@ describe("CrmPage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "CRM" })).toBeInTheDocument()
+    expect(screen.getByLabelText("备注")).toHaveClass("text-[var(--ink)]", "placeholder:text-[var(--muted)]")
     expect((await screen.findAllByText("星河科技"))[0]).toBeInTheDocument()
     expect(screen.getAllByText("跟进中")[0]).toBeInTheDocument()
     expect(screen.getAllByText(/逾期 · 2020-01-01/)[0]).toBeInTheDocument()

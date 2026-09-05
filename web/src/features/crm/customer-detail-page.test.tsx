@@ -37,7 +37,7 @@ const contact: Contact = {
   name: "陈晨",
   role: "创始人",
   phone: "13800000000",
-  email: null,
+  email: "zhangsan@example.com",
   wechat: "chenchen",
   is_primary: true,
   notes: null,
@@ -91,6 +91,25 @@ describe("CustomerDetailPage", () => {
     expect(screen.getByText("主要联系人")).toBeInTheDocument()
     expect(await screen.findByText("确认了知识库一期范围")).toBeInTheDocument()
     expect(screen.getByText("· 陈晨")).toBeInTheDocument()
+  })
+
+  it("在窄桌面宽度下为日期、邮箱和主要联系人文案保留完整展示空间", async () => {
+    renderPage()
+
+    const contactCard = await screen.findByRole("article", { name: "陈晨 联系人摘要" })
+    const sectionsGrid = screen.getByRole("heading", { name: "联系人" }).parentElement?.parentElement?.parentElement
+    expect(sectionsGrid).toHaveClass("2xl:grid-cols-2")
+    expect(sectionsGrid).not.toHaveClass("xl:grid-cols-2")
+    expect(sectionsGrid?.parentElement).toHaveClass("max-w-7xl")
+
+    const occurredOn = screen.getByLabelText("发生日期")
+    expect(occurredOn.parentElement?.parentElement).toHaveClass("md:grid-cols-[minmax(0,1fr)_minmax(10rem,1fr)_minmax(0,1fr)]")
+
+    const channels = within(contactCard).getByText(/zhangsan@example\.com/)
+    expect(channels).toHaveClass("break-words")
+    expect(channels).not.toHaveClass("break-all")
+    expect(screen.getByRole("checkbox", { name: "设为主要联系人" }).closest("label")).toHaveClass("whitespace-nowrap")
+    expect(within(contactCard).getByText("主要联系人")).toHaveClass("shrink-0", "whitespace-nowrap")
   })
 
   it("新增主要联系人时提交完整数据并刷新列表", async () => {

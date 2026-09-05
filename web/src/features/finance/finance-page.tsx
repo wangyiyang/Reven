@@ -105,21 +105,12 @@ export function FinancePage() {
   })
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest<null>(`/finance/entries/${id}`, { method: "DELETE" }),
-    onMutate: async (id: string) => {
-      // 乐观删除：远端库延迟高，先移除行再给服务端对账
-      await queryClient.cancelQueries({ queryKey: ["finance", "entries"] })
-      const previous = queryClient.getQueriesData<FinanceEntry[]>({ queryKey: ["finance", "entries"] })
-      queryClient.setQueriesData<FinanceEntry[]>({ queryKey: ["finance", "entries"] }, (old) => old?.filter((entry) => entry.id !== id))
-      return { previous }
-    },
-    onSuccess: () => toast.success("财务记录已删除"),
-    onError: (error, _id, context) => {
-      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      toast.error(error instanceof Error ? error.message : "财务记录删除失败")
-    },
-    onSettled: async () => {
+    onSuccess: async () => {
       await invalidateFinance()
+      toast.success("财务记录已删除")
+      setDeleting(null)
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "财务记录删除失败"),
   })
 
   const entries = entriesQuery.data ?? []
@@ -172,13 +163,13 @@ export function FinancePage() {
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">财务收支</h1>
-        <p className="text-sm text-[var(--muted)]">一人公司现金流台账：收入、花销、应收、跑道。</p>
+        <p className="text-sm text-[var(--muted)]">一人公司现金流台账：现金收付与应收应付。</p>
       </div>
 
       <section aria-label="财务汇总" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-4">
-        <SummaryCard label="收入" value={summary?.income_cents} />
-        <SummaryCard label="花销" value={summary?.expense_cents} />
-        <SummaryCard label="净额" value={summary?.net_cents} />
+        <SummaryCard label="已收收入" value={summary?.income_cents} />
+        <SummaryCard label="已付花销" value={summary?.expense_cents} />
+        <SummaryCard label="现金净额" value={summary?.net_cents} />
         <SummaryCard label="应收" value={summary?.receivable_cents} />
         <SummaryCard label="应付" value={summary?.payable_cents} />
       </section>
@@ -313,7 +304,7 @@ export function FinancePage() {
                   <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
-                  <Badge className={entry.kind === "income" ? "text-emerald-600" : "text-[var(--muted)]"}>
+                  <Badge className={entry.kind === "income" ? "text-[var(--signal)]" : "text-[var(--muted)]"}>
                     {entry.kind === "income" ? "收入" : "支出"}
                   </Badge>
                   <div className="flex gap-1">
@@ -350,7 +341,7 @@ export function FinancePage() {
                   <TableCell>{entry.occurred_on}</TableCell>
                   <TableCell>{entry.name}</TableCell>
                   <TableCell>
-                    <Badge className={entry.kind === "income" ? "text-emerald-600" : "text-[var(--muted)]"}>
+                    <Badge className={entry.kind === "income" ? "text-[var(--signal)]" : "text-[var(--muted)]"}>
                       {entry.kind === "income" ? "收入" : "支出"}
                     </Badge>
                   </TableCell>
@@ -393,7 +384,7 @@ export function FinancePage() {
         onClose={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return
-          deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+          deleteMutation.mutate(deleting.id)
         }}
         open={deleting !== null}
         title="删除财务记录"

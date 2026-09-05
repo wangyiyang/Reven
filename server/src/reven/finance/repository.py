@@ -48,10 +48,12 @@ class FinanceRepository:
         return True
 
     async def summary(self) -> dict[str, int]:
-        income = func.coalesce(func.sum(case((FinanceEntry.kind == "income", FinanceEntry.amount_cents), else_=0)), 0)
-        expense = func.coalesce(func.sum(case((FinanceEntry.kind == "expense", FinanceEntry.amount_cents), else_=0)), 0)
+        income_condition = and_(FinanceEntry.kind == "income", FinanceEntry.status == "已收")
+        expense_condition = and_(FinanceEntry.kind == "expense", FinanceEntry.status == "已付")
         receivable_condition = and_(FinanceEntry.kind == "income", FinanceEntry.status == "应收")
         payable_condition = and_(FinanceEntry.kind == "expense", FinanceEntry.status == "应付")
+        income = func.coalesce(func.sum(case((income_condition, FinanceEntry.amount_cents), else_=0)), 0)
+        expense = func.coalesce(func.sum(case((expense_condition, FinanceEntry.amount_cents), else_=0)), 0)
         receivable = func.coalesce(func.sum(case((receivable_condition, FinanceEntry.amount_cents), else_=0)), 0)
         payable = func.coalesce(func.sum(case((payable_condition, FinanceEntry.amount_cents), else_=0)), 0)
         row = (await self.session.execute(select(income, expense, receivable, payable))).one()

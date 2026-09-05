@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react"
+import { useEffect } from "react"
 import { Link, useLocation, useSearchParams } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
@@ -25,6 +26,19 @@ export function ArticlesPage() {
     queryKey: ["articles", queryString],
     queryFn: async () => parseArticleList(await apiRequest<unknown>(`/articles?${queryString}`)),
   })
+  const requestedPage = Number(filters.page)
+  const lastPage = articles.isSuccess && articles.data.total > 0
+    ? Math.ceil(articles.data.total / articles.data.page_size)
+    : null
+  const fallbackPage = lastPage !== null && requestedPage > lastPage ? String(lastPage) : null
+  const urlPage = searchParams.get("page")
+  const canonicalPage = urlPage !== null && urlPage !== filters.page ? filters.page : fallbackPage
+  useEffect(() => {
+    if (canonicalPage === null) return
+    const params = new URLSearchParams(searchParams)
+    params.set("page", canonicalPage)
+    setSearchParams(params, { replace: true })
+  }, [canonicalPage, searchParams, setSearchParams])
   const updateFilters = (next: ArticleFilterValues) => {
     const params = new URLSearchParams()
     for (const [key, value] of Object.entries(next)) if (value) params.set(key, value)
@@ -37,8 +51,8 @@ export function ArticlesPage() {
       <ArticleFilters onChange={updateFilters} values={filters} />
       {articles.isLoading && <LoadingRows />}
       {articles.isError && <ErrorPanel message={articles.error.message} retry={() => articles.refetch()} />}
-      {articles.isSuccess && articles.data.items.length === 0 && <EmptyState />}
-      {articles.isSuccess && articles.data.items.length > 0 && (
+      {articles.isSuccess && fallbackPage === null && articles.data.items.length === 0 && <EmptyState />}
+      {articles.isSuccess && fallbackPage === null && articles.data.items.length > 0 && (
         <>
           <DesktopTable items={articles.data.items} listContext={listContext} />
           <MobileList items={articles.data.items} listContext={listContext} />

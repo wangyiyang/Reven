@@ -24,10 +24,10 @@ function CustomerDetail({ customerId }: { customerId: string }) {
     return <PageState action={() => void customerQuery.refetch()} message="客户不存在或加载失败。" />
   }
   return (
-    <main className="page-enter mx-auto w-full max-w-6xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
+    <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <DetailHeading customer={customerQuery.data} />
       <CustomerSummary customer={customerQuery.data} />
-      <div className="grid gap-6 xl:grid-cols-2"><ContactsSection customerId={customerId} /><FollowUpsSection customerId={customerId} /></div>
+      <div className="grid gap-6 2xl:grid-cols-2"><ContactsSection customerId={customerId} /><FollowUpsSection customerId={customerId} /></div>
     </main>
   )
 }

@@ -64,11 +64,11 @@ describe("FinancePage", () => {
       http.get("/api/finance/entries", () => HttpResponse.json([income, expense])),
       http.get("/api/finance/summary", () =>
         HttpResponse.json({
-          income_cents: 15000000,
-          expense_cents: 10000,
-          net_cents: 14990000,
-          receivable_cents: 0,
-          payable_cents: 0,
+          income_cents: 80000,
+          expense_cents: 20000,
+          net_cents: 60000,
+          receivable_cents: 30000,
+          payable_cents: 40000,
         }),
       ),
     )
@@ -76,10 +76,21 @@ describe("FinancePage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "财务收支" })).toBeInTheDocument()
+    expect(screen.getByText("一人公司现金流台账：现金收付与应收应付。")).toBeInTheDocument()
+    expect(screen.queryByText(/跑道/)).not.toBeInTheDocument()
+    const summary = screen.getByRole("region", { name: "财务汇总" })
+    await within(summary).findByText("¥800.00")
+    expect(within(summary).getByText("已收收入").parentElement).toHaveTextContent("¥800.00")
+    expect(within(summary).getByText("已付花销").parentElement).toHaveTextContent("¥200.00")
+    expect(within(summary).getByText("现金净额").parentElement).toHaveTextContent("¥600.00")
+    expect(within(summary).getByText("应收").parentElement).toHaveTextContent("¥300.00")
+    expect(within(summary).getByText("应付").parentElement).toHaveTextContent("¥400.00")
     expect((await screen.findAllByText("¥150,000.00")).length).toBeGreaterThan(0)
-    expect(screen.getByRole("region", { name: "财务汇总" })).toHaveTextContent("¥100.00")
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     expect(screen.getAllByText("DeepSeek 充值")[0]).toBeInTheDocument()
+    const incomeBadges = screen.getAllByText("收入").filter((element) => element.tagName === "SPAN")
+    expect(incomeBadges).toHaveLength(2)
+    for (const badge of incomeBadges) expect(badge).toHaveClass("text-[var(--signal)]")
   })
 
   it("creates an income entry and refreshes the list", async () => {
@@ -222,45 +233,110 @@ describe("FinancePage", () => {
     expect(toast.success).toHaveBeenCalledWith("财务记录已删除")
   })
 
-  it("removes the row optimistically before the server responds", async () => {
+  it("keeps the row and summary visible until the server confirms deletion", async () => {
+    let entries = [income]
+    let deleteCalls = 0
+    let entriesGetCalls = 0
+    let summaryGetCalls = 0
     let resolveDelete: () => void = () => {}
     server.use(
-      http.get("/api/finance/entries", () => HttpResponse.json([income])),
-      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+      http.get("/api/finance/entries", () => {
+        entriesGetCalls += 1
+        return HttpResponse.json(entries)
+      }),
+      http.get("/api/finance/summary", () => {
+        summaryGetCalls += 1
+        const incomeCents = entries.length > 0 ? 15000000 : 0
+        return HttpResponse.json({ ...summaryZeros, income_cents: incomeCents, net_cents: incomeCents })
+      }),
       http.delete("/api/finance/entries/:id", async () => {
+        deleteCalls += 1
         await new Promise<void>((resolve) => { resolveDelete = resolve })
+        entries = []
         return new HttpResponse(null, { status: 204 })
       }),
     )
 
     renderPage()
+    const summary = await screen.findByRole("region", { name: "财务汇总" })
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
     const dialog = await screen.findByRole("dialog")
-    await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))
+    const confirmButton = within(dialog).getByRole("button", { name: /确认删除/ })
+    await userEvent.click(confirmButton)
 
-    // 服务端响应被挂起时，行已经从列表消失（乐观更新）
-    await waitFor(() => expect(screen.queryByText("OLL 项目预付款")).not.toBeInTheDocument())
+    await waitFor(() => expect(deleteCalls).toBe(1))
+    expect(screen.getAllByText("OLL 项目预付款")[0]).toBeInTheDocument()
+    expect(summary).toHaveTextContent("¥150,000.00")
+    expect(confirmButton).toBeDisabled()
+
     resolveDelete()
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("财务记录已删除"))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText("OLL 项目预付款")).not.toBeInTheDocument())
+    expect(deleteCalls).toBe(1)
+    expect(entriesGetCalls).toBe(2)
+    expect(summaryGetCalls).toBe(2)
+    expect(summary).not.toHaveTextContent("¥150,000.00")
   })
 
-  it("restores the row when the delete fails", async () => {
+  it("keeps the row and summary when the delete fails", async () => {
     server.use(
       http.get("/api/finance/entries", () => HttpResponse.json([income])),
-      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+      http.get("/api/finance/summary", () =>
+        HttpResponse.json({ ...summaryZeros, income_cents: 15000000, net_cents: 15000000 }),
+      ),
       http.delete("/api/finance/entries/:id", () => HttpResponse.json({ message: "boom" }, { status: 500 })),
     )
 
     renderPage()
+    const summary = await screen.findByRole("region", { name: "财务汇总" })
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "删除" }))
     const dialog = await screen.findByRole("dialog")
     await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
-    // 失败后回滚：行恢复
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+    expect(summary).toHaveTextContent("¥150,000.00")
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+  })
+
+  it("deletes four entries sequentially exactly once and stays consistent with the server", async () => {
+    const initialEntries = [
+      income,
+      expense,
+      { ...income, id: "33333333-3333-3333-3333-333333333333", name: "云服务器" },
+      { ...expense, id: "44444444-4444-4444-4444-444444444444", name: "设计订阅" },
+    ]
+    let entries = [...initialEntries]
+    const deleteCalls = new Map<string, number>()
+    server.use(
+      http.get("/api/finance/entries", () => HttpResponse.json(entries)),
+      http.get("/api/finance/summary", () => HttpResponse.json(summaryZeros)),
+      http.delete("/api/finance/entries/:id", ({ params }) => {
+        const id = String(params.id)
+        deleteCalls.set(id, (deleteCalls.get(id) ?? 0) + 1)
+        entries = entries.filter((entry) => entry.id !== id)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    renderPage()
+    expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
+
+    for (const entry of initialEntries) {
+      await userEvent.click(screen.getByRole("button", { name: `删除 ${entry.name}` }))
+      const dialog = await screen.findByRole("dialog")
+      await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+      await waitFor(() => expect(screen.queryByText(entry.name)).not.toBeInTheDocument())
+    }
+
+    expect(entries).toEqual([])
+    expect(Object.fromEntries(deleteCalls)).toEqual(
+      Object.fromEntries(initialEntries.map((entry) => [entry.id, 1])),
+    )
+    expect((await screen.findAllByText("还没有财务记录。")).length).toBeGreaterThan(0)
   })
 
   it("renders mobile cards with labeled edit and delete actions", async () => {

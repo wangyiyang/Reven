@@ -1,0 +1,3 @@
+{"file":".trellis/spec/guides/index.md","reason":"Shared verification and cross-layer reasoning rules for the multi-issue parent task."}
+{"file":".trellis/spec/web/frontend/index.md","reason":"Frontend conventions for issues #100-#105."}
+{"file":".trellis/spec/reven-server/backend/index.md","reason":"Backend conventions for the finance summary change in #104."}

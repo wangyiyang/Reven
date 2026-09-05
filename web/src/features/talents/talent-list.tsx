@@ -21,6 +21,7 @@ type TalentListProps = {
 }
 
 const selectClassName = "h-10 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
+const emptyTalentsMessage = "暂无匹配人才。"
 
 export function TalentList(props: TalentListProps) {
   const tagOptions = [...new Set((props.talents ?? []).flatMap((talent) => talent.tags))].sort()
@@ -90,7 +91,7 @@ function TalentFiltersBar({ filters, onChange, tagOptions }: { filters: TalentFi
   )
 }
 
-function TalentListState({ talents, loading, failed, onRetry }: TalentListProps) {
+function TalentListState({ loading, failed, onRetry }: TalentListProps) {
   if (loading) return <p className="py-8 text-center text-sm text-[var(--muted)]">正在加载人才…</p>
   if (failed) {
     return (
@@ -100,7 +101,6 @@ function TalentListState({ talents, loading, failed, onRetry }: TalentListProps)
       </div>
     )
   }
-  if (talents?.length === 0) return <p className="py-8 text-center text-sm text-[var(--muted)]">暂无匹配人才。</p>
   return null
 }
 
@@ -139,9 +139,12 @@ function TalentActions({ talent, labeled, onEdit, onDelete }: { talent: Talent; 
 }
 
 function MobileTalents(props: TalentListProps) {
+  const talents = props.talents ?? []
   return (
     <div className="grid gap-3 lg:hidden">
-      {(props.talents ?? []).map((talent) => (
+      {talents.length === 0 ? (
+        <p className="py-8 text-center text-sm text-[var(--muted)]">{emptyTalentsMessage}</p>
+      ) : talents.map((talent) => (
         <article aria-label={`${talent.name} 人才摘要`} className="rounded-lg border border-[var(--line)] p-4" key={talent.id}>
           <div className="flex items-start justify-between gap-3">
             <Link className="font-semibold" to={`/talents/${talent.id}`}>{talent.name}</Link>
@@ -161,12 +164,17 @@ function MobileTalents(props: TalentListProps) {
 }
 
 function DesktopTalents(props: TalentListProps) {
+  const talents = props.talents ?? []
   return (
     <div className="hidden lg:block">
       <Table>
         <TableHeader><TableRow><TableHead>人才</TableHead><TableHead>状态</TableHead><TableHead>标签</TableHead><TableHead>费率</TableHead><TableHead>评分</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
         <TableBody>
-          {(props.talents ?? []).map((talent) => (
+          {talents.length === 0 ? (
+            <TableRow>
+              <TableCell className="py-8 text-center text-sm text-[var(--muted)]" colSpan={6}>{emptyTalentsMessage}</TableCell>
+            </TableRow>
+          ) : talents.map((talent) => (
             <TableRow key={talent.id}>
               <TableCell>
                 <Link className="font-medium" to={`/talents/${talent.id}`}>{talent.name}</Link>

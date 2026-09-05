@@ -55,7 +55,7 @@ export function LoginPage() {
           </p>
         )}
         <button
-          className="mt-6 min-h-11 w-full rounded-md border border-[var(--signal)] bg-[var(--signal)] text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:opacity-50"
+          className="mt-6 min-h-11 w-full rounded-md border border-[var(--signal)] bg-[var(--signal)] text-sm font-semibold text-[var(--on-signal)] transition-transform hover:-translate-y-px active:translate-y-px! disabled:opacity-50"
           disabled={pending || password.length === 0}
           type="submit"
         >
