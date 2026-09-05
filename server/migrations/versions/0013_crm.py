@@ -1,14 +1,14 @@
 """add CRM customers, contacts, and follow-ups
 
 Revision ID: 0013_crm
-Revises: 0012_playbooks
+Revises: 0012_sops
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0013_crm"
-down_revision = "0012_playbooks"
+down_revision = "0012_sops"
 branch_labels = None
 depends_on = None
 

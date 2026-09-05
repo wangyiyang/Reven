@@ -41,7 +41,7 @@ def test_migration_0013_adds_nullable_last_latency_ms() -> None:
         command.upgrade(config, "head")
         assert "last_latency_ms" in asyncio.run(_column_names(database_url))
 
-        command.downgrade(config, "0012_playbooks")
+        command.downgrade(config, "0012_sops")
         assert "last_latency_ms" not in asyncio.run(_column_names(database_url))
 
         command.upgrade(config, "head")

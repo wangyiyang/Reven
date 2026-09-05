@@ -1,4 +1,4 @@
-"""ORM model for SOP/checklist/script playbooks."""
+"""ORM model for SOP (standard operating procedure) entries."""
 
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -10,12 +10,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from reven.db import Base
 
 
-class Playbook(Base):
-    __tablename__ = "playbooks"
+class Sop(Base):
+    __tablename__ = "sops"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     title: Mapped[str] = mapped_column(String(200))
-    kind: Mapped[str] = mapped_column(String(32), default="sop")
+    kind: Mapped[str] = mapped_column(String(32), default="procedure")
     status: Mapped[str] = mapped_column(String(32), default="草稿")
     body: Mapped[str] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list)

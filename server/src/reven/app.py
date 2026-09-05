@@ -13,9 +13,9 @@ from reven.api.routes.auth import router as auth_router
 from reven.api.routes.crm import router as crm_router
 from reven.api.routes.finance import router as finance_router
 from reven.api.routes.integrations import router as integrations_router
-from reven.api.routes.playbooks import router as playbooks_router
 from reven.api.routes.projects import router as projects_router
 from reven.api.routes.rss import router as rss_router
+from reven.api.routes.sops import router as sops_router
 from reven.api.routes.sync import router as sync_router
 from reven.api.routes.system import router as system_router
 from reven.api.routes.talents import router as talents_router
@@ -139,7 +139,7 @@ def create_app(
     app.include_router(finance_router)
     app.include_router(integrations_router)
     app.include_router(projects_router)
-    app.include_router(playbooks_router)
+    app.include_router(sops_router)
     app.include_router(rss_router)
     app.include_router(sync_router)
     app.include_router(system_router)

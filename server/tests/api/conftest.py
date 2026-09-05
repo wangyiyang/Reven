@@ -90,7 +90,7 @@ def workbench(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, asy
                     "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, publication_jobs, "
                     "articles, crm_follow_ups, crm_contacts, crm_customers, talent_interactions, talents, "
                     "finance_entries, projects, "
-                    "playbooks, integrations, auth_sessions, "
+                    "sops, integrations, auth_sessions, "
                     "system_state RESTART IDENTITY CASCADE"
                 )
             )
