@@ -46,11 +46,11 @@ pnpm build                          # renderer + web 全量构建（最终回归
 
 目标：品牌资料可视化维护；高频操作（预览/校验/封面/版本追溯）进入稿件详情。
 
-- [ ] C1 `web/src/features/brand/`：`/brand` 设置页四区块（档案/素材/模板双渠道 Tab/导入占位），复用 integrations 页模式；app-shell 导航加「品牌与发布」。
-- [ ] C2 稿件详情：品牌区块（冻结版本 vs 当前版本）、校验警告带处理入口链接、预览指纹与「配置已更新请重新预览」提示。
-- [ ] C3 封面缺失时的素材选择对话框（选择/上传 → `POST /articles/{id}/cover`）。
-- [ ] C4 发布历史/任务详情展示品牌与模板版本（追溯视图）。
-- [ ] **验证点 C**：`pnpm --filter @reven/web test --run && pnpm --filter @reven/web lint && pnpm build` 全绿 → 提交 `feat(web): brand settings and article brand context`。
+- [x] C1 `web/src/features/brand/`：`/brand` 设置页四区块（档案/素材/模板双渠道 Tab/导入占位），复用 integrations 页模式；app-shell 导航加「品牌与发布」。
+- [x] C2 稿件详情：品牌区块（冻结版本 vs 当前版本）、校验警告带处理入口链接、预览指纹与「配置已更新请重新预览」提示。
+- [x] C3 封面缺失时的素材选择对话框（选择/上传 → `POST /articles/{id}/cover`）。
+- [x] C4 发布历史/任务详情展示品牌与模板版本（追溯视图）。
+- [x] **验证点 C**：`pnpm --filter @reven/web test --run && pnpm --filter @reven/web lint && pnpm build` 全绿 （已达成：web 169 passed（+9 新增）+ 基线 10 个 app-shell 失败不变 / eslint clean / build ✓）→ 提交 `feat(web): brand settings and article brand context`。
 
 ## 阶段 D：Notion VI Hub 迁移
 

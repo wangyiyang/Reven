@@ -30,6 +30,7 @@ export function parseArticleDetail(value: unknown): ArticleDetail {
     ...parseArticleSummary(data),
     notion_metadata: record(data.notion_metadata, "稿件详情"),
     cover_metadata: record(data.cover_metadata, "稿件详情"),
+    selected_cover_asset_id: typeof data.selected_cover_asset_id === "string" ? data.selected_cover_asset_id : null,
     last_error: nullableError(data.last_error, "稿件详情"),
     content_hash: nullableString(data.content_hash, "稿件详情"),
     validation_errors: validationItems(data.validation_errors),
@@ -52,8 +53,26 @@ export function parseJobDetail(value: unknown): JobDetail {
     wechat: parseChannelResult(data.wechat),
     wechat_html: nullableString(data.wechat_html, "任务详情"),
     attempt_count: integer(data.attempt_count, "任务详情"),
+    brand_binding_key: typeof data.brand_binding_key === "string" ? data.brand_binding_key : "legacy",
+    brand: parseJobBrand(data.brand),
     created_at: dateTime(data.created_at, "任务详情"),
     updated_at: dateTime(data.updated_at, "任务详情"),
+  }
+}
+
+function parseJobBrand(value: unknown): JobDetail["brand"] {
+  if (value === null || value === undefined) return null
+  const data = record(value, "任务品牌绑定")
+  const fingerprint = record(data.version_fingerprint ?? {}, "任务品牌绑定")
+  return {
+    binding_key: typeof data.binding_key === "string" ? data.binding_key : "",
+    version_fingerprint: {
+      brand_version: typeof fingerprint.brand_version === "number" ? fingerprint.brand_version : undefined,
+      wechat_template_version:
+        typeof fingerprint.wechat_template_version === "number" ? fingerprint.wechat_template_version : null,
+      blog_template_version:
+        typeof fingerprint.blog_template_version === "number" ? fingerprint.blog_template_version : null,
+    },
   }
 }
 

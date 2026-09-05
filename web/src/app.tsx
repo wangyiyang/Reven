@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell"
 import { LoginPage } from "@/features/auth/login-page"
 import { CrmPage } from "@/features/crm/crm-page"
 import { CustomerDetailPage } from "@/features/crm/customer-detail-page"
+import { BrandPage } from "@/features/brand/brand-page"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
@@ -32,6 +33,7 @@ function ShellRoutes() {
       <Routes>
         <Route element={<ArticlesPage />} path="/articles" />
         <Route element={<ArticleDetailPage />} path="/articles/:articleId" />
+        <Route element={<BrandPage />} path="/brand" />
         <Route element={<IntegrationsPage />} path="/integrations" />
         <Route element={<CrmPage />} path="/crm" />
         <Route element={<CustomerDetailPage />} path="/crm/customers/:customerId" />

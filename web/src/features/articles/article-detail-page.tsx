@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiRequest } from "@/lib/api"
 import { safeNotionUrl } from "@/lib/external-url"
 import { ArticleStatus } from "./article-status"
+import { BrandPanel } from "./brand-panel"
 import { ChannelTimeline } from "./channel-timeline"
 import { ContentSyncControl } from "./content-sync-control"
 import type { ArticleDetail, ChannelName, JobDetail, JobSummary, ValidationItem } from "./types"
@@ -59,6 +60,7 @@ function DetailContent({ article }: { article: ArticleDetail }) {
         </div>
       </header>
       <ContentSyncPanel article={article} />
+      <BrandPanel article={article} job={job.data ?? null} />
       <section className="grid gap-8 py-8 lg:grid-cols-[0.8fr_1.2fr]">
         <Metadata article={article} />
         <Validation errors={article.validation_errors} warnings={article.validation_warnings} />

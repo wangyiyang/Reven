@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
+import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, Palette, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -58,6 +58,7 @@ const navigation: NavEntry[] = [
       { to: "/rss/keywords", label: "RSS 关键词", icon: Tags },
     ],
   },
+  { to: "/brand", label: "品牌与发布", icon: Palette },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
   { to: "/system", label: "系统状态", icon: Activity },
 ]

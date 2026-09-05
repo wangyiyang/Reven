@@ -76,10 +76,20 @@ export interface ChannelResult {
   result: Record<string, string | number>
 }
 
+export interface JobBrand {
+  binding_key: string
+  version_fingerprint: {
+    brand_version?: number
+    wechat_template_version?: number | null
+    blog_template_version?: number | null
+  }
+}
+
 export interface ArticleDetail extends ArticleSummary {
   notion_url: string
   notion_metadata: Record<string, unknown>
   cover_metadata: Record<string, unknown>
+  selected_cover_asset_id: string | null
   last_error: string | null
   content_hash: string | null
   validation_errors: ValidationItem[]
@@ -93,6 +103,8 @@ export interface ArticleDetail extends ArticleSummary {
 
 export interface JobDetail extends JobSummary {
   article_id: string
+  brand_binding_key: string
+  brand: JobBrand | null
   snapshot_metadata: Record<string, unknown>
   blog: ChannelResult
   wechat: ChannelResult
