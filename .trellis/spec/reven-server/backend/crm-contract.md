@@ -80,7 +80,7 @@ logs. Existing authentication and CSRF middleware protect every CRM route.
 
 ## 6. Tests Required
 
-- Migration: upgrade from `0012_playbooks`, downgrade back to it, and upgrade
+- Migration: upgrade from `0012_sops`, downgrade back to it, and upgrade
   to head; assert foreign keys, check constraints, and the partial unique index.
 - API: customer CRUD; all five statuses; search; all due filters; invalid input;
   ownership rejection; one-primary-contact switching; history order;

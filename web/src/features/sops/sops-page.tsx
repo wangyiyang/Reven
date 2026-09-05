@@ -15,10 +15,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiRequest } from "@/lib/api"
 import { copyPlainText } from "@/lib/clipboard"
 
-type Playbook = {
+type Sop = {
   id: string
   title: string
-  kind: "sop" | "checklist" | "script" | "method"
+  kind: "procedure" | "checklist" | "script" | "method"
   status: "草稿" | "试行" | "正式"
   body: string
   tags: string[]
@@ -26,15 +26,15 @@ type Playbook = {
   updated_at: string
 }
 
-type PlaybookForm = {
+type SopForm = {
   title: string
-  kind: Playbook["kind"]
-  status: Playbook["status"]
+  kind: Sop["kind"]
+  status: Sop["status"]
   tags: string
   body: string
 }
 
-const initialForm: PlaybookForm = { title: "", kind: "sop", status: "草稿", tags: "", body: "" }
+const initialForm: SopForm = { title: "", kind: "procedure", status: "草稿", tags: "", body: "" }
 
 function parseTags(value: string) {
   return value
@@ -43,14 +43,14 @@ function parseTags(value: string) {
     .filter(Boolean)
 }
 
-const kindLabels: Record<Playbook["kind"], string> = {
-  sop: "SOP",
+const kindLabels: Record<Sop["kind"], string> = {
+  procedure: "程序",
   checklist: "Checklist",
   script: "话术",
   method: "方法论",
 }
 
-function toPayload(input: PlaybookForm) {
+function toPayload(input: SopForm) {
   return {
     title: input.title,
     kind: input.kind,
@@ -60,84 +60,84 @@ function toPayload(input: PlaybookForm) {
   }
 }
 
-export function PlaybooksPage() {
+export function SopsPage() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<Playbook | null>(null)
+  const [deleting, setDeleting] = useState<Sop | null>(null)
   const [filters, setFilters] = useState({ kind: "", status: "", query: "" })
-  const [viewing, setViewing] = useState<Playbook | null>(null)
+  const [viewing, setViewing] = useState<Sop | null>(null)
 
-  const playbooksQuery = useQuery({
-    queryKey: ["playbooks", filters],
+  const sopsQuery = useQuery({
+    queryKey: ["sops", filters],
     queryFn: () => {
       const params = new URLSearchParams()
       if (filters.kind) params.set("kind", filters.kind)
       if (filters.status) params.set("status", filters.status)
       if (filters.query.trim()) params.set("query", filters.query.trim())
       const suffix = params.size ? `?${params.toString()}` : ""
-      return apiRequest<Playbook[]>(`/playbooks${suffix}`)
+      return apiRequest<Sop[]>(`/sops${suffix}`)
     },
   })
 
-  async function invalidatePlaybooks() {
-    await queryClient.invalidateQueries({ queryKey: ["playbooks"] })
+  async function invalidateSops() {
+    await queryClient.invalidateQueries({ queryKey: ["sops"] })
   }
 
   const createMutation = useMutation({
-    mutationFn: (input: PlaybookForm) =>
-      apiRequest<Playbook>("/playbooks", { method: "POST", body: JSON.stringify(toPayload(input)) }),
+    mutationFn: (input: SopForm) =>
+      apiRequest<Sop>("/sops", { method: "POST", body: JSON.stringify(toPayload(input)) }),
     onSuccess: async () => {
       setForm(initialForm)
-      await invalidatePlaybooks()
-      toast.success("Playbook 已添加")
+      await invalidateSops()
+      toast.success("SOP 已添加")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "保存失败"),
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: PlaybookForm }) =>
-      apiRequest<Playbook>(`/playbooks/${id}`, { method: "PUT", body: JSON.stringify(toPayload(input)) }),
+    mutationFn: ({ id, input }: { id: string; input: SopForm }) =>
+      apiRequest<Sop>(`/sops/${id}`, { method: "PUT", body: JSON.stringify(toPayload(input)) }),
     onSuccess: async () => {
       setForm(initialForm)
       setEditingId(null)
-      await invalidatePlaybooks()
-      toast.success("Playbook 已更新")
+      await invalidateSops()
+      toast.success("SOP 已更新")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "更新失败"),
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/playbooks/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiRequest(`/sops/${id}`, { method: "DELETE" }),
     onMutate: async (id: string) => {
       // 乐观删除：远端库延迟高，先移除行再给服务端对账
-      await queryClient.cancelQueries({ queryKey: ["playbooks"] })
-      const previous = queryClient.getQueriesData<Playbook[]>({ queryKey: ["playbooks"] })
-      queryClient.setQueriesData<Playbook[]>({ queryKey: ["playbooks"] }, (old) => old?.filter((playbook) => playbook.id !== id))
+      await queryClient.cancelQueries({ queryKey: ["sops"] })
+      const previous = queryClient.getQueriesData<Sop[]>({ queryKey: ["sops"] })
+      queryClient.setQueriesData<Sop[]>({ queryKey: ["sops"] }, (old) => old?.filter((sop) => sop.id !== id))
       return { previous }
     },
-    onSuccess: () => toast.success("Playbook 已删除"),
+    onSuccess: () => toast.success("SOP 已删除"),
     onError: (error, _id, context) => {
       context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
       toast.error(error instanceof Error ? error.message : "删除失败")
     },
     onSettled: async () => {
-      await invalidatePlaybooks()
+      await invalidateSops()
     },
   })
 
-  function updateField<K extends keyof PlaybookForm>(key: K, value: PlaybookForm[K]) {
+  function updateField<K extends keyof SopForm>(key: K, value: SopForm[K]) {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  function startEdit(playbook: Playbook) {
-    setEditingId(playbook.id)
+  function startEdit(sop: Sop) {
+    setEditingId(sop.id)
     setForm({
-      title: playbook.title,
-      kind: playbook.kind,
-      status: playbook.status,
-      tags: playbook.tags.join(", "),
-      body: playbook.body,
+      title: sop.title,
+      kind: sop.kind,
+      status: sop.status,
+      tags: sop.tags.join(", "),
+      body: sop.body,
     })
   }
 
@@ -172,42 +172,42 @@ export function PlaybooksPage() {
   return (
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">SOP / 话术库</h1>
-        <p className="text-sm text-[var(--muted)]">沉淀 SOP、Checklist、话术和方法论，状态按 草稿 → 试行 → 正式 管理。</p>
+        <h1 className="text-2xl font-semibold text-[var(--ink)]">SOP（标准作业流程）</h1>
+        <p className="text-sm text-[var(--muted)]">沉淀程序、Checklist、话术和方法论，状态按 草稿 → 试行 → 正式 管理。</p>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">{editingId ? "编辑 Playbook" : "添加 Playbook"}</h2>
+          <h2 className="text-lg font-medium text-[var(--ink)]">{editingId ? "编辑 SOP" : "添加 SOP"}</h2>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 md:grid-cols-4" onSubmit={onSubmit}>
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="playbook-title">标题</Label>
-              <Input id="playbook-title" onChange={(event) => updateField("title", event.target.value)} required value={form.title} />
+              <Label htmlFor="sop-title">标题</Label>
+              <Input id="sop-title" onChange={(event) => updateField("title", event.target.value)} required value={form.title} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="playbook-kind">类型</Label>
+              <Label htmlFor="sop-kind">类型</Label>
               <select
                 aria-label="类型"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="playbook-kind"
-                onChange={(event) => updateField("kind", event.target.value as Playbook["kind"])}
+                id="sop-kind"
+                onChange={(event) => updateField("kind", event.target.value as Sop["kind"])}
                 value={form.kind}
               >
-                <option value="sop">SOP</option>
+                <option value="procedure">程序</option>
                 <option value="checklist">Checklist</option>
                 <option value="script">话术</option>
                 <option value="method">方法论</option>
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="playbook-status">状态</Label>
+              <Label htmlFor="sop-status">状态</Label>
               <select
                 aria-label="状态"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="playbook-status"
-                onChange={(event) => updateField("status", event.target.value as Playbook["status"])}
+                id="sop-status"
+                onChange={(event) => updateField("status", event.target.value as Sop["status"])}
                 value={form.status}
               >
                 <option value="草稿">草稿</option>
@@ -216,22 +216,22 @@ export function PlaybooksPage() {
               </select>
             </div>
             <div className="space-y-2 md:col-span-4">
-              <Label htmlFor="playbook-tags">标签</Label>
-              <Input id="playbook-tags" onChange={(event) => updateField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
+              <Label htmlFor="sop-tags">标签</Label>
+              <Input id="sop-tags" onChange={(event) => updateField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
               <p className="text-xs text-[var(--muted)]">多个标签用逗号分隔。</p>
             </div>
             <div className="space-y-2 md:col-span-4">
-              <Label htmlFor="playbook-body">内容</Label>
+              <Label htmlFor="sop-body">内容</Label>
               <textarea
                 className="min-h-32 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm"
-                id="playbook-body"
+                id="sop-body"
                 onChange={(event) => updateField("body", event.target.value)}
                 value={form.body}
               />
             </div>
             <div className="flex items-end gap-2 md:col-span-4">
               <Button disabled={createMutation.isPending || updateMutation.isPending} type="submit">
-                {editingId ? "保存修改" : "添加 Playbook"}
+                {editingId ? "保存修改" : "添加 SOP"}
               </Button>
               {editingId ? (
                 <Button onClick={cancelEdit} type="button" variant="ghost">
@@ -245,32 +245,32 @@ export function PlaybooksPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">Playbook 列表</h2>
+          <h2 className="text-lg font-medium text-[var(--ink)]">SOP 列表</h2>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-2">
-              <Label htmlFor="playbooks-filter-kind">类型筛选</Label>
+              <Label htmlFor="sops-filter-kind">类型筛选</Label>
               <select
                 aria-label="类型筛选"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="playbooks-filter-kind"
+                id="sops-filter-kind"
                 onChange={(event) => setFilters((current) => ({ ...current, kind: event.target.value }))}
                 value={filters.kind}
               >
                 <option value="">全部</option>
-                <option value="sop">SOP</option>
+                <option value="procedure">程序</option>
                 <option value="checklist">Checklist</option>
                 <option value="script">话术</option>
                 <option value="method">方法论</option>
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="playbooks-filter-status">状态筛选</Label>
+              <Label htmlFor="sops-filter-status">状态筛选</Label>
               <select
                 aria-label="状态筛选"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="playbooks-filter-status"
+                id="sops-filter-status"
                 onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
                 value={filters.status}
               >
@@ -281,10 +281,10 @@ export function PlaybooksPage() {
               </select>
             </div>
             <div className="min-w-56 flex-1 space-y-2">
-              <Label htmlFor="playbooks-filter-query">搜索</Label>
+              <Label htmlFor="sops-filter-query">搜索</Label>
               <Input
-                aria-label="搜索 Playbook"
-                id="playbooks-filter-query"
+                aria-label="搜索 SOP"
+                id="sops-filter-query"
                 onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
                 placeholder="按标题、内容或标签搜索"
                 value={filters.query}
@@ -292,32 +292,32 @@ export function PlaybooksPage() {
             </div>
           </div>
           <div className="grid gap-3 lg:hidden">
-            {playbooksQuery.data?.length === 0 ? (
-              <p className="py-6 text-center text-sm text-[var(--muted)]">暂无 Playbook，先沉淀一条 SOP。</p>
+            {sopsQuery.data?.length === 0 ? (
+              <p className="py-6 text-center text-sm text-[var(--muted)]">暂无 SOP，先沉淀一条。</p>
             ) : null}
-            {(playbooksQuery.data ?? []).map((playbook) => (
+            {(sopsQuery.data ?? []).map((sop) => (
               <article
-                aria-label={`${playbook.title} 移动摘要`}
+                aria-label={`${sop.title} 移动摘要`}
                 className="rounded-lg border border-[var(--line)] p-4"
-                key={playbook.id}
+                key={sop.id}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 font-semibold text-[var(--ink)]">{playbook.title}</p>
-                  <Badge>{playbook.status}</Badge>
+                  <p className="min-w-0 font-semibold text-[var(--ink)]">{sop.title}</p>
+                  <Badge>{sop.status}</Badge>
                 </div>
-                <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{playbook.body}</p>
+                <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{sop.body}</p>
                 <div className="mt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
-                  <span>{kindLabels[playbook.kind]}</span>
-                  {playbook.tags.length ? <span>{playbook.tags.join("、")}</span> : null}
+                  <span>{kindLabels[sop.kind]}</span>
+                  {sop.tags.length ? <span>{sop.tags.join("、")}</span> : null}
                 </div>
                 <div className="mt-3 flex justify-end gap-1">
-                  <Button aria-label={`查看 ${playbook.title}`} onClick={() => setViewing(playbook)} size="sm" type="button" variant="ghost">
+                  <Button aria-label={`查看 ${sop.title}`} onClick={() => setViewing(sop)} size="sm" type="button" variant="ghost">
                     查看
                   </Button>
-                  <Button aria-label={`编辑 ${playbook.title}`} onClick={() => startEdit(playbook)} size="sm" type="button" variant="ghost">
+                  <Button aria-label={`编辑 ${sop.title}`} onClick={() => startEdit(sop)} size="sm" type="button" variant="ghost">
                     编辑
                   </Button>
-                  <Button aria-label={`删除 ${playbook.title}`} onClick={() => setDeleting(playbook)} size="sm" type="button" variant="ghost">
+                  <Button aria-label={`删除 ${sop.title}`} onClick={() => setDeleting(sop)} size="sm" type="button" variant="ghost">
                     删除
                   </Button>
                 </div>
@@ -336,32 +336,32 @@ export function PlaybooksPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {playbooksQuery.data?.length === 0 ? (
+              {sopsQuery.data?.length === 0 ? (
                 <TableRow>
                   <TableCell className="py-10 text-center text-[var(--muted)]" colSpan={5}>
-                    暂无 Playbook，先沉淀一条 SOP。
+                    暂无 SOP，先沉淀一条。
                   </TableCell>
                 </TableRow>
               ) : null}
-              {(playbooksQuery.data ?? []).map((playbook) => (
-                <TableRow key={playbook.id}>
+              {(sopsQuery.data ?? []).map((sop) => (
+                <TableRow key={sop.id}>
                   <TableCell>
-                    <div className="font-medium text-[var(--ink)]">{playbook.title}</div>
-                    <div className="line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{playbook.body}</div>
+                    <div className="font-medium text-[var(--ink)]">{sop.title}</div>
+                    <div className="line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{sop.body}</div>
                   </TableCell>
-                  <TableCell>{kindLabels[playbook.kind]}</TableCell>
-                  <TableCell><Badge>{playbook.status}</Badge></TableCell>
-                  <TableCell>{playbook.tags.length ? playbook.tags.join("、") : "—"}</TableCell>
+                  <TableCell>{kindLabels[sop.kind]}</TableCell>
+                  <TableCell><Badge>{sop.status}</Badge></TableCell>
+                  <TableCell>{sop.tags.length ? sop.tags.join("、") : "—"}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button onClick={() => setViewing(playbook)} size="sm" type="button" variant="ghost">
+                      <Button onClick={() => setViewing(sop)} size="sm" type="button" variant="ghost">
                         查看
                       </Button>
-                      <Button onClick={() => startEdit(playbook)} size="sm" type="button" variant="ghost">
+                      <Button onClick={() => startEdit(sop)} size="sm" type="button" variant="ghost">
                         编辑
                       </Button>
                       <Button
-                        onClick={() => setDeleting(playbook)}
+                        onClick={() => setDeleting(sop)}
                         size="sm"
                         type="button"
                         variant="ghost"
@@ -397,7 +397,7 @@ export function PlaybooksPage() {
                     <Button aria-label="关闭" size="sm" type="button" variant="ghost"><X size={16} /></Button>
                   </Dialog.Close>
                 </div>
-                <Dialog.Description className="sr-only">查看 Playbook 完整内容</Dialog.Description>
+                <Dialog.Description className="sr-only">查看 SOP 完整内容</Dialog.Description>
                 <div className="whitespace-pre-wrap rounded-md border border-[var(--line)] bg-[var(--faint)] p-4 text-sm leading-6 text-[var(--ink)]">
                   {viewing.body}
                 </div>
@@ -413,14 +413,14 @@ export function PlaybooksPage() {
       <ConfirmDialog
         busy={deleteMutation.isPending}
         confirmLabel={`确认删除「${deleting?.title ?? ""}」`}
-        description="删除后无法恢复，请确认这条 Playbook 已不再需要。"
+        description="删除后无法恢复，请确认这条 SOP 已不再需要。"
         onClose={() => setDeleting(null)}
         onConfirm={() => {
           if (!deleting) return
           deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
         }}
         open={deleting !== null}
-        title="删除 Playbook"
+        title="删除 SOP"
       />
     </main>
   )

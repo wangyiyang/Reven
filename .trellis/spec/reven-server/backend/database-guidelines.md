@@ -32,7 +32,13 @@ Questions to answer:
 
 <!-- How to create and run migrations -->
 
-(To be filled by the team)
+- 运行方式：`cd server/migrations && DATABASE_URL=... uv run alembic upgrade head`（`alembic.ini` 在 `server/migrations/` 下，不在 `server/`）。
+- **改写历史迁移文件（改 revision id / 表名）时必须同步的牵连点**（2026-09 playbook→sop 重命名实证）：
+  1. 所有后续迁移的 `down_revision` 与 docstring 中的 `Revises:` 注释（断裂会导致迁移链无法解析）；
+  2. `server/migrations/env.py` 中对应模型的 import（autogenerate 依赖）；
+  3. `server/tests/migrations/` 中引用该 revision 的 `command.downgrade(config, "<revision>")`；
+  4. `server/tests/conftest.py` 与 `server/tests/api/conftest.py` 的 TRUNCATE 表名清单。
+- 验证标准：空库 `upgrade head` 到顶端 + `pytest tests/migrations/` 全绿。
 
 ---
 

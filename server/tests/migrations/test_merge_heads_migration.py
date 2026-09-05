@@ -58,7 +58,7 @@ def test_existing_branch_head_upgrades_through_merge_to_current_head(starting_re
 
     try:
         command.upgrade(config, "head")
-        command.downgrade(config, "0012_playbooks")
+        command.downgrade(config, "0012_sops")
         command.upgrade(config, starting_revision)
         versions, _, _ = asyncio.run(_schema_state(database_url))
         assert versions == {starting_revision}

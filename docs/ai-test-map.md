@@ -54,7 +54,7 @@
 ### 用例
 - **AUTH-001 正确密码登录**：登录成功，回跳目标页，`/api/auth/me` 为 true。
 - **AUTH-002 错误密码**：401，页面显示“密码错误”，不设置 Cookie。
-- **AUTH-003 未登录访问业务页**：`/finance`、`/projects`、`/playbooks`、`/rss` 均跳 `/login?next=...`。
+- **AUTH-003 未登录访问业务页**：`/finance`、`/projects`、`/sops`、`/rss` 均跳 `/login?next=...`。
 - **AUTH-004 未登录调用业务 API**：`GET /api/projects` 等返回 401。
 - **AUTH-005 登出**：调用 logout 后 Cookie 清除，业务页重新跳登录。
 - **AUTH-006 深色模式**：切换后 `document.documentElement.classList` 含 `dark`，刷新保持。
@@ -70,7 +70,7 @@
 | `/articles/:articleId` | 稿件详情 | — |
 | `/finance` | 财务收支 | 财务 |
 | `/projects` | 项目库 | 项目 |
-| `/playbooks` | SOP/话术库 | SOP/话术 |
+| `/sops` | SOP（标准作业流程） | SOP（标准作业流程） |
 | `/rss/candidates` | RSS 候选 | RSS 候选 |
 | `/rss` | RSS 配置 | RSS 配置 |
 | `/integrations` | 集成设置 | 集成设置 |
@@ -241,26 +241,26 @@
 
 ---
 
-## 9. SOP / 话术库（PLAYBOOKS）
+## 9. SOP（标准作业流程）（SOPS）
 
 ### 页面路径
-- `/playbooks`：SOP、Checklist、话术、方法论；状态按 草稿 → 试行 → 正式。
+- `/sops`：程序、Checklist、话术、方法论；状态按 草稿 → 试行 → 正式。
 
 ### API
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/playbooks` | 列表，支持 `kind`、`status` 过滤 |
-| POST | `/api/playbooks` | 新增 |
-| GET | `/api/playbooks/{playbook_id}` | 详情 |
-| PUT | `/api/playbooks/{playbook_id}` | 更新 |
-| DELETE | `/api/playbooks/{playbook_id}` | 删除 |
+| GET | `/api/sops` | 列表，支持 `kind`、`status` 过滤 |
+| POST | `/api/sops` | 新增 |
+| GET | `/api/sops/{sop_id}` | 详情 |
+| PUT | `/api/sops/{sop_id}` | 更新 |
+| DELETE | `/api/sops/{sop_id}` | 删除 |
 
 ### 用例
-- **PB-001 新增**：标题必填；kind 限 `sop/checklist/script/method`；tags 逗号/中文逗号分隔。
+- **PB-001 新增**：标题必填；kind 限 `procedure/checklist/script/method`；tags 逗号/中文逗号分隔。
 - **PB-002 状态机展示**：草稿/试行/正式可筛选；非法状态被拒。
 - **PB-003 内容保存**：Markdown 内容保存并回显；长内容列表截断不撑破布局。
 - **PB-004 删除**：删除后列表移除；刷新不复活。
-- **PB-005 未找到**：详情/更新/删除不存在 playbook 返回 404。
+- **PB-005 未找到**：详情/更新/删除不存在 SOP 返回 404。
 - **PB-006 空状态**：无数据时显示空态文案/引导。
 - **PB-007 Tags 输入**：非法分隔/空 tags 不产生脏数据；helper 文案存在。
 
@@ -329,13 +329,13 @@
 ## 14. 当前自动化测试锚点
 
 后端 `server/tests`：
-- API：`test_articles.py`、`test_actions.py`、`test_portable_markdown.py`、`test_rss_candidates.py`、`test_rss_settings.py`、`test_integrations.py`、`test_integrations_notion.py`、`test_finance.py`、`test_projects.py`、`test_playbooks.py`、`test_system.py`
+- API：`test_articles.py`、`test_actions.py`、`test_portable_markdown.py`、`test_rss_candidates.py`、`test_rss_settings.py`、`test_integrations.py`、`test_integrations_notion.py`、`test_finance.py`、`test_projects.py`、`test_sops.py`、`test_system.py`
 - 任务/调度：`jobs/test_runner.py`、`jobs/test_service.py`、`jobs/test_retry.py`、`jobs/test_tick_integration.py`、`test_scheduling.py`
 - 配置/门禁：`test_config.py`、`test_ci_database_gate.py`
 
 前端 `web/src`：
 - 基础库：`lib/api.test.ts`、`lib/clipboard.test.ts`、`lib/external-url.test.ts`
-- 页面：articles / article-detail / rss-candidates / rss-settings / integrations / finance / projects / playbooks
+- 页面：articles / article-detail / rss-candidates / rss-settings / integrations / finance / projects / sops
 
 AI 测试地图优先级高于自动化测试清单：自动化没覆盖但地图列出的路径，仍要人工/代理验证。
 
@@ -346,4 +346,4 @@ AI 测试地图优先级高于自动化测试清单：自动化没覆盖但地�
 - CRM / 人才库：状态机、报价、成单路径（等 CRM 分支合并后补全）。
 - `/system` 系统状态完整页。
 - 财务二期：应收/应付台账、月度归档、分类词典。
-- Playbook 二期：版本历史、Tag 组件、正文预览。
+- SOP 二期：版本历史、Tag 组件、正文预览。

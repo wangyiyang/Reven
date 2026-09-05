@@ -54,3 +54,48 @@
 ### Next Steps
 
 - 审查并合并 GitHub PR
+
+## Session 2: Playbooks 模块统一更名为 SOP（无兼容）
+
+**Date**: 2026-09-05
+**Task**: 09-05-refactor-playbooks-to-sop（Issue #107）
+**Branch**: `issue/gh-107-refactor-playbooks-sop`
+
+### Summary
+
+按 grilling 共识全量重命名：代码库 playbook 命名清零，含数据库表与迁移改写；kind 值 sop → procedure（标签「程序」）使模块名独占 SOP；取消全部兼容要求（无历史数据）。Issue #107 验收标准已同步修订。
+
+### Main Changes
+
+- 迁移：改写 0012_playbooks → 0012_sops，同步 0013 两个迁移 down_revision 与 env.py 导入
+- 后端：reven.sops（Sop/SopRepository）、/api/sops、SopKind=procedure
+- 前端：features/sops、路由 /sops、导航与页面「SOP（标准作业流程）」、kind 标签「程序」
+- 文档：ai-test-map 同步；database-guidelines 沉淀「改写历史迁移的牵连点清单」
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ddc368` | refactor(server): playbooks 模块更名为 sops |
+| `1304dc2` | refactor(web): playbooks 功能更名为 sops |
+| `dd4042b` | docs: 同步 SOP 命名至测试地图与后端 spec |
+| `4160f0b` | chore(task): 新增任务工件 |
+
+### Testing
+
+- [OK] 迁移链空库 → head 跑通；Server 678 passed（Docker postgres:17-alpine）
+- [OK] Web 170 passed + tsc + eslint；Ruff + Mypy 通过
+- [OK] OpenAPI 验证 /api/sops 注册、/api/playbooks 消失；源码 grep playbook 清零
+
+### Known Issues（预存在，与本任务无关）
+
+- 后端 5 个测试全量跑偶发失败、单独跑全绿（content_sync/publishing/actions，测试隔离问题）
+- 本地 Node 26 下 app-shell 测试需 `NODE_OPTIONS=--localstorage-file`（CI Node 22 无此问题）
+
+### Status
+
+[OK] **Completed（待 PR）**
+
+### Next Steps
+
+- push 分支并开 PR 关联 #107；PR review 时可 dogfood /sops 页面
