@@ -8,7 +8,7 @@ import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
 import { FinancePage } from "@/features/finance/finance-page"
-import { PlaybooksPage } from "@/features/playbooks/playbooks-page"
+import { SopsPage } from "@/features/sops/sops-page"
 import { ProjectsPage } from "@/features/projects/projects-page"
 import { RssKeywordsPage } from "@/features/rss/rss-keywords-page"
 import { RssSourcesPage } from "@/features/rss/rss-sources-page"
@@ -37,7 +37,7 @@ function ShellRoutes() {
         <Route element={<CustomerDetailPage />} path="/crm/customers/:customerId" />
         <Route element={<FinancePage />} path="/finance" />
         <Route element={<ProjectsPage />} path="/projects" />
-        <Route element={<PlaybooksPage />} path="/playbooks" />
+        <Route element={<SopsPage />} path="/sops" />
         <Route element={<Navigate replace to="/rss/sources" />} path="/rss" />
         <Route element={<RssSourcesPage />} path="/rss/sources" />
         <Route element={<RssKeywordsPage />} path="/rss/keywords" />

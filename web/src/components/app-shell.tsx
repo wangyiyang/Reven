@@ -48,7 +48,7 @@ const navigation: NavEntry[] = [
   { to: "/talents", label: "人才库", icon: Users },
   { to: "/finance", label: "财务", icon: Wallet },
   { to: "/projects", label: "项目", icon: FolderKanban },
-  { to: "/playbooks", label: "SOP/话术", icon: BookOpenCheck },
+  { to: "/sops", label: "SOP（标准作业流程）", icon: BookOpenCheck },
   {
     label: "RSS",
     icon: Rss,
