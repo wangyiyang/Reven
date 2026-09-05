@@ -22,16 +22,28 @@ calculation.
 }
 ```
 
-All values are integer cents. The React client maps the fields to these visible
-labels:
+All values are integer cents. The endpoint accepts an optional `month=YYYY-MM`
+query parameter. When `month` is present, the three cash fields
+(`income_cents`, `expense_cents`, `net_cents`) count only entries whose
+`occurred_on` falls inside that calendar month; `receivable_cents` and
+`payable_cents` always remain all-time outstanding amounts regardless of
+`month`. Without `month`, all five fields are all-time.
+
+Since the finance workspace redesign (Issue #108), the React client renders
+three monthly cash cards on `/finance/overview` plus a separate pending
+section fed by `GET /api/finance/entries?status=应收,应付`:
 
 | API field | UI label |
 |---|---|
-| `income_cents` | `已收收入` |
-| `expense_cents` | `已付花销` |
-| `net_cents` | `现金净额` |
-| `receivable_cents` | `应收` |
-| `payable_cents` | `应付` |
+| `income_cents` (with `month`) | `本月实收` |
+| `expense_cents` (with `month`) | `本月实付` |
+| `net_cents` (with `month`) | `收支净额` |
+| `receivable_cents` / `payable_cents` | not shown inside the cash cards; outstanding amounts live only in the pending section and `/finance/pending` |
+
+`POST /api/finance/entries/{id}/confirm` settles an outstanding entry. Request
+body: `{"occurred_on": "YYYY-MM-DD"}`. It is the only path that transitions
+`应收→已收` or `应付→已付`, and it overwrites `occurred_on` with the actual
+settlement date so the entry counts toward that date's month.
 
 ## 3. Contracts
 
@@ -47,6 +59,19 @@ Entries with `status=已记录` are not known to be settled or outstanding and
 must not contribute to any of the five fields, regardless of `kind`. Do not
 infer a cash status, migrate those entries, or count receivables/payables again
 inside the three cash cards.
+
+The confirm endpoint enforces the settlement state machine:
+
+| Condition | Expected behavior |
+|---|---|
+| Entry does not exist | 404 `FINANCE_ENTRY_NOT_FOUND` |
+| `status` is `应收` or `应付` | Transition to `已收` / `已付`, overwrite `occurred_on` with the request date, return 200 with the entry |
+| Any other `status` (including `已收`, `已付`, `已记录`) | 409 `FINANCE_ENTRY_ALREADY_SETTLED`; the stored entry stays unchanged |
+| Missing or invalid `occurred_on` | 422 schema validation |
+
+Confirming is a single-row update that never creates a new entry, so repeated
+confirmations cannot double-count cash: the second call receives 409 and the
+summary keeps reflecting exactly one settled row.
 
 The page subtitle may describe cash receipts/payments and receivables/payables,
 but it must not claim to provide runway until the data model has an actual cash
@@ -85,8 +110,16 @@ force. The summary endpoint does not accept client-supplied calculation rules.
 - Use distinct amounts so a wrong condition cannot pass through cancellation,
   then assert the complete JSON object rather than isolated fields.
 - Keep an empty-summary assertion to preserve zero-value serialization.
-- Frontend tests must assert all five API-field-to-label mappings, including
-  `已收收入`, `已付花销`, and `现金净额`.
+- Summary tests must cover `month`: cross-month entries count only toward
+  their own month, omitting `month` keeps all-time behavior, and an invalid
+  `month` format returns 422.
+- Confirm tests must cover: settling `应收`/`应付` into the actual settlement
+  month (including a cross-month case), a repeated confirmation returning 409
+  with unchanged data, `已收`/`已付`/`已记录` entries returning 409, a missing
+  entry returning 404, and a missing body field returning 422.
+- Frontend tests must assert the three monthly cash cards (`本月实收`,
+  `本月实付`, `收支净额`) with their period label, and that outstanding
+  amounts never appear inside the cash cards.
 - Frontend tests must assert that the page does not advertise a runway metric.
 
 ## 7. Wrong vs Correct

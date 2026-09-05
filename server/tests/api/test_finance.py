@@ -105,6 +105,101 @@ def test_finance_summary_uses_strict_cash_statuses(workbench) -> None:  # type: 
     }
 
 
+def test_finance_entries_filter_by_status_month_and_category(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    payloads = [
+        {
+            "kind": "income",
+            "name": "八月服务费",
+            "amount": 100,
+            "category": "服务",
+            "occurred_on": "2026-08-05",
+            "status": "已收",
+        },
+        {
+            "kind": "expense",
+            "name": "八月云资源",
+            "amount": 50,
+            "category": "云服务",
+            "occurred_on": "2026-08-10",
+            "status": "已付",
+        },
+        {"kind": "income", "name": "八月应收款", "amount": 200, "occurred_on": "2026-08-20", "status": "应收"},
+        {
+            "kind": "income",
+            "name": "九月服务费",
+            "amount": 300,
+            "category": "服务",
+            "occurred_on": "2026-09-01",
+            "status": "已收",
+        },
+    ]
+    for payload in payloads:
+        assert client.post("/api/finance/entries", json=payload).status_code == 201
+
+    by_status = client.get("/api/finance/entries", params={"status": "已收,已付"})
+    assert by_status.status_code == 200
+    assert [item["name"] for item in by_status.json()] == ["九月服务费", "八月云资源", "八月服务费"]
+
+    by_month = client.get("/api/finance/entries", params={"month": "2026-08"})
+    assert [item["name"] for item in by_month.json()] == ["八月应收款", "八月云资源", "八月服务费"]
+
+    by_category = client.get("/api/finance/entries", params={"category": "服务"})
+    assert [item["name"] for item in by_category.json()] == ["九月服务费", "八月服务费"]
+
+    combined = client.get(
+        "/api/finance/entries",
+        params={"status": "已收,已付", "month": "2026-08", "category": "服务"},
+    )
+    assert [item["name"] for item in combined.json()] == ["八月服务费"]
+
+    assert client.get("/api/finance/entries", params={"month": "2026-13"}).status_code == 422
+
+
+def test_finance_summary_month_scopes_cash_totals(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    payloads = [
+        {"kind": "income", "name": "八月已收", "amount": 100, "occurred_on": "2026-08-15", "status": "已收"},
+        {"kind": "income", "name": "九月已收", "amount": 200, "occurred_on": "2026-09-02", "status": "已收"},
+        {"kind": "expense", "name": "九月已付", "amount": 50, "occurred_on": "2026-09-10", "status": "已付"},
+        {"kind": "income", "name": "存量应收", "amount": 300, "occurred_on": "2026-08-01", "status": "应收"},
+        {"kind": "expense", "name": "存量应付", "amount": 70, "occurred_on": "2026-09-01", "status": "应付"},
+        {"kind": "income", "name": "九月已记录", "amount": 999, "occurred_on": "2026-09-05", "status": "已记录"},
+    ]
+    for payload in payloads:
+        assert client.post("/api/finance/entries", json=payload).status_code == 201
+
+    september = client.get("/api/finance/summary", params={"month": "2026-09"})
+    assert september.status_code == 200
+    assert september.json() == {
+        "income_cents": 20000,
+        "expense_cents": 5000,
+        "net_cents": 15000,
+        "receivable_cents": 30000,
+        "payable_cents": 7000,
+    }
+
+    august = client.get("/api/finance/summary", params={"month": "2026-08"}).json()
+    assert august == {
+        "income_cents": 10000,
+        "expense_cents": 0,
+        "net_cents": 10000,
+        "receivable_cents": 30000,
+        "payable_cents": 7000,
+    }
+
+    all_time = client.get("/api/finance/summary").json()
+    assert all_time == {
+        "income_cents": 30000,
+        "expense_cents": 5000,
+        "net_cents": 25000,
+        "receivable_cents": 30000,
+        "payable_cents": 7000,
+    }
+
+    assert client.get("/api/finance/summary", params={"month": "2026-13"}).status_code == 422
+
+
 def test_finance_entry_validation_rejects_bad_amount(workbench) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
     response = client.post(
@@ -131,6 +226,113 @@ def test_finance_entry_not_found(workbench) -> None:  # type: ignore[no-untyped-
         == 404
     )
     assert client.delete(f"/api/finance/entries/{missing}").status_code == 404
+
+
+def test_finance_confirm_settles_receivable_into_actual_month(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    created = client.post(
+        "/api/finance/entries",
+        json={
+            "kind": "income",
+            "name": "OLL 项目尾款",
+            "amount": 350,
+            "occurred_on": "2026-08-20",
+            "due_on": "2026-08-31",
+            "status": "应收",
+            "source": "客户 A",
+        },
+    )
+    assert created.status_code == 201
+    entry_id = created.json()["id"]
+
+    confirmed = client.post(f"/api/finance/entries/{entry_id}/confirm", json={"occurred_on": "2026-09-03"})
+    assert confirmed.status_code == 200
+    body = confirmed.json()
+    assert body["status"] == "已收"
+    assert body["occurred_on"] == "2026-09-03"
+    assert body["due_on"] == "2026-08-31"
+
+    september = client.get("/api/finance/summary", params={"month": "2026-09"}).json()
+    assert september["income_cents"] == 35000
+    assert september["receivable_cents"] == 0
+    august = client.get("/api/finance/summary", params={"month": "2026-08"}).json()
+    assert august["income_cents"] == 0
+    assert august["receivable_cents"] == 0
+
+    repeated = client.post(f"/api/finance/entries/{entry_id}/confirm", json={"occurred_on": "2026-09-04"})
+    assert repeated.status_code == 409
+    assert repeated.json()["code"] == "FINANCE_ENTRY_ALREADY_SETTLED"
+    settled = client.get(f"/api/finance/entries/{entry_id}").json()
+    assert settled["occurred_on"] == "2026-09-03"
+    assert client.get("/api/finance/summary", params={"month": "2026-09"}).json()["income_cents"] == 35000
+
+
+def test_finance_confirm_settles_payable(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    created = client.post(
+        "/api/finance/entries",
+        json={
+            "kind": "expense",
+            "name": "办公室租金",
+            "amount": 80,
+            "occurred_on": "2026-08-25",
+            "due_on": "2026-09-01",
+            "status": "应付",
+        },
+    )
+    assert created.status_code == 201
+    entry_id = created.json()["id"]
+
+    confirmed = client.post(f"/api/finance/entries/{entry_id}/confirm", json={"occurred_on": "2026-09-02"})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "已付"
+
+    september = client.get("/api/finance/summary", params={"month": "2026-09"}).json()
+    assert september["expense_cents"] == 8000
+    assert september["payable_cents"] == 0
+    assert client.get("/api/finance/summary", params={"month": "2026-08"}).json()["expense_cents"] == 0
+
+
+def test_finance_confirm_rejects_non_pending_statuses(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    cases = [("income", "已收"), ("expense", "已付"), ("income", "已记录")]
+    for kind, status_value in cases:
+        created = client.post(
+            "/api/finance/entries",
+            json={
+                "kind": kind,
+                "name": f"{status_value}记录",
+                "amount": 10,
+                "occurred_on": "2026-08-19",
+                "status": status_value,
+            },
+        )
+        assert created.status_code == 201
+        entry_id = created.json()["id"]
+
+        response = client.post(f"/api/finance/entries/{entry_id}/confirm", json={"occurred_on": "2026-09-03"})
+        assert response.status_code == 409
+        assert response.json()["code"] == "FINANCE_ENTRY_ALREADY_SETTLED"
+
+        entry = client.get(f"/api/finance/entries/{entry_id}").json()
+        assert entry["status"] == status_value
+        assert entry["occurred_on"] == "2026-08-19"
+
+
+def test_finance_confirm_not_found_and_invalid_body(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    missing = uuid4()
+    not_found = client.post(f"/api/finance/entries/{missing}/confirm", json={"occurred_on": "2026-09-03"})
+    assert not_found.status_code == 404
+    assert not_found.json()["code"] == "FINANCE_ENTRY_NOT_FOUND"
+
+    created = client.post(
+        "/api/finance/entries",
+        json={"kind": "income", "name": "待确认款项", "amount": 10, "occurred_on": "2026-08-19", "status": "应收"},
+    )
+    assert created.status_code == 201
+    entry_id = created.json()["id"]
+    assert client.post(f"/api/finance/entries/{entry_id}/confirm", json={}).status_code == 422
 
 
 def test_finance_entry_model_round_trip() -> None:

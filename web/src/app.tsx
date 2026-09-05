@@ -7,7 +7,10 @@ import { CustomerDetailPage } from "@/features/crm/customer-detail-page"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
 import { ArticleDetailPage } from "@/features/articles/article-detail-page"
 import { ArticlesPage } from "@/features/articles/articles-page"
-import { FinancePage } from "@/features/finance/finance-page"
+import { FinanceLayout } from "@/features/finance/finance-layout"
+import { FinanceLedgerPage } from "@/features/finance/finance-ledger-page"
+import { FinanceOverviewPage } from "@/features/finance/finance-overview-page"
+import { FinancePendingPage } from "@/features/finance/finance-pending-page"
 import { SopsPage } from "@/features/sops/sops-page"
 import { ProjectsPage } from "@/features/projects/projects-page"
 import { RssKeywordsPage } from "@/features/rss/rss-keywords-page"
@@ -35,7 +38,12 @@ function ShellRoutes() {
         <Route element={<IntegrationsPage />} path="/integrations" />
         <Route element={<CrmPage />} path="/crm" />
         <Route element={<CustomerDetailPage />} path="/crm/customers/:customerId" />
-        <Route element={<FinancePage />} path="/finance" />
+        <Route element={<FinanceLayout />} path="/finance">
+          <Route element={<Navigate replace to="/finance/overview" />} index />
+          <Route element={<FinanceOverviewPage />} path="overview" />
+          <Route element={<FinanceLedgerPage />} path="ledger" />
+          <Route element={<FinancePendingPage />} path="pending" />
+        </Route>
         <Route element={<ProjectsPage />} path="/projects" />
         <Route element={<SopsPage />} path="/sops" />
         <Route element={<Navigate replace to="/rss/sources" />} path="/rss" />
