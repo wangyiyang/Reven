@@ -104,7 +104,7 @@ def test_brand_foundation_upgrade_and_legacy_backfill() -> None:
         command.upgrade(config, "head")
 
         state = asyncio.run(_brand_schema_state(database_url))
-        assert state["versions"] == {"0018_article_selected_cover"}  # head 已前进到 0018
+        assert state["versions"] == {"0019_brand_import_run_outcome"}  # head 已前进到 0019
         assert state["tables"] == {
             "brand_versions",
             "channel_template_versions",

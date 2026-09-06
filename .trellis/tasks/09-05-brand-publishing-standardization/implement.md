@@ -54,11 +54,11 @@ pnpm build                          # renderer + web 全量构建（最终回归
 
 ## 阶段 D：Notion VI Hub 迁移
 
-- [ ] D1 `brand/migration.py`：拉取 VI Hub（page `67477fcdc2ce40c2ab93a52976f08318`）→ 章节启发式映射 → draft 品牌/模板 + 素材归档；skipped 项带原因。
-- [ ] D2 `POST /api/brand/import/notion`（dry_run/execute）+ `GET /api/brand/import/runs`；幂等（同 page 已有成功 run → 不重复创建；素材 sha256 去重）。
-- [ ] D3 设置页接入导入入口与 report 展示（条目/素材计数、skipped 原因列表）。
-- [ ] D4 测试：dry-run 零写入、重复执行不重复创建、计数核对。
-- [ ] **验证点 D**：全量验证命令绿 → 提交 `feat(server,web): Notion VI hub brand migration`。
+- [x] D1 `brand/migration.py`：拉取 VI Hub（page `67477fcdc2ce40c2ab93a52976f08318`）→ 章节启发式映射（品牌名/署名/handle/官网/tagline/简介 + 终端绿·碳黑·冷白色值槽位 + 图片按章节猜用途）→ draft 品牌 + 素材归档；规范类/未识别章节全部进 skipped 带原因。已有草稿不覆盖。
+- [x] D2 `POST /api/brand/import/notion`（dry_run/execute）+ `GET /api/brand/import/runs`；幂等（同 page 已有成功 run → 返回既有记录；素材 sha256 去重）；迁移 0019 为 brand_import_runs 增加 error/finished_at。
+- [x] D3 设置页接入导入入口与 report 展示（阶段 C 已预埋 ImportSection，本次核对契约一致：report 含 brand_name/计数/skipped 列表）。
+- [x] D4 测试：解析器映射/空文档、dry-run 零写入、execute 幂等、已有草稿不覆盖、失败运行记录脱敏 error、API dry-run/execute/幂等/未配置集成 409（共 8 个新增）。
+- [x] **验证点 D**：全量验证命令绿（后端 722 passed / ruff / mypy；web 169 passed + 基线 10 失败不变）→ 提交 `feat(server): Notion VI hub 品牌迁移`。
 
 ## 阶段 E：验收与收尾
 

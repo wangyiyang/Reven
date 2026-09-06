@@ -1,13 +1,15 @@
 """品牌与发布设置路由。"""
 
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Body, Query, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from reven.api.dependencies import SessionDep
+from reven.api.dependencies import SessionDep, SessionFactoryDep
 from reven.api.schemas.brand import (
     BlogTemplatePayload,
     BrandAssetCreatedResponse,
@@ -17,16 +19,23 @@ from reven.api.schemas.brand import (
     BrandProfileResponse,
     BrandVersionResponse,
     ChannelTemplateResponse,
+    ImportNotionRequest,
+    ImportRunResponse,
     TemplateVersionResponse,
     WeChatTemplatePayload,
 )
 from reven.brand.domain import BrandAssetPurpose, BrandAssetSource
 from reven.brand.images import sniff_image_mime
+from reven.brand.migration import VI_HUB_PAGE_ID, ViHubImporter
 from reven.brand.models import BrandVersion, ChannelTemplateVersion
 from reven.brand.repository import BrandRepository
 from reven.brand.service import BrandError, BrandService, parse_channel_key
 from reven.config import get_settings
+from reven.content_sync.downloader import SecureContentDownloader
 from reven.domain import TargetChannel
+from reven.integrations.notion.client import NotionClient
+from reven.integrations.notion.configuration import IntegrationConfigurationError, load_notion_config
+from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.integrations.tencent_cos.configuration import TencentCosConfigurationError
 from reven.integrations.tencent_cos.store import build_tencent_cos_asset_store
 
@@ -193,3 +202,40 @@ async def list_template_versions(channel: str, session: SessionDep) -> list[Chan
     if isinstance(target, JSONResponse):
         return target
     return await BrandRepository(session).list_template_versions(str(target))
+
+
+# ---- Notion VI Hub 迁移 ----
+
+
+@router.post("/import/notion", response_model=ImportRunResponse)
+async def import_notion_vi_hub(
+    payload: ImportNotionRequest,
+    factory: SessionFactoryDep,
+) -> ImportRunResponse | JSONResponse:
+    """一次性迁移 VI Hub；dry_run 预演不写库，execute 幂等（已成功迁移过则返回既有记录）。"""
+    try:
+        token, _data_source_id = await load_notion_config(factory)
+    except IntegrationConfigurationError as exc:
+        return _error(status.HTTP_409_CONFLICT, "notion_not_configured", f"Notion 集成不可用：{exc}")
+    try:
+        store = build_tencent_cos_asset_store(get_settings())
+    except TencentCosConfigurationError as exc:
+        return _error(status.HTTP_503_SERVICE_UNAVAILABLE, "cos_not_configured", str(exc))
+    settings = get_settings()
+    try:
+        async with httpx.AsyncClient(base_url=NOTION_BASE_URL, timeout=REQUEST_TIMEOUT) as http:
+            notion = NotionClient(token=token, http=http)
+            async with factory() as session:
+                downloader = SecureContentDownloader(Path(settings.job_data_dir))
+                run = await ViHubImporter(session, notion, downloader, store).run(
+                    page_id=VI_HUB_PAGE_ID, dry_run=payload.dry_run
+                )
+    finally:
+        await store.aclose()
+    return ImportRunResponse.model_validate(run)
+
+
+@router.get("/import/runs", response_model=list[ImportRunResponse])
+async def list_import_runs(session: SessionDep) -> list[ImportRunResponse]:
+    runs = await BrandRepository(session).list_import_runs()
+    return [ImportRunResponse.model_validate(run) for run in runs]

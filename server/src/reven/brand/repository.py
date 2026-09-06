@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from reven.brand.domain import BrandVersionStatus
+from reven.brand.domain import BrandVersionStatus, ImportRunStatus
 from reven.brand.models import BrandAsset, BrandImportRun, BrandVersion, ChannelTemplateVersion
 
 
@@ -88,6 +88,20 @@ class BrandRepository:
         return list(await self.session.scalars(stmt))
 
     # ---- 迁移记录 ----
+
+    async def successful_import_run(self, notion_page_id: str) -> BrandImportRun | None:
+        stmt = (
+            select(BrandImportRun)
+            .where(
+                BrandImportRun.notion_page_id == notion_page_id,
+                BrandImportRun.dry_run.is_(False),
+                BrandImportRun.status == ImportRunStatus.COMPLETED,
+            )
+            .order_by(BrandImportRun.created_at.desc())
+            .limit(1)
+        )
+        row: BrandImportRun | None = await self.session.scalar(stmt)
+        return row
 
     async def list_import_runs(self, notion_page_id: str | None = None) -> list[BrandImportRun]:
         stmt = select(BrandImportRun)

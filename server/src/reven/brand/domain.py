@@ -28,5 +28,6 @@ class BrandVersionSource(StrEnum):
 
 
 class ImportRunStatus(StrEnum):
+    RUNNING = "进行中"
     COMPLETED = "已完成"
     FAILED = "失败"

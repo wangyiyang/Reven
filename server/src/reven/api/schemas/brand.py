@@ -119,6 +119,25 @@ class BrandAssetCreatedResponse(BaseModel):
     created: bool
 
 
+class ImportNotionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = True
+
+
+class ImportRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    notion_page_id: str
+    dry_run: bool
+    status: str
+    report: dict[str, object]
+    error: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
 class BrandAssetUpdate(BaseModel):
     label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None
     enabled: bool | None = None
