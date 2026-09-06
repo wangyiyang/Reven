@@ -123,3 +123,36 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Issue #115：仅发版构建容器镜像
+
+**Date**: 2026-09-06
+**Task**: Issue #115：仅发版构建容器镜像
+**Branch**: `codex/gh-115-release-only-container`
+
+### Summary
+
+创建独立工作树并修复普通 PR/main 重复构建容器；发版 full 验证保留。
+
+### Main Changes
+
+- container 仅由 inputs.full 启用，移除废弃路径过滤与输出；同步运维说明和 CI 契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4afe0c9` | (see git log) |
+
+### Testing
+
+- [OK] 回归先失败后通过；6 项部署契约通过，安全测试 27 通过/18 因数据库缺失跳过；ruff、format、mypy、actionlint 及独立审查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按 GitHub Flow 推送分支并创建关联 #115 的 PR，确认远端 CI 的 container 为 skipped；尚未推送或部署。

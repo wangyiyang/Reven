@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "发现后端测试规范"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "后端质量规范"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "条件变更前搜索所有引用，删除新增孤儿配置"}
+{"file": "docs/runbook.md", "reason": "日常 CI 和发版操作约定"}
+{"file": ".trellis/spec/reven-server/backend/ci-release-contract.md", "reason": "CI full 输入与发版构建边界契约"}

@@ -1,0 +1,33 @@
+{
+  "id": "gh-115-release-only-container",
+  "name": "gh-115-release-only-container",
+  "title": "fix(ci): 仅发版执行容器镜像构建（#115）",
+  "description": "修复 Issue #115：普通 PR/main CI 跳过容器构建，版本 tag 发版保留完整质量门禁。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "ci",
+  "package": null,
+  "priority": "P2",
+  "creator": "WangYiyang",
+  "assignee": "WangYiyang",
+  "createdAt": "2026-09-06",
+  "completedAt": "2026-09-06",
+  "branch": "codex/gh-115-release-only-container",
+  "base_branch": "main",
+  "worktree_path": "/Users/wangyiyang/Documents/Github/worktrees/Reven/codex/gh-115-release-only-container",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".github/workflows/ci.yml",
+    "server/tests/security/test_deployment_automation.py",
+    "docs/runbook.md",
+    ".trellis/spec/reven-server/backend/ci-release-contract.md"
+  ],
+  "notes": "本地修复、回归验证和独立审查完成，详见 verification.md。尚未推送或创建 PR；配置在合并后生效。",
+  "meta": {
+    "github_issue": "https://github.com/wangyiyang/Reven/issues/115"
+  }
+}
