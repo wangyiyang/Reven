@@ -1,8 +1,10 @@
 import asyncio
 import json
 import os
+import re
 import resource
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,46 @@ class RendererError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+_FONT_FORBIDDEN = re.compile(r"[{};<>\\\n\r]")
+
+
+@dataclass(frozen=True)
+class WechatTheme:
+    """渲染器主题参数；构造即校验，非法值直接拒绝（不进入子进程）。"""
+
+    primary_color: str
+    font_family: str
+    font_size: int
+
+    def __post_init__(self) -> None:
+        if not _COLOR_PATTERN.fullmatch(self.primary_color):
+            raise ValueError("主题主色必须是 #RRGGBB 形式")
+        if not self.font_family or len(self.font_family) > 200 or _FONT_FORBIDDEN.search(self.font_family):
+            raise ValueError("主题字体无效")
+        if not 12 <= self.font_size <= 24:
+            raise ValueError("主题字号超出 12-24 范围")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "primaryColor": self.primary_color,
+            "fontFamily": self.font_family,
+            "fontSize": self.font_size,
+        }
+
+
+def theme_from_params(raw: dict[str, object]) -> WechatTheme | None:
+    """从品牌解析参数构造主题；全空时返回 None（legacy 路径）。"""
+    primary = raw.get("primaryColor")
+    family = raw.get("fontFamily")
+    size = raw.get("fontSize")
+    if not isinstance(primary, str) or not isinstance(family, str) or not family:
+        return None
+    if not isinstance(size, int):
+        return None
+    return WechatTheme(primary, family, size)
 
 
 class WechatRenderer:
@@ -32,7 +74,7 @@ class WechatRenderer:
         self._max_output_bytes = max_output_bytes
         self._sandbox_executable = sandbox_executable
 
-    async def render(self, markdown: str) -> str:
+    async def render(self, markdown: str, theme: WechatTheme | None = None) -> str:
         argv = _renderer_argv(self._executable, self._cli_path)
         if self._sandbox_executable is not None:
             argv = bubblewrap_command(
@@ -51,7 +93,7 @@ class WechatRenderer:
         )
         try:
             stdout = await asyncio.wait_for(
-                self._exchange(process, markdown),
+                self._exchange(process, markdown, theme),
                 timeout=self._timeout_seconds,
             )
         except TimeoutError as error:
@@ -64,11 +106,14 @@ class WechatRenderer:
             raise RendererError("process_failed")
         return self._parse_response(stdout)
 
-    async def _exchange(self, process: asyncio.subprocess.Process, markdown: str) -> bytes:
+    async def _exchange(self, process: asyncio.subprocess.Process, markdown: str, theme: WechatTheme | None) -> bytes:
         if process.stdin is None or process.stdout is None or process.stderr is None:
             await self._terminate(process)
             raise RendererError("process_failed")
-        process.stdin.write(json.dumps({"markdown": markdown}).encode())
+        payload: dict[str, Any] = {"markdown": markdown}
+        if theme is not None:
+            payload["theme"] = theme.to_payload()
+        process.stdin.write(json.dumps(payload).encode())
         await process.stdin.drain()
         process.stdin.close()
         stdout_task = asyncio.create_task(self._read_limited(process.stdout))

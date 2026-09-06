@@ -14,7 +14,7 @@ from reven.integrations.github.client import (
 )
 from reven.jobs.errors import BlockedPublishError, PermanentPublishError, TransientPublishError
 from reven.jobs.repository import JobClaim
-from reven.publishing.blog.converter import BlogArticle, BlogConverter
+from reven.publishing.blog.converter import BlogArticle, BlogBrandFields, BlogConverter
 from reven.publishing.blog.ports import (
     BlogPublishResult,
     BlogWorkspacePort,
@@ -95,7 +95,9 @@ class BlogPublisher:
         await self._assert_lease(claim)
         build_path = await self.workspace.clone_at(attempt / "build", self.remote_url, self.token)
         await self.workspace.prepare(build_path, branch)
-        converted = self.converter.write(build_path, BlogArticle(context.page_id, context.snapshot, context.assets))
+        converted = self.converter.write(
+            build_path, BlogArticle(context.page_id, context.snapshot, context.assets, context.brand)
+        )
         trusted = self.workspace.capture_artifacts(build_path, converted.manifest)
         await self.workspace.build(build_path)
         self.workspace.verify_artifacts(build_path, trusted)
@@ -400,6 +402,7 @@ class _PublishContext:
     content_hash: str
     snapshot: Any
     assets: Any
+    brand: BlogBrandFields | None
 
 
 def _context(raw: dict[str, object]) -> _PublishContext:
@@ -426,7 +429,21 @@ def _context(raw: dict[str, object]) -> _PublishContext:
         categories=tuple(item for item in metadata.get("categories", []) if isinstance(item, str)),
         image_paths=tuple(image_paths),
     )
-    return _PublishContext(page_id, title, content_hash, snapshot, load_snapshot_assets(metadata))
+    return _PublishContext(
+        page_id, title, content_hash, snapshot, load_snapshot_assets(metadata), _blog_brand(metadata)
+    )
+
+
+def _blog_brand(metadata: dict[str, Any]) -> BlogBrandFields | None:
+    fields = metadata.get("blog_fields")
+    if not isinstance(fields, dict):
+        return None
+    author = fields.get("author")
+    og_image = fields.get("og_image_url")
+    return BlogBrandFields(
+        author=author if isinstance(author, str) else "",
+        og_image_url=og_image if isinstance(og_image, str) and og_image else None,
+    )
 
 
 def _dict(value: object) -> dict[str, Any]:

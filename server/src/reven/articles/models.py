@@ -30,9 +30,14 @@ class Article(Base):
     content_sync_status: Mapped[str] = mapped_column(String(32), index=True, default="未同步")
     content_sync_error: Mapped[str | None] = mapped_column(Text)
     current_snapshot_id: Mapped[UUID | None] = mapped_column(ForeignKey("content_snapshots.id", ondelete="SET NULL"))
+    selected_cover_asset_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("brand_assets.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 # 注册 Article 的跨聚合快照外键目标，避免仅导入文章模型时元数据不完整。
+# 注册 Article 的品牌封面外键目标（品牌素材表）。
+from reven.brand import models as brand_models  # noqa: E402,F401
 from reven.content_sync import models as content_sync_models  # noqa: E402,F401

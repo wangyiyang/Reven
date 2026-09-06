@@ -1,13 +1,19 @@
 """Internal value objects for publication preparation."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from reven.domain import AutomationStatus, TargetChannel
 from reven.integrations.notion.models import MappedNotionPage
 from reven.publishing.assets import MaterializedAssets
 from reven.publishing.validation import ValidationResult
+
+if TYPE_CHECKING:
+    from reven.jobs.brand_preparation import BrandPreparation
 
 
 @dataclass(frozen=True)
@@ -45,3 +51,4 @@ class PreparedWork:
     unsupported: tuple[str, ...]
     assets: MaterializedAssets | None
     validation: ValidationResult
+    brand: BrandPreparation | None = None

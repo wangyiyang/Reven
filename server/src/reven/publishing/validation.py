@@ -44,11 +44,13 @@ class PublicationCandidate:
     unsupported_channels: tuple[str, ...] = ()
     materialization_errors: tuple[ValidationError, ...] = ()
     feishu_error: str | None = None
+    brand_errors: tuple[ValidationError, ...] = ()
+    brand_warnings: tuple[ValidationIssue, ...] = ()
 
 
 def validate_candidate(candidate: PublicationCandidate) -> ValidationResult:
-    errors: list[ValidationError] = list(candidate.materialization_errors)
-    warnings: list[ValidationIssue] = []
+    errors: list[ValidationError] = list(candidate.materialization_errors) + list(candidate.brand_errors)
+    warnings: list[ValidationIssue] = list(candidate.brand_warnings)
     _required_content(candidate, errors)
     _assets(candidate, errors)
     _channels(candidate, errors)

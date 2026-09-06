@@ -1,10 +1,13 @@
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
+from reven.brand.application import template_asset_ids, wechat_theme_params
+from reven.brand.models import BrandVersion, ChannelTemplateVersion
+from reven.brand.repository import BrandRepository
 from reven.jobs.models import PublicationJob
 from reven.jobs.repository import JobClaim
 
@@ -25,7 +28,8 @@ class SqlAlchemyWeChatResultStore:
             if pair is None:
                 raise RuntimeError("publication job missing")
             job, article = pair
-            return _job_data(job, article, self.author)
+            brand = await _load_brand_binding(session, job)
+            return _job_data(job, article, self.author, brand)
 
     async def assert_lease(self, claim: JobClaim) -> bool:
         async with self.session_factory() as session:
@@ -97,14 +101,49 @@ def _operation_has_result(result: dict[str, object], key: str) -> bool:
     return isinstance(uploaded, dict) and bool(uploaded.get(sha256))
 
 
-def _job_data(job: PublicationJob, article: Article, author: str) -> dict[str, object]:
+async def _load_brand_binding(session: AsyncSession, job: PublicationJob) -> dict[str, object] | None:
+    """读取任务冻结的品牌绑定；未绑定（legacy）返回 None。版本行不可变，即冻结配置。"""
+    if job.brand_version_id is None:
+        return None
+    brand = await session.get(BrandVersion, job.brand_version_id)
+    if brand is None:
+        # 外键 RESTRICT 保证存在；防御性兜底，明确阻塞而不是静默回落 legacy
+        raise RuntimeError("brand_config_missing")
+    template: ChannelTemplateVersion | None = None
+    if job.wechat_template_version_id is not None:
+        template = await session.get(ChannelTemplateVersion, job.wechat_template_version_id)
+    template_payload: dict[str, object] | None = template.payload if template is not None else None
+    assets: dict[str, dict[str, Any]] = {}
+    if template_payload is not None:
+        repository = BrandRepository(session)
+        for asset in await repository.assets_by_ids(template_asset_ids(template_payload)):
+            assets[str(asset.id)] = {
+                "sha256": asset.sha256,
+                "public_url": asset.public_url,
+                "enabled": asset.enabled,
+                "label": asset.label,
+            }
+    return {
+        "brand_payload": brand.payload,
+        "template_payload": template_payload,
+        "theme": wechat_theme_params(brand.payload, template_payload),
+        "author": brand.payload.get("default_author") or None,
+        "assets": assets,
+    }
+
+
+def _job_data(
+    job: PublicationJob, article: Article, author: str, brand: dict[str, object] | None = None
+) -> dict[str, object]:
     metadata = job.snapshot_metadata
+    brand_author = brand.get("author") if brand else None
     return {
         "source_markdown": job.source_markdown or "",
         "snapshot_metadata": metadata,
         "wechat_result": job.wechat_result,
         "title": metadata.get("title", article.title),
-        "author": author or article.notion_metadata.get("author", ""),
+        "author": brand_author or author or article.notion_metadata.get("author", ""),
         "digest": metadata.get("summary", ""),
         "content_source_url": article.notion_url,
+        "brand": brand,
     }

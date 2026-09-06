@@ -1,4 +1,4 @@
-import { renderWechatHtml } from "./render";
+import { renderWechatHtml, type WechatTheme } from "./render";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const failure = JSON.stringify({ ok: false, error: "render_failed" });
@@ -22,7 +22,7 @@ async function readInput(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function parseMarkdown(raw: string): string {
+function parseInput(raw: string): { markdown: string; theme?: WechatTheme } {
   const input: unknown = JSON.parse(raw);
   if (!input || Array.isArray(input) || typeof input !== "object") {
     fail();
@@ -31,13 +31,32 @@ function parseMarkdown(raw: string): string {
   if (typeof markdown !== "string") {
     fail();
   }
-  return markdown;
+  const theme = parseTheme((input as Record<string, unknown>).theme);
+  return theme ? { markdown, theme } : { markdown };
+}
+
+function parseTheme(raw: unknown): WechatTheme | undefined {
+  if (!raw || Array.isArray(raw) || typeof raw !== "object") {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  const theme: WechatTheme = {};
+  if (typeof record.primaryColor === "string") {
+    theme.primaryColor = record.primaryColor;
+  }
+  if (typeof record.fontFamily === "string") {
+    theme.fontFamily = record.fontFamily;
+  }
+  if (typeof record.fontSize === "number") {
+    theme.fontSize = record.fontSize;
+  }
+  return Object.keys(theme).length > 0 ? theme : undefined;
 }
 
 async function main(): Promise<void> {
   try {
-    const markdown = parseMarkdown(await readInput());
-    const html = renderWechatHtml(markdown);
+    const { markdown, theme } = parseInput(await readInput());
+    const html = renderWechatHtml(markdown, theme);
     process.stdout.write(`${JSON.stringify({ ok: true, html })}\n`);
   } catch {
     fail();

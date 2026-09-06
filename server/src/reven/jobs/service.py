@@ -8,9 +8,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.articles.models import Article
+from reven.brand.application import ResolvedBrand, TemplateAssetRef, binding_key_for
 from reven.domain import AutomationStatus, JobStatus, TargetChannel, parse_target_channels
 from reven.integrations.notion.mapper import map_notion_page
 from reven.integrations.notion.models import MappedNotionPage
+from reven.jobs.brand_preparation import BrandPreparation, prepare_brand
 from reven.jobs.locking import lock_article_job as _lock_article_job
 from reven.jobs.models import PublicationJob
 from reven.jobs.preparation_models import (
@@ -38,7 +40,7 @@ from reven.jobs.preparation_state import refresh_article as _refresh_article
 from reven.jobs.preparation_state import source_failure as _source_failure
 from reven.jobs.preparation_state import valid_asset_manifest as _valid_asset_manifest
 from reven.jobs.preparation_state import validation_metadata as _validation_metadata
-from reven.publishing.assets import AssetDownloadError, MaterializedAssets
+from reven.publishing.assets import AssetDownloadError, MaterializedAsset, MaterializedAssets
 from reven.publishing.snapshot import build_snapshot, image_urls
 from reven.publishing.validation import (
     ValidationError,
@@ -208,13 +210,19 @@ class PublicationJobService:
             return _PreparedWork(preflight, None, "", (), (), None, _source_failure(type(exc).__name__))
         selection = parse_target_channels(mapped.target_channels)
         channels = tuple(channel for channel in TargetChannel if channel in selection.channels)
-        assets, asset_errors = await self._materialize(
-            preflight.job_id, markdown, mapped.cover.url if mapped.cover else None
-        )
+        async with self.session_factory() as session:
+            brand = await prepare_brand(session, preflight.article_id, mapped, markdown, channels)
+        cover_url = mapped.cover.url if mapped.cover else None
+        footer_urls: list[str] = []
+        if brand is not None:
+            if brand.cover_url is not None:
+                cover_url = brand.cover_url
+            footer_urls = brand.footer_urls
+        assets, asset_errors = await self._materialize(preflight.job_id, markdown, cover_url, footer_urls)
         try:
             async with self.session_factory() as session:
                 candidate = await _candidate(
-                    session, mapped, markdown, channels, selection.unsupported, assets, asset_errors
+                    session, mapped, markdown, channels, selection.unsupported, assets, asset_errors, brand
                 )
             validation = validate_candidate(candidate)
             latest = map_notion_page(await self.notion.retrieve_page(preflight.notion_page_id))
@@ -231,6 +239,7 @@ class PublicationJobService:
             selection.unsupported,
             assets,
             validation,
+            brand,
         )
 
     async def _persist_prepared(self, work: _PreparedWork) -> _PersistedPreparation:
@@ -263,6 +272,7 @@ class PublicationJobService:
                 work.channels,
                 work.assets,
                 work.validation,
+                work.brand,
             )
 
     async def _freeze_validated(
@@ -275,19 +285,23 @@ class PublicationJobService:
         channels: tuple[TargetChannel, ...],
         assets: MaterializedAssets,
         validation: ValidationResult,
+        brand: BrandPreparation | None = None,
     ) -> _PersistedPreparation:
         if assets.cover is None:
             raise PublicationPreparationError("校验器错误地放行了缺少封面的快照")
         final_assets = assets.final_view()
+        body_count = len(image_urls(markdown))
+        body_images = final_assets.images[:body_count]
+        footer_images = final_assets.images[body_count:]
         try:
             snapshot = build_snapshot(
                 markdown,
-                image_sha256=tuple(asset.sha256 for asset in final_assets.images),
+                image_sha256=tuple(asset.sha256 for asset in body_images),
                 cover_sha256=final_assets.cover.sha256 if final_assets.cover else "",
                 title=mapped.title,
                 summary=mapped.summary,
                 categories=tuple(mapped.categories),
-                image_paths=tuple(asset.path for asset in final_assets.images),
+                image_paths=tuple(asset.path for asset in body_images),
             )
         except ValueError:
             issue = ValidationError(
@@ -296,13 +310,27 @@ class PublicationJobService:
                 "markdown",
             )
             return _persist_blocked(session, job, article, ValidationResult((issue,)))
-        existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels)
+        resolved = brand.resolved if brand is not None else None
+        binding_key = binding_key_for(resolved)
+        existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels, binding_key=binding_key)
         if existing is not None:
             return _adopt_existing(job, existing, article)
         metadata = _asset_finalize_metadata(
             _snapshot_metadata(snapshot.metadata(), final_assets),
             assets,
         )
+        if resolved is not None and brand is not None:
+            metadata["brand"] = _brand_metadata(resolved)
+            metadata["blog_fields"] = {"author": brand.blog_author, "og_image_url": brand.blog_og_image_url}
+            if brand.footer_assets:
+                metadata["footer_assets"] = [
+                    _footer_entry(asset, file_asset)
+                    for asset, file_asset in zip(brand.footer_assets, footer_images, strict=True)
+                ]
+            job.brand_version_id = resolved.brand_version_id
+            job.wechat_template_version_id = resolved.wechat_template_version_id
+            job.blog_template_version_id = resolved.blog_template_version_id
+        job.brand_binding_key = binding_key
         metadata["validation"] = _validation_metadata(validation)
         _freeze(job, snapshot.content_hash, snapshot.markdown, metadata, channels)
         article.automation_status = AutomationStatus.WAITING
@@ -317,10 +345,11 @@ class PublicationJobService:
         return _PersistedPreparation(PrepareResult(job.id), article.notion_page_id, AutomationStatus.PROCESSING)
 
     async def _materialize(
-        self, job_id: UUID, markdown: str, cover_url: str | None
+        self, job_id: UUID, markdown: str, cover_url: str | None, footer_urls: tuple[str, ...] | list[str] = ()
     ) -> tuple[MaterializedAssets | None, tuple[ValidationError, ...]]:
         try:
-            assets = await self.materializer.materialize(job_id, list(image_urls(markdown)), cover_url)
+            urls = list(image_urls(markdown)) + list(footer_urls)
+            assets = await self.materializer.materialize(job_id, urls, cover_url)
             return assets, ()
         except AssetDownloadError as exc:
             issue = ValidationError(exc.code, str(exc), exc.field)
@@ -411,6 +440,7 @@ class PublicationJobService:
                 conflict.article_id,
                 conflict.content_hash,
                 conflict.channels,
+                binding_key=current.brand_binding_key,
                 exclude_id=current.id,
             )
             if existing is None:
@@ -424,6 +454,33 @@ class PublicationJobService:
             if existing is None or existing.article_id != article.id:
                 raise PublicationPreparationError("唯一冲突后已冻结任务发生变化")
             return _adopt_existing(current, existing, article).result
+
+
+def _brand_metadata(resolved: ResolvedBrand) -> dict[str, object]:
+    return {
+        "binding_key": resolved.binding_key,
+        "brand_version_id": str(resolved.brand_version_id),
+        "wechat_template_version_id": (
+            str(resolved.wechat_template_version_id) if resolved.wechat_template_version_id else None
+        ),
+        "blog_template_version_id": (
+            str(resolved.blog_template_version_id) if resolved.blog_template_version_id else None
+        ),
+        "version_fingerprint": resolved.version_fingerprint(),
+    }
+
+
+def _footer_entry(asset: TemplateAssetRef, file_asset: MaterializedAsset) -> dict[str, object]:
+    """文末素材冻结记录：sha256 取实际落盘文件哈希（交付校验与去重同源）。"""
+    return {
+        "asset_id": str(asset.id),
+        "label": asset.label,
+        "sha256": file_asset.sha256,
+        "public_url": asset.public_url,
+        "path": str(file_asset.path),
+        "mime_type": file_asset.mime_type,
+        "size": file_asset.size,
+    }
 
 
 def _snapshot_metadata(metadata: dict[str, object], assets: MaterializedAssets) -> dict[str, object]:

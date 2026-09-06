@@ -16,6 +16,7 @@ from reven.api.schemas.articles import (
     ChannelResult,
     ContentSyncRunSummary,
     ContentSyncSummary,
+    CoverSelectionRequest,
     CurrentSnapshotSummary,
     JobDetail,
     JobSummary,
@@ -152,6 +153,30 @@ async def get_portable_markdown(
     return PortableMarkdownResponse(markdown=snapshot.portable_markdown)
 
 
+@router.post("/{article_id}/jobs", response_model=ActionResult)
+async def regenerate_job(article_id: UUID, factory: SessionFactoryDep) -> ActionResult | JSONResponse:
+    """按当前品牌配置重新生成发布任务。"""
+    try:
+        job_id = await ArticleActionService(factory).regenerate(article_id)
+    except ActionConflictError as exc:
+        return _error(404 if exc.code == "ARTICLE_NOT_FOUND" else 409, exc.code, exc.message)
+    return ActionResult(job_id=job_id)
+
+
+@router.post("/{article_id}/cover", response_model=ActionResult)
+async def select_cover(
+    article_id: UUID,
+    body: CoverSelectionRequest,
+    factory: SessionFactoryDep,
+) -> ActionResult | JSONResponse:
+    """稿件级封面选择（品牌素材），asset_id 为空表示清除。"""
+    try:
+        await ArticleActionService(factory).select_cover(article_id, body.asset_id)
+    except ActionConflictError as exc:
+        return _error(404 if exc.code == "ARTICLE_NOT_FOUND" else 409, exc.code, exc.message)
+    return ActionResult()
+
+
 @router.post("/{article_id}/jobs/{job_id}/retry", response_model=ActionResult)
 async def retry_job(
     article_id: UUID,
@@ -233,6 +258,7 @@ def _article_detail(
         **summary,
         notion_metadata=article.notion_metadata,
         cover_metadata=_safe_cover(article.cover_metadata),
+        selected_cover_asset_id=article.selected_cover_asset_id,
         last_error=_safe_error(article.last_error),
         content_hash=latest.content_hash if latest else None,
         validation_errors=errors,
@@ -296,6 +322,7 @@ def _job_summary(job: PublicationJob) -> JobSummary:
 
 
 def _job_detail(job: PublicationJob) -> JobDetail:
+    brand = job.snapshot_metadata.get("brand")
     return JobDetail(
         **_job_summary(job).model_dump(),
         article_id=job.article_id,
@@ -307,6 +334,8 @@ def _job_detail(job: PublicationJob) -> JobDetail:
         wechat=_channel_result(job, "wechat"),
         wechat_html=job.wechat_html,
         attempt_count=job.attempt_count,
+        brand_binding_key=job.brand_binding_key,
+        brand=brand if isinstance(brand, dict) and job.brand_version_id is not None else None,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )

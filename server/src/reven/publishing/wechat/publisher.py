@@ -19,6 +19,7 @@ from reven.publishing.validation import (
     WECHAT_SUMMARY_MAX,
     WECHAT_TITLE_MAX,
 )
+from reven.publishing.wechat.brand import apply_brand_for_delivery, parse_footer_entries
 from reven.publishing.wechat.images import (
     SnapshotAssetRecoverer,
     SnapshotAssetsMissingError,
@@ -26,6 +27,7 @@ from reven.publishing.wechat.images import (
     validate_placeholders,
     verify_snapshot_file_set,
 )
+from reven.publishing.wechat.renderer import WechatTheme
 
 T = TypeVar("T")
 
@@ -42,7 +44,7 @@ class WeChatApi(Protocol):
 
 
 class Renderer(Protocol):
-    async def render(self, markdown: str) -> str: ...
+    async def render(self, markdown: str, theme: WechatTheme | None = None) -> str: ...
 
 
 class ResultStore(Protocol):
@@ -66,6 +68,7 @@ class _Context:
     author: str
     digest: str
     source_url: str
+    brand: dict[str, Any] | None
 
 
 class WeChatPublisher:
@@ -93,7 +96,18 @@ class WeChatPublisher:
         _reject_uncertain_uploads(context.result)
         await self._assert_lease(claim)
         assets = await self._load_assets(claim, context)
-        html = await self.renderer.render(context.markdown)
+        markdown, theme = context.markdown, None
+        if context.brand is not None:
+            applied = apply_brand_for_delivery(
+                context.markdown,
+                context.brand,
+                parse_footer_entries(context.metadata),
+                tuple(asset.sha256 for asset in assets.images),
+                footer_start_ordinal=len(assets.images) + 1,
+            )
+            markdown, theme = applied.markdown, applied.theme
+            assets = MaterializedAssets((*assets.images, *applied.footer_images), assets.cover)
+        html = await self.renderer.render(markdown, theme)
         placeholders = validate_placeholders(html, assets.images)
         await self._external(self.client.get_token())
         uploaded = await self._upload_images(claim, context.result, placeholders)
@@ -326,6 +340,7 @@ def _parse_context(raw: dict[str, object]) -> _Context:
     result = raw.get("wechat_result")
     if not isinstance(markdown, str) or not isinstance(metadata, dict) or not isinstance(result, dict):
         raise BlockedPublishError("微信发布冻结快照无效")
+    brand = raw.get("brand")
     return _Context(
         markdown,
         cast(dict[str, object], metadata),
@@ -334,6 +349,7 @@ def _parse_context(raw: dict[str, object]) -> _Context:
         str(raw.get("author", "")),
         str(raw.get("digest", "")),
         str(raw.get("content_source_url", "")),
+        cast(dict[str, Any], brand) if isinstance(brand, dict) else None,
     )
 
 
