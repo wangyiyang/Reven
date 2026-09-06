@@ -62,10 +62,10 @@ pnpm build                          # renderer + web 全量构建（最终回归
 
 ## 阶段 E：验收与收尾
 
-- [ ] E1 代表性稿件端到端：配置品牌+双模板 → 同步 → 预览 → 校验 → 发布双渠道，对照 AC1–AC10 逐项核验（含真实博客 PR 确认 cover/og_image_url 生效、微信草稿确认排版与文末模块）。
-- [ ] E2 AC11：记录实施前后代表性发布步骤对比，写入任务 notes。
-- [ ] E3 全量回归：`uv run pytest && uv run ruff check . && uv run mypy && pnpm test && pnpm build`。
-- [ ] E4 `trellis-update-spec`：沉淀品牌版本模型与「渠道产物不回写正文」约定到 `.trellis/spec/`。
+- [ ] E1 代表性稿件端到端：代码级 AC 审计已完成（`notes-acceptance.md`，AC1–AC10 逐条映射测试证据）；**真实双渠道交付（博客 PR / 微信草稿 / 真实 VI Hub 导入）需部署环境凭据，列入部署环境复核清单**。
+- [x] E2 AC11：实施前后代表性发布步骤对比已写入 `notes-acceptance.md`（≈6 步→≈2 步，重复录入 4 处→0 处）。
+- [x] E3 全量回归：后端 722 passed / ruff / mypy 全绿；web 169 passed + 基线 10 失败不变；renderer 39 passed；`pnpm build` ✓。
+- [x] E4 `trellis-update-spec`：`.trellis/spec/reven-server/backend/brand-publishing-contract.md`（版本模型/冻结与幂等/渠道产物不回写正文/文末素材冻结占位符/渲染器主题协议/迁移契约）。
 - [ ] E5 提交剩余改动，推送分支并创建 PR（关联 #46）。
 
 ## 风险点与回滚
