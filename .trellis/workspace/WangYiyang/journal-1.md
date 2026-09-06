@@ -99,3 +99,27 @@
 ### Next Steps
 
 - push 分支并开 PR 关联 #107；PR review 时可 dogfood /sops 页面
+
+
+## Session 2: gh-108 财务工作区：三子页面拆分 + 抽屉录入 + 待收付流程打通
+
+**Date**: 2026-09-06
+**Task**: gh-108 财务工作区：三子页面拆分 + 抽屉录入 + 待收付流程打通
+**Branch**: `issue/gh-108-feat-finance`
+
+### Summary
+
+Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) + summary month 参数 + confirm 幂等结清接口（409 防重复）；前端三子页面（概览/流水/待收待付）+ radix 抽屉四入口 + 确认收付对话框；spec 契约同步 month/confirm。决策 D1：线上无历史数据，首版不做已记录待确认入口，AC9 改为口径保障+上线前 SQL 核查。质量：后端覆盖率 86.69%、finance 前端 21 测试全绿、trellis-check 无 blocker；修复 2 个 minor（摘要按方向拆分链接、status 参数遮蔽）。rebase 解决 #109 SOP 重命名冲突；测试容器重建迁移。PR #111 待审，发布前需 SQL 核查与双端走查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `afb89d5` | (see git log) |
+| `9c64247` | (see git log) |
+| `bffb506` | (see git log) |
+| `853ed10` | (see git log) |
+
+### Status
+
+[OK] **Completed**
