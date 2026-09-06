@@ -31,7 +31,6 @@ jobs:
       migration: ${{ steps.filter.outputs.migration }}
       frontend: ${{ steps.filter.outputs.frontend }}
       renderer: ${{ steps.filter.outputs.renderer }}
-      container: ${{ steps.filter.outputs.container }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -64,20 +63,6 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
-            container:
-              - 'infra/**'
-              - 'scripts/**'
-              - 'server/**'
-              - 'web/**'
-              - 'renderer/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - '.env.example'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/release.yml'
 
   backend:
     if: inputs.full || needs.changes.outputs.backend == 'true'
@@ -181,7 +166,7 @@ jobs:
       - run: pnpm --filter @reven/renderer build
 
   container:
-    if: inputs.full || needs.changes.outputs.container == 'true'
+    if: inputs.full
     needs: changes
     runs-on: ubuntu-latest
     steps:

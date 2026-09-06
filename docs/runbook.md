@@ -128,8 +128,10 @@ Docker 操作。不要关闭 SSH host key 校验，也不要用 `StrictHostKeyCh
 `REVEN_DEPLOY_KNOWN_HOSTS`。
 
 同时在 GitHub 的 `main` 分支保护中将 CI 的 `backend`、`migration`、`frontend`、
-`renderer` 与 `container` 设为 required checks；仅有 workflow 文件不能阻止未通过
-检查的 PR 被合并。
+`renderer` 设为日常 required checks；仅有 workflow 文件不能阻止未通过检查的 PR
+被合并。`container` 只在发版完整 CI 中运行，普通 PR 和 `main` push 均跳过。
+若现有分支保护仍要求 `container`，job 条件导致的跳过不会阻止合并，无需为本次调整
+修改远端分支保护。
 
 不要把密码写进仓库、工作流参数或命令历史。在服务器建立项目专用 Docker 配置，
 再交互式读取密码：
@@ -169,9 +171,12 @@ cd /opt/reven
 镜像历史文件或部署脚本。
 
 推送形如 `v1.2.3` 的版本 Tag 后，`.github/workflows/release.yml` 会先执行完整 CI，
-随后构建 ACR 镜像并推送 `<版本 Tag>` 与 `latest`。推送到 `main` 只运行 CI，不再自动
-构建与部署。生产部署只接收解析后的完整 digest，不使用任意 Tag。workflow 使用
-GitHub `production` Environment 和全局并发锁，避免并发升级。
+通过 `full: true` 启用容器测试镜像构建、沙箱验证、漏洞扫描和 SBOM；全部通过后才
+构建 ACR 正式镜像并推送 `<版本 Tag>` 与 `latest`。触发事件是版本 Tag push，单独
+发布 GitHub Release 不触发此工作流。普通 PR 和 `main` push 按路径运行后端、迁移、
+前端及 renderer 检查，不构建容器镜像，也不部署；容器打包、运行环境、沙箱及镜像
+漏洞问题会延后到发版阶段发现。生产部署只接收解析后的完整 digest，不使用任意 Tag。
+workflow 使用 GitHub `production` Environment 和全局并发锁，避免并发升级。
 成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
@@ -187,6 +192,8 @@ GitHub `production` Environment 和全局并发锁，避免并发升级。
 - `deploy`：输入已发布镜像的版本 Tag（如 `v1.2.3`）；留空时部署 `latest`；
 - `rollback`：切换到服务器记录的上一健康镜像，并同步该镜像内的配套基础设施；不会执行
   数据库降级。
+
+手动部署和回滚均复用已有镜像，不运行完整 CI，也不重新构建镜像。
 
 部署失败时 workflow 明确失败并发送失败通知；脚本会原位恢复 `.env` 中原有的
 `REVEN_IMAGE` 和部署前的完整 `infra/`，必要时重新载入恢复后的 Caddyfile——Caddy
@@ -209,7 +216,7 @@ DEPLOY_OPERATION=deploy REVEN_IMAGE="$REVEN_IMAGE" /opt/reven/scripts/deploy_rev
 把同一个 ACR 完整 digest 写入 `.env` 的 `REVEN_IMAGE`，不得使用 Tag、`latest`
 或本地构建名称。
 
-服务器不构建生产镜像。workflow 会拒绝覆盖已有的 `sha-<commit SHA>` 镜像标签，
+服务器不构建生产镜像。workflow 会拒绝覆盖已有的版本镜像标签（如 `v1.2.3`），
 生产部署的身份依据始终是 digest。
 
 运行容器使用单个 Uvicorn worker。启动时先执行幂等 Alembic 迁移，再原子切换
@@ -349,10 +356,12 @@ rm -f /tmp/reven-cookie.jar
 ## 受控依赖更新与已知供应链风险
 
 Dockerfile 三个基础镜像、Caddy、CI PostgreSQL 和安全扫描器都使用
-`tag@sha256`。更新时只允许在独立 PR 中同时修改可读 Tag 与 digest，并执行
+`tag@sha256`。更新时只允许在独立 PR 中同时修改可读 Tag 与 digest。PR 和 `main`
+CI 只执行对应路径的语言层检查；版本 Tag 发版的完整 CI 才执行
 `docker build --pull --no-cache`、全量测试、实际沙箱 fixture、Trivy 门禁和
-Caddy 验证。CI 保存 CycloneDX SBOM 供审计，并阻止存在已有修复方案的
-Critical 漏洞。
+Caddy 验证，并保存 CycloneDX SBOM 供审计。完整 CI 通过后才能构建推送正式镜像，
+正式镜像也会执行漏洞扫描并保存 SBOM；两处扫描均阻止存在已有修复方案的 Critical
+漏洞。容器与供应链风险的自动检查因此发生在发版阶段。
 
 `apt` 软件包仍来自构建时 Debian 仓库快照状态，Ruby Gem 虽由 lockfile 固定，
 下载源本身也不由本仓库镜像保存，因此当前构建不是字节级完全可复现。不得宣称
