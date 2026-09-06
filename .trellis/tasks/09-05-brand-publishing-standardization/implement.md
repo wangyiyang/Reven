@@ -66,7 +66,7 @@ pnpm build                          # renderer + web 全量构建（最终回归
 - [x] E2 AC11：实施前后代表性发布步骤对比已写入 `notes-acceptance.md`（≈6 步→≈2 步，重复录入 4 处→0 处）。
 - [x] E3 全量回归：后端 722 passed / ruff / mypy 全绿；web 169 passed + 基线 10 失败不变；renderer 39 passed；`pnpm build` ✓。
 - [x] E4 `trellis-update-spec`：`.trellis/spec/reven-server/backend/brand-publishing-contract.md`（版本模型/冻结与幂等/渠道产物不回写正文/文末素材冻结占位符/渲染器主题协议/迁移契约）。
-- [ ] E5 提交剩余改动，推送分支并创建 PR（关联 #46）。
+- [x] E5 提交剩余改动，推送分支并创建 PR（关联 #46）：PR #112。
 
 ## 风险点与回滚
 
