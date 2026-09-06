@@ -138,8 +138,12 @@ async def test_brand_asset_register_dedupe(db_session) -> None:  # type: ignore[
             from reven.integrations.tencent_cos.store import ArchivedAsset
 
             return ArchivedAsset(
-                key=f"brand/{sha256}", sha256=sha256, mime_type=mime_type, size=len(content),
-                public_url=f"https://cdn.example.com/brand/{sha256}", reused=False,
+                key=f"brand/{sha256}",
+                sha256=sha256,
+                mime_type=mime_type,
+                size=len(content),
+                public_url=f"https://cdn.example.com/brand/{sha256}",
+                reused=False,
             )
 
     # 1x1 PNG

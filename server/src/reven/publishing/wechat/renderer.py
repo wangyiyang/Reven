@@ -106,9 +106,7 @@ class WechatRenderer:
             raise RendererError("process_failed")
         return self._parse_response(stdout)
 
-    async def _exchange(
-        self, process: asyncio.subprocess.Process, markdown: str, theme: WechatTheme | None
-    ) -> bytes:
+    async def _exchange(self, process: asyncio.subprocess.Process, markdown: str, theme: WechatTheme | None) -> bytes:
         if process.stdin is None or process.stdout is None or process.stderr is None:
             await self._terminate(process)
             raise RendererError("process_failed")

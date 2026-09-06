@@ -312,9 +312,7 @@ class PublicationJobService:
             return _persist_blocked(session, job, article, ValidationResult((issue,)))
         resolved = brand.resolved if brand is not None else None
         binding_key = binding_key_for(resolved)
-        existing = await _existing_frozen(
-            session, article.id, snapshot.content_hash, channels, binding_key=binding_key
-        )
+        existing = await _existing_frozen(session, article.id, snapshot.content_hash, channels, binding_key=binding_key)
         if existing is not None:
             return _adopt_existing(job, existing, article)
         metadata = _asset_finalize_metadata(

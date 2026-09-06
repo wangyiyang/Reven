@@ -86,9 +86,7 @@ class BlogConverter:
             shutil.rmtree(stage, ignore_errors=True)
         return ConversionOutput(post_path, (relative_post, *image_paths), f"/{date[:4]}/{date[5:7]}/{date[8:]}/{slug}/")
 
-    def _body(
-        self, root: Path, article: BlogArticle, image_dir: Path
-    ) -> tuple[str, tuple[Path, ...], Path | None]:
+    def _body(self, root: Path, article: BlogArticle, image_dir: Path) -> tuple[str, tuple[Path, ...], Path | None]:
         body = _CALLOUT.sub(
             lambda match: "\n".join(f"> {line}" for line in match.group(1).strip().splitlines()) + "\n",
             article.snapshot.markdown,

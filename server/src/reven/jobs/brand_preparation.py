@@ -55,9 +55,7 @@ async def prepare_brand(
 ) -> BrandPreparation | None:
     """解析当前品牌上下文；无品牌绑定且未选择封面素材时返回 None（完整 legacy 路径）。"""
     resolved = await resolve_brand_config(session)
-    selected_id = await session.scalar(
-        select(Article.selected_cover_asset_id).where(Article.id == article_id)
-    )
+    selected_id = await session.scalar(select(Article.selected_cover_asset_id).where(Article.id == article_id))
     if resolved is None and selected_id is None:
         return None
 
@@ -97,9 +95,7 @@ async def prepare_brand(
     )
 
 
-def _blog_static_fields(
-    resolved: ResolvedBrand | None, assets: Mapping[UUID, BrandAsset]
-) -> tuple[str, str | None]:
+def _blog_static_fields(resolved: ResolvedBrand | None, assets: Mapping[UUID, BrandAsset]) -> tuple[str, str | None]:
     """博客署名与 OG 覆盖图：路径相关的封面字段由转换器在交付时推导。"""
     if resolved is None:
         return "", None
@@ -164,9 +160,7 @@ def _check_blog_asset_refs(
         if not isinstance(raw, str) or not raw:
             continue
         if _asset_ref(raw, assets) is None:
-            errors.append(
-                ValidationError("brand_asset_unreadable", "博客模板引用的素材不存在或已停用", field)
-            )
+            errors.append(ValidationError("brand_asset_unreadable", "博客模板引用的素材不存在或已停用", field))
 
 
 def _apply_wechat(

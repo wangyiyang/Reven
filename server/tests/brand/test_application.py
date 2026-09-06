@@ -113,7 +113,6 @@ def test_wechat_theme_params_template_overrides_brand() -> None:
     assert defaults == {"primaryColor": "#00E676", "fontFamily": "Inter, Noto Sans SC", "fontSize": 16}
 
 
-
 def test_cover_ratio_warning() -> None:
     assert cover_ratio_warning(900, 383, channel="微信公众号") is None
     warning = cover_ratio_warning(500, 500, channel="微信公众号")

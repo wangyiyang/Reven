@@ -156,9 +156,7 @@ async def test_dry_run_writes_nothing(db_session) -> None:  # type: ignore[no-un
 
 @pytest.mark.anyio
 async def test_existing_draft_not_overwritten(db_session) -> None:  # type: ignore[no-untyped-def]
-    db_session.add(
-        BrandVersion(version=1, status="草稿", source="手工创建", payload={"brand_name": "人工草稿"})
-    )
+    db_session.add(BrandVersion(version=1, status="草稿", source="手工创建", payload={"brand_name": "人工草稿"}))
     await db_session.commit()
 
     run = await _importer(db_session).run(dry_run=False)

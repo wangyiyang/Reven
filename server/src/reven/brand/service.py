@@ -160,4 +160,3 @@ class BrandService:
             asset.enabled = enabled
         await self.repo.commit()
         return asset
-

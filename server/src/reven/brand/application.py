@@ -42,6 +42,7 @@ class BrandAssetLike:
     public_url: str
     label: str
 
+
 LEGACY_BINDING_KEY = "legacy"
 
 # 微信封面推荐比例（首图 900x383 ≈ 2.35:1），偏离容忍 ±10%
@@ -233,7 +234,6 @@ def wechat_theme_params(
 
 def _str_or(value: object, fallback: str) -> str:
     return value if isinstance(value, str) and value else fallback
-
 
 
 def template_asset_ids(payload: dict[str, object]) -> list[UUID]:

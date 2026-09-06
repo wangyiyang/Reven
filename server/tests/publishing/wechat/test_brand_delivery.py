@@ -185,9 +185,7 @@ async def test_missing_footer_file_blocks_delivery(tmp_path: Path) -> None:
     entry = _footer_entry(ghost, "https://cdn.example.com/ghost.png")
     ghost.unlink()  # 冻结文件丢失
     metadata["footer_assets"] = [entry]
-    template = {
-        "footer_modules": [{"key": "qr", "type": "image", "asset_id": entry["asset_id"], "enabled": True}]
-    }
+    template = {"footer_modules": [{"key": "qr", "type": "image", "asset_id": entry["asset_id"], "enabled": True}]}
     publisher = WeChatPublisher(
         FakeWeChat(),
         EchoRenderer(),
@@ -206,9 +204,7 @@ async def test_no_brand_binding_keeps_legacy_delivery(tmp_path: Path) -> None:
     materialized, metadata = _assets(snapshot_dir)
     renderer = EchoRenderer()
     wechat = FakeWeChat()
-    publisher = WeChatPublisher(
-        wechat, renderer, FakeStore(metadata), assets_loader=lambda _: materialized
-    )
+    publisher = WeChatPublisher(wechat, renderer, FakeStore(metadata), assets_loader=lambda _: materialized)
 
     await publisher.publish(JobClaim(uuid4(), uuid4()))
 

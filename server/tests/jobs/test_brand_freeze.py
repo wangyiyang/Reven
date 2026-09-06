@@ -280,9 +280,9 @@ async def test_wechat_store_resolves_brand_author_and_theme(db_session) -> None:
     job = await _seed_waiting_job(db_session, article, channels)
     factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
 
-    await PublicationJobService(
-        factory, FakeNotion(_page_with_channels(channels)), UrlEchoMaterializer()
-    ).prepare(job.id)
+    await PublicationJobService(factory, FakeNotion(_page_with_channels(channels)), UrlEchoMaterializer()).prepare(
+        job.id
+    )
 
     from reven.jobs.repository import JobClaim
     from reven.publishing.wechat.store import SqlAlchemyWeChatResultStore
@@ -330,9 +330,7 @@ async def test_cover_fallback_asset_used_when_notion_cover_missing(db_session) -
             return await super().materialize(job_id, image_urls, cover_url)
 
     # Notion 页面无封面也能发布（回落素材兜底）
-    result = await PublicationJobService(
-        factory, FakeNotion(_page(cover=False)), CaptureCover()
-    ).prepare(job.id)
+    result = await PublicationJobService(factory, FakeNotion(_page(cover=False)), CaptureCover()).prepare(job.id)
 
     assert result.blocked is False
     assert captured.cover_url == "https://cdn.example.com/default-cover.png"  # type: ignore[attr-defined]

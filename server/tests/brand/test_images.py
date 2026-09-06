@@ -27,8 +27,14 @@ def _jpeg(width: int, height: int) -> bytes:
 
 def _webp_vp8x(width: int, height: int) -> bytes:
     payload = (
-        b"RIFF" + b"\x00" * 4 + b"WEBPVP8X" + b"\x0a\x00\x00\x00" + b"\x00" * 4
-        + (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little") + b"\x00" * 4
+        b"RIFF"
+        + b"\x00" * 4
+        + b"WEBPVP8X"
+        + b"\x0a\x00\x00\x00"
+        + b"\x00" * 4
+        + (width - 1).to_bytes(3, "little")
+        + (height - 1).to_bytes(3, "little")
+        + b"\x00" * 4
     )
     return payload
 
