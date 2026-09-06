@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/reven-server/backend/finance-summary-contract.md", "reason": "现金口径核心契约：summary 增加 month 参数与新增 confirm 状态机时，必须延续 已收/已付/应收/应付/已记录 的精确条件语义，已记录不得进入任何汇总字段"}
+{"file": ".trellis/spec/web/frontend/brand-vi.md", "reason": "Drawer 与三个新页面的 UI 必须使用品牌色 tokens（--ink/--muted/--line/--signal 等）并满足 WCAG 对比度护栏"}
