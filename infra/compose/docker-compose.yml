@@ -4,8 +4,13 @@ services:
     restart: unless-stopped
     env_file:
       - ../../.env
+    environment:
+      # DSH_HOME：dsh 运行时数据目录（profile/会话日志），由 dsh-data 卷持久化。
+      # 注意：agent-llm 的 api_key 走前端集成页配置（加密入库），不通过 env 注入。
+      DSH_HOME: /data/dsh
     volumes:
       - reven-data:/data
+      - dsh-data:/data/dsh
       - reven-static:/srv/reven
     read_only: true
     mem_limit: 2g
@@ -57,6 +62,7 @@ services:
 
 volumes:
   reven-data:
+  dsh-data:
   reven-static:
   caddy-data:
   caddy-config:
