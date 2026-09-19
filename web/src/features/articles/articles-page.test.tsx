@@ -128,6 +128,35 @@ describe("ArticlesPage", () => {
     await waitFor(() => expect(requests.at(-1)).toContain("status=%E5%BE%85%E5%8F%91%E5%B8%83"))
   })
 
+  it("loads status options from the facets endpoint instead of hardcoded values", async () => {
+    server.use(
+      http.get("/api/articles", () => HttpResponse.json({ items: [article], total: 1, page: 1, page_size: 20 })),
+      http.get("/api/articles/status-facets", () => HttpResponse.json({ statuses: ["已发布", "撰写中"] })),
+    )
+    renderPage("/articles")
+
+    await screen.findAllByText("测试稿件")
+    await userEvent.click(screen.getByRole("combobox", { name: "状态" }))
+
+    expect(await screen.findByRole("option", { name: "已发布" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "撰写中" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "全部状态" })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "已完成" })).not.toBeInTheDocument()
+  })
+
+  it("shows the URL status value when the facets endpoint fails", async () => {
+    server.use(
+      http.get("/api/articles", () => HttpResponse.json({ items: [article], total: 1, page: 1, page_size: 20 })),
+      http.get("/api/articles/status-facets", () => HttpResponse.json({ message: "boom" }, { status: 500 })),
+    )
+    renderPage("/articles?status=已发布&page=1")
+
+    expect(await screen.findAllByText("测试稿件")).not.toHaveLength(0)
+    expect(screen.getByRole("combobox", { name: "状态" })).toHaveTextContent("已发布")
+    await userEvent.click(screen.getByRole("combobox", { name: "状态" }))
+    expect(await screen.findByRole("option", { name: "已发布" })).toBeInTheDocument()
+  })
+
   it("prevents duplicate synchronization while the request is pending", async () => {
     let calls = 0
     server.use(

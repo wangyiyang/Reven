@@ -24,6 +24,11 @@ export function parseArticleList(value: unknown): ArticleList {
   }
 }
 
+export function parseStatusFacets(value: unknown): string[] {
+  const data = record(value, "状态选项")
+  return array(data.statuses, "状态选项").map((item) => string(item, "状态选项"))
+}
+
 export function parseArticleDetail(value: unknown): ArticleDetail {
   const data = record(value, "稿件详情")
   return {

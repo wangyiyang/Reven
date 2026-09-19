@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query"
 import { Search, X } from "lucide-react"
 import type { FormEvent, ReactNode } from "react"
 import { useEffect, useState } from "react"
@@ -6,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { apiRequest } from "@/lib/api"
+import { parseStatusFacets } from "./response-parsers"
 
 export interface ArticleFilterValues {
   status: string
@@ -13,7 +16,7 @@ export interface ArticleFilterValues {
   query: string
 }
 
-const statuses = ["全部状态", "待发布", "等待中", "处理中", "阻塞", "失败", "已完成", "已交付"]
+const ALL_STATUSES = "全部状态"
 const channels = ["全部渠道", "个人博客", "微信公众号"]
 
 export function ArticleFilters({
@@ -25,6 +28,15 @@ export function ArticleFilters({
 }) {
   const [query, setQuery] = useState(values.query)
   useEffect(() => setQuery(values.query), [values.query])
+  // 状态选项来自后端真实值域聚合，避免与稿件实际状态脱节
+  const facets = useQuery({
+    queryKey: ["article-status-facets"],
+    queryFn: async () => parseStatusFacets(await apiRequest<unknown>("/articles/status-facets")),
+    staleTime: 60_000,
+  })
+  const statusOptions = [ALL_STATUSES, ...(facets.data ?? [])]
+  // URL 中的 status 可能不在当前值域内（如 Notion 侧刚改过状态名），补入选项避免下拉显示空白
+  if (values.status && !statusOptions.includes(values.status)) statusOptions.push(values.status)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     onChange({ ...values, query })
@@ -32,9 +44,9 @@ export function ArticleFilters({
   return (
     <form className="grid gap-4 border-y border-[var(--line)] py-5 md:grid-cols-[12rem_12rem_1fr_auto]" onSubmit={submit}>
       <Field label="状态">
-        <Select value={values.status || "全部状态"} onValueChange={(status) => onChange({ ...values, status: status === "全部状态" ? "" : status })}>
+        <Select value={values.status || ALL_STATUSES} onValueChange={(status) => onChange({ ...values, status: status === ALL_STATUSES ? "" : status })}>
           <SelectTrigger aria-label="状态"><SelectValue /></SelectTrigger>
-          <SelectContent>{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+          <SelectContent>{statusOptions.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
       <Field label="渠道">
