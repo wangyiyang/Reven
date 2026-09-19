@@ -1,6 +1,6 @@
 export type Provider =
   | "notion" | "github" | "wechat" | "feishu"
-  | "translate_baidu" | "translate_aliyun" | "embedding"
+  | "translate_baidu" | "translate_aliyun" | "embedding" | "agent-llm"
 
 export interface Integration {
   provider: Provider
@@ -119,6 +119,19 @@ export const PROVIDERS: ProviderDefinition[] = [
     publicFields: [
       { key: "base_url", label: "Base URL", defaultValue: "https://api.siliconflow.cn" },
       { key: "model", label: "模型", defaultValue: "BAAI/bge-m3" },
+    ],
+    secretFields: [{ key: "api_key", label: "API Key", type: "password", placeholder: "输入 API Key" }],
+  },
+  {
+    provider: "agent-llm",
+    number: "08",
+    title: "Agent LLM",
+    eyebrow: "智能体",
+    description: "Agent 核心的 LLM 推理服务，默认 DeepSeek，兼容 OpenAI 端点。",
+    publicFields: [
+      { key: "provider", label: "Provider", defaultValue: "deepseek-official" },
+      { key: "model", label: "模型", defaultValue: "deepseek-v4-flash" },
+      { key: "base_url", label: "Base URL", placeholder: "https://api.deepseek.com（可选）", optional: true },
     ],
     secretFields: [{ key: "api_key", label: "API Key", type: "password", placeholder: "输入 API Key" }],
   },

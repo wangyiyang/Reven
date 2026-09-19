@@ -399,6 +399,36 @@ describe("IntegrationsPage", () => {
     expect(embedding.getByLabelText("模型")).toHaveValue("BAAI/bge-m3")
   })
 
+  it("renders the Agent LLM card with defaults and omits an empty optional base_url on save", async () => {
+    let requestBody: unknown
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([])),
+      http.put("/api/integrations/agent-llm", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json({
+          provider: "agent-llm",
+          public_config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+          secret_configured: false,
+          secret_hint: null,
+          connection_status: "未测试",
+          last_tested_at: null,
+          last_error: null,
+          last_latency_ms: null,
+        })
+      }),
+    )
+    renderPage()
+
+    const card = await findCard("Agent LLM")
+    expect(card.getByLabelText("Provider")).toHaveValue("deepseek-official")
+    expect(card.getByLabelText("模型")).toHaveValue("deepseek-v4-flash")
+    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
+
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+    }))
+  })
+
   it("serializes translate public config with number and boolean types", async () => {
     let requestBody: unknown
     server.use(
