@@ -15,6 +15,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Brand and Accessible Color](./brand-vi.md) | Notion blue/gray tokens, theme mechanics, and WCAG contrast guardrails | Active |
+| [Filter Facets Contract](./filter-facets-contract.md) | Filter dropdowns for open-ended value domains load options from backend facets endpoints, never hardcode them | Active |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
 | [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
