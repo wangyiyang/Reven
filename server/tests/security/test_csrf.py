@@ -51,6 +51,17 @@ def test_same_origin_write_with_csrf_header_succeeds(csrf_client: TestClient) ->
     assert response.json() == {"ok": True}
 
 
+def test_agent_mcp_endpoint_exempt_from_csrf_but_requires_bearer(csrf_client: TestClient) -> None:
+    """/agent/mcp 无 Origin/CSRF 头不应被 403 拦截；它由 MCP Bearer token 独立鉴权（401）。"""
+    response = csrf_client.post(
+        "/agent/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={"Accept": "application/json, text/event-stream"},
+    )
+
+    assert response.status_code == 401
+
+
 @pytest.mark.parametrize(
     "headers",
     [

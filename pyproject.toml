@@ -28,7 +28,14 @@ python_version = "3.12"
 strict = true
 packages = ["reven"]
 
+[[tool.mypy.overrides]]
+module = "deepseek_harness.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["server/tests"]
 pythonpath = ["server/src"]
 addopts = "-q"
+markers = [
+  "dsh_runtime: 真实拉起 dsh 子进程的测试（默认运行，可用 -m 'not dsh_runtime' 排除）",
+]

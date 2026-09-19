@@ -1,8 +1,11 @@
 from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_AGENT_MCP_URL = "http://127.0.0.1:8000/agent/mcp"
 
 
 class Settings(BaseSettings):
@@ -30,6 +33,13 @@ class Settings(BaseSettings):
     siliconflow_chat_model: str = "Qwen/Qwen3-8B"
     rss_model_review_enabled: bool = True
     rss_scheduler_interval_seconds: int = Field(default=60, ge=5)
+    dsh_home: Path = Path(".dsh-runtime")
+    agent_provider: str = "deepseek-official"
+    agent_model: str = "deepseek-v4-flash"
+    agent_base_url: str | None = None
+    agent_api_key: SecretStr | None = None
+    agent_mcp_token: SecretStr | None = None
+    agent_mcp_url: str = DEFAULT_AGENT_MCP_URL
 
     @field_validator("public_base_url")
     @classmethod

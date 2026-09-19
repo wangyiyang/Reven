@@ -22,6 +22,25 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     require_database_url_in_ci()
 
 
+@pytest.fixture(autouse=True)
+def _scrub_agent_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """隔离开发者 shell 残留的 AGENT_*/DSH_HOME env。
+
+    app lifespan 会直接读进程 env 构造 AgentConfig；残留 AGENT_API_KEY 会让
+    无关 API 测试拉起真实 dsh 子进程，启动失败时级联导致整批用例 ERROR。
+    """
+    for var in (
+        "AGENT_API_KEY",
+        "AGENT_PROVIDER",
+        "AGENT_MODEL",
+        "AGENT_BASE_URL",
+        "AGENT_MCP_TOKEN",
+        "AGENT_MCP_URL",
+        "DSH_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
