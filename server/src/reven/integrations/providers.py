@@ -16,4 +16,5 @@ SUPPORTED_INTEGRATION_PROVIDERS = (
     "feishu",
     *TRANSLATION_PROVIDERS,
     "embedding",
+    "agent-llm",
 )

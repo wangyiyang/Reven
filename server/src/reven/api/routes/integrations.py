@@ -24,6 +24,7 @@ from reven.api.schemas.integrations import (
     to_response,
 )
 from reven.config import get_settings
+from reven.integrations.agent_llm.service import register_agent_llm_adapter
 from reven.integrations.embedding.service import register_embedding_adapter
 from reven.integrations.feishu.service import register_feishu_adapter
 from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
@@ -40,6 +41,7 @@ register_feishu_adapter()
 register_baidu_adapter()
 register_aliyun_adapter()
 register_embedding_adapter()
+register_agent_llm_adapter()
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:

@@ -28,6 +28,23 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _validate_https_origin(value: str, *, field: str) -> str:
+    parsed = urlsplit(value)
+    localhost = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    valid_scheme = parsed.scheme == "https" or (parsed.scheme == "http" and localhost)
+    if (
+        not valid_scheme
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"{field} 必须是 HTTPS origin；仅 localhost 测试可使用 HTTP")
+    return value.rstrip("/")
+
+
 class NotionPublicConfig(_Strict):
     data_source_id: UUID
     database_id: UUID
@@ -80,20 +97,22 @@ class EmbeddingPublicConfig(_Strict):
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        localhost = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        valid_scheme = parsed.scheme == "https" or (parsed.scheme == "http" and localhost)
-        if (
-            not valid_scheme
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Embedding base_url 必须是 HTTPS origin；仅 localhost 测试可使用 HTTP")
-        return value.rstrip("/")
+        return _validate_https_origin(value, field="Embedding base_url")
+
+
+class AgentLlmPublicConfig(_Strict):
+    """Agent LLM 集成的公开配置：provider/model 决定推理端点，base_url 可覆盖官方地址。"""
+
+    provider: str = Field(default="deepseek-official", min_length=1, max_length=64)
+    model: str = Field(default="deepseek-v4-flash", min_length=1, max_length=128)
+    base_url: str | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_https_origin(value, field="Agent LLM base_url")
 
 
 class BaiduTranslateSecret(_Strict):
@@ -107,6 +126,10 @@ class AliyunTranslateSecret(_Strict):
 
 
 class EmbeddingSecret(_Strict):
+    api_key: str = Field(min_length=1, max_length=256)
+
+
+class AgentLlmSecret(_Strict):
     api_key: str = Field(min_length=1, max_length=256)
 
 
@@ -145,6 +168,11 @@ class EmbeddingIntegrationPut(_Strict):
     secret: EmbeddingSecret | None = None
 
 
+class AgentLlmIntegrationPut(_Strict):
+    public_config: AgentLlmPublicConfig
+    secret: AgentLlmSecret | None = None
+
+
 IntegrationPut = (
     NotionIntegrationPut
     | GitHubIntegrationPut
@@ -153,6 +181,7 @@ IntegrationPut = (
     | BaiduTranslateIntegrationPut
     | AliyunTranslateIntegrationPut
     | EmbeddingIntegrationPut
+    | AgentLlmIntegrationPut
 )
 
 PUT_MODELS: dict[str, type[IntegrationPut]] = {
@@ -163,6 +192,7 @@ PUT_MODELS: dict[str, type[IntegrationPut]] = {
     "translate_baidu": BaiduTranslateIntegrationPut,
     "translate_aliyun": AliyunTranslateIntegrationPut,
     "embedding": EmbeddingIntegrationPut,
+    "agent-llm": AgentLlmIntegrationPut,
 }
 
 

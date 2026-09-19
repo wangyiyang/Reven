@@ -31,6 +31,7 @@ SECRET_HINT_FIELDS = {
     "translate_baidu": "app_key",
     "translate_aliyun": "access_key_secret",
     "embedding": "api_key",
+    "agent-llm": "api_key",
 }
 
 
