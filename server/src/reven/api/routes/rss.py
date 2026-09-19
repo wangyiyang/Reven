@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
-from reven.api.dependencies import RssEmbeddingRefresherDep, RssInboxServiceDep, SessionDep
+from reven.api.dependencies import CandidateReviewServiceDep, RssEmbeddingRefresherDep, RssInboxServiceDep, SessionDep
 from reven.api.schemas.rss import (
     InboxPushResponse,
     RssCandidatePage,
@@ -21,6 +21,7 @@ from reven.api.schemas.rss import (
 from reven.rss.inbox import InboxPushError, InboxPushResult
 from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
+from reven.rss.review_service import CandidateReviewError
 
 router = APIRouter(prefix="/api/rss", tags=["rss"])
 
@@ -69,17 +70,11 @@ async def list_candidates(
 
 
 @router.post("/candidates/{item_id}/ignore", response_model=RssCandidateResponse)
-async def ignore_candidate(item_id: UUID, session: SessionDep) -> RssItem | JSONResponse:
-    item = await session.get(RssItem, item_id, with_for_update=True)
-    if item is None:
-        return _candidate_error(404, "RSS_CANDIDATE_NOT_FOUND", "RSS 候选不存在")
-    if item.status == "ignored":
-        return item
-    if item.status != "candidate":
-        return _candidate_error(409, "RSS_CANDIDATE_NOT_IGNORABLE", "RSS 候选当前状态不允许忽略")
-    item.status = "ignored"
-    await session.commit()
-    return item
+async def ignore_candidate(item_id: UUID, review: CandidateReviewServiceDep) -> RssItem | JSONResponse:
+    try:
+        return await review.ignore(item_id)
+    except CandidateReviewError as exc:
+        return _candidate_error(exc.status_code, exc.code, exc.message)
 
 
 @router.post("/candidates/{item_id}/confirm", response_model=InboxPushResponse)
