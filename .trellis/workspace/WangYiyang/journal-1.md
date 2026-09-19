@@ -156,3 +156,11 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Next Steps
 
 - 按 GitHub Flow 推送分支并创建关联 #115 的 PR，确认远端 CI 的 container 为 skipped；尚未推送或部署。
+
+## 2026-09-19 稿件状态筛选值域脱节修复
+
+- 排查 dev.wangyiyang.cc:3001 下拉脱节：前端硬编码状态选项与真实值域（已发布/撰写中/选题池/未开始）零交集
+- 方案 A 落地：新增 GET /api/articles/status-facets（notion∪automation 去重），前端动态生成下拉选项
+- PR #118 squash 合并，CI 全绿；补固化 spec：filter-facets-contract.md（开放式值域禁止硬编码选项）
+- 发版 v0.1.3 触发 release.yml 自动部署（上次发版 9/1 failure 导致线上停留旧版）；线上验收 33 条已发布筛选通过
+- 注意：deploy 走 production environment；本地后端 DB 测试需 TEST_DATABASE_URL（CI 有 Postgres 服务）
