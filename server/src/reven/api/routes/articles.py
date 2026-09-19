@@ -12,6 +12,7 @@ from reven.api.schemas.articles import (
     ActionResult,
     ArticleDetail,
     ArticleList,
+    ArticleStatusFacets,
     ArticleSummary,
     ChannelResult,
     ContentSyncRunSummary,
@@ -81,6 +82,11 @@ async def list_articles(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/status-facets", response_model=ArticleStatusFacets)
+async def list_status_facets(session: SessionDep) -> ArticleStatusFacets:
+    return ArticleStatusFacets(statuses=await ArticleQuery(session).status_facets())
 
 
 @router.get("/{article_id}", response_model=ArticleDetail)

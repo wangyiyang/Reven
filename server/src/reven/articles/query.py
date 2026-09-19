@@ -46,6 +46,15 @@ class ArticleQuery:
             statement = statement.where(Article.title.ilike(f"%{escaped}%", escape="\\"))
         return statement
 
+    async def status_facets(self) -> list[str]:
+        union = (
+            select(Article.notion_status.label("status"))
+            .union(select(Article.automation_status.label("status")))
+            .subquery()
+        )
+        rows = await self.session.scalars(select(union.c.status))
+        return sorted(status for status in rows if status)
+
     async def get(self, article_id: UUID) -> Article | None:
         return await self.session.get(Article, article_id)
 

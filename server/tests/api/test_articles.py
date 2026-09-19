@@ -42,6 +42,39 @@ def test_list_articles_supports_filters_sorting_and_pagination(workbench) -> Non
     }
 
 
+def test_status_facets_returns_sorted_distinct_status_union(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, factory = workbench
+    now = datetime.now(tz=UTC)
+
+    async def seed() -> None:
+        async with factory.begin() as session:
+            first = _article("稿件一", now)
+            second = _article("稿件二", now + timedelta(minutes=1))
+            second.notion_status = "已发布"
+            second.automation_status = "未开始"
+            session.add_all([first, second])
+
+    asyncio.run(seed())
+    response = client.get("/api/articles/status-facets")
+    assert response.status_code == 200
+    assert response.json()["statuses"] == sorted({"待发布", "等待中", "已发布", "未开始"})
+
+
+def test_status_facets_empty_when_no_articles(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    response = client.get("/api/articles/status-facets")
+    assert response.status_code == 200
+    assert response.json()["statuses"] == []
+
+
+def test_status_facets_requires_authentication(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    client.cookies.clear()
+    response = client.get("/api/articles/status-facets")
+    assert response.status_code == 401
+    assert response.json()["code"] == "unauthorized"
+
+
 def test_detail_exposes_only_safe_results_and_wechat_html_only_on_job(workbench) -> None:  # type: ignore[no-untyped-def]
     client, factory = workbench
     article, job = asyncio.run(_seed_pair(factory, status="已完成", blog_status="已上线"))

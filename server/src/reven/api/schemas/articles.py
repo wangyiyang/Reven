@@ -70,6 +70,10 @@ class ArticleList(BaseModel):
     page_size: int
 
 
+class ArticleStatusFacets(BaseModel):
+    statuses: list[str]
+
+
 class JobSummary(BaseModel):
     id: UUID
     overall_status: str
