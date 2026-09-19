@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "新增 feishu_bot provider 的跨层契约：注册表/PUT schema/secret-hint/连接测试适配器/CMS 卡片/测试矩阵，必须逐面对齐"}
+{"file": ".trellis/spec/reven-server/backend/directory-structure.md", "reason": "feishu_bot 子系统与 review_service 的落位约定"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "rss_items 加 review_pushed_at 列的 migration 约定"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "核心层领域错误与 bot 适配层错误映射约定"}
+{"file": ".trellis/spec/reven-server/backend/logging-guidelines.md", "reason": "supervisor 生命周期与推送管道日志约定（凭证脱敏）"}
+{"file": ".trellis/spec/web/frontend/component-guidelines.md", "reason": "integrations 页面新卡片的组件约定"}
+{"file": ".trellis/spec/web/frontend/hook-guidelines.md", "reason": "配置卡片 controller  hook 约定"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "Provider union 与运行时 guard 扩展的类型约定"}
+{"file": ".trellis/spec/web/frontend/state-management.md", "reason": "配置表单状态管理约定"}
