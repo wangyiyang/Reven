@@ -1,0 +1,11 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": "server/src/reven/app.py", "reason": "lifespan 装配点与路由注册位置"}
+{"file": "server/src/reven/config.py", "reason": "Settings 模式（新增 dsh_home 等配置项参照）"}
+{"file": "server/src/reven/api/dependencies.py", "reason": "鉴权依赖复用"}
+{"file": "server/src/reven/integrations/providers.py", "reason": "provider 注册表（M2 加 agent-llm）"}
+{"file": "server/src/reven/rss/repository.py", "reason": "M4 工具集直连的 Repository 签名"}
+{"file": "server/tests/conftest.py", "reason": "测试基础设施"}
+{"file": "server/tests/integrations/", "type": "directory", "reason": "provider 接口测试模式参照"}
+{"file": "server/pyproject.toml", "reason": "依赖声明位置"}
+{"file": ".gitignore", "reason": "加 .dsh-runtime/"}
+{"file": "server/src/reven/integrations/notion/configuration.py", "reason": "encrypted_secret 解密模式参照"}

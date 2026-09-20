@@ -41,8 +41,9 @@ RUN BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle config set --local deployment 
     && chmod 755 /opt/reven-blog \
     && chmod 644 /opt/reven-blog/Gemfile /opt/reven-blog/Gemfile.lock \
     && chmod -R a+rX /opt/reven-blog/vendor
+# /data/dsh is the writable DSH_HOME for the embedded dsh agent (profiles, session logs).
 RUN useradd --create-home --uid 10001 reven \
-    && mkdir -p /app /data/jobs /srv/reven \
+    && mkdir -p /app /data/jobs /data/dsh /srv/reven \
     && chown -R reven:reven /app /data /srv/reven
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
@@ -63,7 +64,8 @@ COPY infra/ /opt/reven-release/infra/
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/server/src" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    DSH_HOME=/data/dsh
 USER reven
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

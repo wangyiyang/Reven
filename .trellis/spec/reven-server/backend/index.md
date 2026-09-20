@@ -15,6 +15,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [CI 与发版镜像构建契约](./ci-release-contract.md) | 日常 CI 跳过容器构建、发版 full 调用与回归验证 | Active |
+| [Agent (dsh) 集成契约](./agent-dsh-contract.md) | dsh 嵌入式子进程、MCP 工具通道、配置/部署/测试约定 | Active |
 | [Brand Publishing Contract](./brand-publishing-contract.md) | Versioned brand config, freeze/binding semantics, channel-artifact rules, VI Hub migration | Active |
 | [Finance Summary Contract](./finance-summary-contract.md) | Cash-status semantics for the finance summary API and UI | Active |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |

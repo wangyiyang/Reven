@@ -1,0 +1,30 @@
+# dsh sdk profile patch（#123）：注入 Reven MCP 工具通道，并关闭 IM 机器人场景不需要的内建 coding 工具。
+# 由 AgentRuntime 经 DeepSeekHarness(patches=...) 以绝对路径传入。
+# url / Authorization 在 dsh 进程内由 !!js 表达式读取 REVEN_AGENT_MCP_URL / REVEN_AGENT_MCP_TOKEN，
+# 两个变量由 AgentRuntime 注入子进程 env——真实凭证不落盘、不进 git。
+- insert:
+    - id: mcp-reven
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: reven
+        transport: streamable-http
+        url: !!js process.env.REVEN_AGENT_MCP_URL
+        headers:
+          Authorization: !!js '"Bearer " + process.env.REVEN_AGENT_MCP_TOKEN'
+        toolCallTimeoutMs: 30000
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-jobs
+  disabled: true

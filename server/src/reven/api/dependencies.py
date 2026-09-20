@@ -11,6 +11,22 @@ from reven.rss.inbox import InboxPushResult
 from reven.rss.review_service import CandidateReviewService
 
 
+class AgentChatService(Protocol):
+    async def chat(self, message: str, session_id: str | None = None) -> tuple[str, str]: ...
+
+
+def get_agent_service(request: Request) -> AgentChatService:
+    runtime = getattr(request.app.state, "agent_runtime", None)
+    if runtime is None:
+        raise RuntimeError("Agent 运行时未初始化")
+    from reven.agent.service import AgentService
+
+    return AgentService(runtime)
+
+
+AgentServiceDep = Annotated[AgentChatService, Depends(get_agent_service)]
+
+
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
     factory = getattr(request.app.state, "session_factory", None)
     if not isinstance(factory, async_sessionmaker):

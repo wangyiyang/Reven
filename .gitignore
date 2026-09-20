@@ -15,6 +15,7 @@ coverage/
 htmlcov/
 .vite/
 .data/
+.dsh-runtime/
 .next/
 test-results/
 *.tsbuildinfo

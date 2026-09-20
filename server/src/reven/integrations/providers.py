@@ -17,4 +17,5 @@ SUPPORTED_INTEGRATION_PROVIDERS = (
     "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",
+    "agent-llm",
 )
