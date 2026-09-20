@@ -177,3 +177,25 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **PR 已建待合并**（#125）；任务归档待合并后执行
+
+
+## Session 4: 移除稿件发布与 Notion 集成
+
+**Date**: 2026-09-21
+**Task**: 移除稿件发布与 Notion 集成
+**Package**: web
+**Branch**: `codex/remove-notion-publishing`
+
+### Summary
+
+独立 worktree 完成稿件发布、Notion/GitHub/微信发布集成退役；RSS 采纳改为本地素材并保留飞书审核与品牌管理。新增 0021 清理迁移，简化构建部署和依赖，同步现行规范。后端 487 项通过、覆盖率 86.87%，前端 168 项通过，lint/typecheck/build、迁移一致性、桌面/移动浏览器和 Docker 构建及非 root 运行均通过。未部署生产。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e29860` | (see git log) |
+
+### Status
+
+[OK] **Completed**
