@@ -32,11 +32,15 @@ from reven.api.routes.system import router as system_router
 from reven.api.routes.talents import router as talents_router
 from reven.config import Settings, get_settings
 from reven.db import create_session_factory
+from reven.integrations.feishu_bot.review_callback import ReviewCallbackDispatcher
+from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
 from reven.jobs.runner import build_background_runner
 from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher, ConfiguredRssInboxPusher
+from reven.rss.review_service import CandidateReviewService
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
 from reven.security.headers import SecurityHeadersMiddleware
+from reven.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +100,43 @@ async def _build_agent_runtime(
     return AgentRuntime(config, mcp=mcp)
 
 
+def _build_feishu_bot_supervisor(
+    current_app: FastAPI,
+    factory: async_sessionmaker[AsyncSession] | None,
+) -> FeishuBotSupervisor | None:
+    """创建飞书机器人长连接 supervisor；配置缺失/初始化失败时降级为停用，不阻断进程。"""
+    if factory is None:
+        return None
+    try:
+        secret_box = SecretBox.from_base64(get_settings().reven_master_key.get_secret_value())
+        review_callback = ReviewCallbackDispatcher(
+            factory,
+            secret_box,
+            CandidateReviewService(factory, ConfiguredRssInboxPusher(factory)),
+        )
+        supervisor = FeishuBotSupervisor(factory, secret_box, review_callback=review_callback)
+    except Exception as exc:
+        logger.warning("飞书机器人 supervisor 初始化失败，入站能力停用（error_type=%s）", type(exc).__name__)
+        return None
+    current_app.state.feishu_bot_supervisor = supervisor
+    return supervisor
+
+
 async def _cleanup_resources(
     *,
     agent_runtime: AgentRuntime,
+    feishu_bot_supervisor: FeishuBotSupervisor | None,
     active_runner: RunnerProtocol | None,
     stop_runner: bool,
     owned_factory: async_sessionmaker[AsyncSession] | None,
 ) -> BaseException | None:
     cleanup_error: BaseException | None = None
+    if feishu_bot_supervisor is not None:
+        try:
+            feishu_bot_supervisor.stop()
+        except BaseException as exc:
+            cleanup_error = exc
+            logger.error("飞书机器人 supervisor 清理失败（error_type=%s）", type(exc).__name__)
     try:
         await agent_runtime.close()
     except BaseException as exc:
@@ -113,7 +146,7 @@ async def _cleanup_resources(
         if stop_runner and active_runner is not None:
             await active_runner.stop()
     except BaseException as exc:
-        cleanup_error = exc
+        cleanup_error = cleanup_error or exc
         logger.error("后台 runner 清理失败（error_type=%s）", type(exc).__name__)
     engine = owned_factory.kw.get("bind") if owned_factory is not None else None
     if isinstance(engine, AsyncEngine):
@@ -147,6 +180,7 @@ async def _lifespan(
     mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings)
     agent_runtime = await _build_agent_runtime(factory, settings, mcp_context)
     current_app.state.agent_runtime = agent_runtime
+    feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory)
     active_runner = runner
     primary_error: BaseException | None = None
     mcp_stack = AsyncExitStack()
@@ -158,6 +192,8 @@ async def _lifespan(
         if start_background_tasks and active_runner is not None:
             await active_runner.start()
         await agent_runtime.start()
+        if feishu_bot_supervisor is not None:
+            await feishu_bot_supervisor.start()
         yield
     except BaseException as exc:
         primary_error = exc
@@ -165,6 +201,7 @@ async def _lifespan(
     finally:
         cleanup_error = await _cleanup_resources(
             agent_runtime=agent_runtime,
+            feishu_bot_supervisor=feishu_bot_supervisor,
             active_runner=active_runner,
             stop_runner=start_background_tasks,
             owned_factory=factory if owns_factory else None,

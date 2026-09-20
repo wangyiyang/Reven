@@ -14,6 +14,7 @@ SUPPORTED_INTEGRATION_PROVIDERS = (
     "github",
     "wechat",
     "feishu",
+    "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",
     "agent-llm",

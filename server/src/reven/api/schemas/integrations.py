@@ -6,6 +6,7 @@ material: only ``secret_configured`` and an irreversible ``secret_hint``.
 """
 
 from datetime import datetime
+from typing import Annotated
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -66,6 +67,13 @@ class FeishuPublicConfig(_Strict):
     name: str = Field(min_length=1, max_length=64)
 
 
+class FeishuBotPublicConfig(_Strict):
+    """飞书应用（机器人）公开配置：白名单限定可执行审核按钮的成员，enabled 控制入站长连接。"""
+
+    whitelist_open_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list)
+    enabled: bool = False
+
+
 class NotionSecret(_Strict):
     token: str = Field(min_length=1, max_length=256)
 
@@ -81,6 +89,11 @@ class WeChatSecret(_Strict):
 class FeishuSecret(_Strict):
     webhook_url: str = Field(pattern=_FEISHU_WEBHOOK_PATTERN, max_length=512)
     signing_secret: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class FeishuBotSecret(_Strict):
+    app_id: str = Field(min_length=1, max_length=256)
+    app_secret: str = Field(min_length=1, max_length=256)
 
 
 class TranslationPublicConfig(_Strict):
@@ -153,6 +166,11 @@ class FeishuIntegrationPut(_Strict):
     secret: FeishuSecret | None = None
 
 
+class FeishuBotIntegrationPut(_Strict):
+    public_config: FeishuBotPublicConfig
+    secret: FeishuBotSecret | None = None
+
+
 class BaiduTranslateIntegrationPut(_Strict):
     public_config: TranslationPublicConfig
     secret: BaiduTranslateSecret | None = None
@@ -178,6 +196,7 @@ IntegrationPut = (
     | GitHubIntegrationPut
     | WeChatIntegrationPut
     | FeishuIntegrationPut
+    | FeishuBotIntegrationPut
     | BaiduTranslateIntegrationPut
     | AliyunTranslateIntegrationPut
     | EmbeddingIntegrationPut
@@ -189,6 +208,7 @@ PUT_MODELS: dict[str, type[IntegrationPut]] = {
     "github": GitHubIntegrationPut,
     "wechat": WeChatIntegrationPut,
     "feishu": FeishuIntegrationPut,
+    "feishu_bot": FeishuBotIntegrationPut,
     "translate_baidu": BaiduTranslateIntegrationPut,
     "translate_aliyun": AliyunTranslateIntegrationPut,
     "embedding": EmbeddingIntegrationPut,

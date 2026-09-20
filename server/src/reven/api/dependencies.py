@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.rss.inbox import InboxPushResult
+from reven.rss.review_service import CandidateReviewService
 
 
 class AgentChatService(Protocol):
@@ -73,6 +74,13 @@ def get_rss_inbox_service(request: Request) -> RssInboxPusher:
 
 
 RssInboxServiceDep = Annotated[RssInboxPusher, Depends(get_rss_inbox_service)]
+
+
+def get_candidate_review_service(request: Request) -> CandidateReviewService:
+    return CandidateReviewService(get_session_factory(request), get_rss_inbox_service(request))
+
+
+CandidateReviewServiceDep = Annotated[CandidateReviewService, Depends(get_candidate_review_service)]
 
 
 class RssEmbeddingRefresher(Protocol):

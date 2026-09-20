@@ -15,7 +15,7 @@ ROOT = Path(__file__).parents[3]
 TALENTS_REVISION = "0015_talents"
 REMOVE_TENCENT_REVISION = "0015_remove_tencent_translation"
 MERGE_REVISION = "0016_merge_talents_tencent"
-FINAL_REVISION = "0019_brand_import_run_outcome"
+FINAL_REVISION = "0020_rss_item_review_pushed_at"
 
 
 def _alembic_config(database_url: str | None = None) -> Config:

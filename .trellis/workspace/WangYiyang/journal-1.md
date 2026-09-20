@@ -164,3 +164,16 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 - PR #118 squash 合并，CI 全绿；补固化 spec：filter-facets-contract.md（开放式值域禁止硬编码选项）
 - 发版 v0.1.3 触发 release.yml 自动部署（上次发版 9/1 failure 导致线上停留旧版）；线上验收 33 条已发布筛选通过
 - 注意：deploy 走 production environment；本地后端 DB 测试需 TEST_DATABASE_URL（CI 有 Postgres 服务）
+
+## 2026-09-19 集成 DeepSeek Harness 作为 Agent 核心（#123）
+
+- grilling 两轮拍板 9 项决策（生产模块直写、/agent/chat 调试端点、容器/VPS 正式拍板、agent-llm 通用配置抽象等），Trellis 任务 09-19-dsh-agent-core 全程留痕
+- M0 spike 关键结论（全部实测）：sdk profile JSON-RPC 仅 initialize/session/prompt/shutdown 三方法，**无宿主工具协议**；工具走官方 dsh-mcp-client + patch `insert:` 语法（平铺条目只能覆盖不能新增）；单实例多 session 真并发无需全局锁；linux manylinux wheel 存在
+- 端到端验收（临时 key）：PUT agent-llm（api_key 加密入库）→ 重启 → POST /api/agent/chat "加一个正向关键词：AI Agent" → 模型原生调 mcp__reven__ 工具落库 → GET /api/rss/keywords 确认 ✅
+- 踩坑：AGENT_MCP_URL 默认 8000 端口，非标端口必须显式设置（否则模型"不知道有工具"且不报错）；tests 混跑干扰根因 = 进程 env 泄漏（conftest 隔离修复）
+- 交付：5 个原子提交 → PR #125；#119/#123 评论同步；spec 沉淀 agent-dsh-contract.md；docs/agent-architecture.md
+- 临时 DeepSeek key 需吊销；正式 key 走集成页配置
+
+### Status
+
+[OK] **PR 已建待合并**（#125）；任务归档待合并后执行

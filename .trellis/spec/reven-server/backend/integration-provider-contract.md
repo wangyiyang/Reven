@@ -35,6 +35,7 @@ Use this contract whenever a change alters a provider identifier, credential sch
 |---|---|
 | Path provider is not in the canonical registry | `404 INTEGRATION_PROVIDER_UNKNOWN` before body parsing or adapter lookup |
 | Known provider request body violates its strict schema | HTTP 422; extra fields remain forbidden |
+| Credential-bearing dataclass fields | Must use `field(repr=False)` (precedent: `integrations/translation/configuration.py`), with a test asserting repr contains no credentials |
 | Unsupported legacy row exists in `integrations` | Omit it from list responses; keep supported rows visible |
 | Enabled runtime row has no ciphertext or incomplete fields | Skip it; do not fail application startup or the RSS run |
 | Ciphertext cannot be decrypted | Skip it and log only provider plus error type |
@@ -75,6 +76,7 @@ SUPPORTED_INTEGRATION_PROVIDERS = (
     "github",
     "wechat",
     "feishu",
+    "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",
 )

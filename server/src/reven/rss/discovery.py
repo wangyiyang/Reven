@@ -1,6 +1,7 @@
 """Daily RSS discovery module with idempotent persistence and one summary."""
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
@@ -14,6 +15,8 @@ from reven.publishing.notifications import DeliveryNotifier, Notification
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.normalization import normalize_keyword
 from reven.scheduling import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,12 @@ class RunScreener(Protocol):
     async def screen_run(self, run_id: UUID) -> int: ...
 
 
+class ReviewCardPush(Protocol):
+    """候选审核卡片推送口：run 结束后推送待审核候选；实现方自行吞错记日志。"""
+
+    async def push_pending_review(self) -> None: ...
+
+
 class RssDiscoveryService:
     def __init__(
         self,
@@ -77,6 +86,7 @@ class RssDiscoveryService:
         *,
         screener: RunScreener | None = None,
         candidate_url: str | None = None,
+        review_pusher: ReviewCardPush | None = None,
     ) -> None:
         self._factory = factory
         self._feed_reader = feed_reader
@@ -84,6 +94,7 @@ class RssDiscoveryService:
         self._notifier = notifier
         self._screener = screener
         self._candidate_url = candidate_url
+        self._review_pusher = review_pusher
 
     async def run(self, run_date: date) -> RssRunSummary:
         existing = await self._existing_run(run_date)
@@ -216,7 +227,18 @@ class RssDiscoveryService:
             if run is not None and run.notification_sent_at is None:
                 run.notification_sent_at = utc_now()
                 run.notification_error = None
+        await self._push_review_cards()
         return summary
+
+    async def _push_review_cards(self) -> None:
+        """汇总通知发送成功后推送候选审核卡片；任何失败只记日志，绝不影响 run 结果与通知标记。"""
+        pusher = self._review_pusher
+        if pusher is None:
+            return
+        try:
+            await pusher.push_pending_review()
+        except Exception as exc:
+            logger.warning("候选审核卡片推送失败（error_type=%s）", type(exc).__name__)
 
 
 async def _save_if_new(

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import type { RssRunHealth } from "./integration-api"
 import type { FieldDefinition, Integration, Provider, ProviderDefinition } from "./types"
 
@@ -96,10 +97,13 @@ function useIntegrationForm(definition: ProviderDefinition, integration?: Integr
   const formId = useId()
   useEffect(() => {
     setPublicConfig(Object.fromEntries(
-      definition.publicFields.map((field) => [
-        field.key,
-        String(integration?.public_config[field.key] ?? field.defaultValue ?? ""),
-      ]),
+      definition.publicFields.map((field) => {
+        const stored = integration?.public_config[field.key]
+        const value = field.type === "string_list" && Array.isArray(stored)
+          ? stored.join("\n")
+          : String(stored ?? field.defaultValue ?? "")
+        return [field.key, value]
+      }),
     ))
     setSecrets({})
   }, [definition, integration])
@@ -143,6 +147,19 @@ function ConfigFields(props: {
 
 function PublicField({ definition, field, form }: { definition: ProviderDefinition; field: FieldDefinition; form: IntegrationForm }) {
   const id = `${form.formId}-${field.key}`
+  if (field.type === "string_list") {
+    return (
+      <div>
+        <Label htmlFor={id}>{field.label}</Label>
+        <Textarea
+          id={id}
+          onChange={(event) => form.setField(field.key, event.target.value)}
+          placeholder={field.placeholder}
+          value={form.publicConfig[field.key] ?? ""}
+        />
+      </div>
+    )
+  }
   if (field.type === "checkbox") {
     return (
       <div className="flex h-10 items-center gap-2 self-end">
@@ -295,11 +312,16 @@ function hasCompletePublicConfig(definition: ProviderDefinition, publicConfig: R
 
 function publicConfigForSave(definition: ProviderDefinition, publicConfig: Record<string, string>): Record<string, unknown> {
   return Object.fromEntries(definition.publicFields.flatMap((field): [string, unknown][] => {
+    if (field.type === "string_list") return [[field.key, parseStringList(publicConfig[field.key])]]
     if (field.type === "checkbox") return [[field.key, publicConfig[field.key] === "true"]]
     const value = publicConfig[field.key]?.trim() ?? ""
     if (field.optional && !value) return []
     return [[field.key, field.type === "number" ? Number(value) : value]]
   }))
+}
+
+function parseStringList(value: string | undefined): string[] {
+  return (value ?? "").split(/[\s,，]+/).map((item) => item.trim()).filter(Boolean)
 }
 
 function formatFieldLabels(fields: FieldDefinition[]) {

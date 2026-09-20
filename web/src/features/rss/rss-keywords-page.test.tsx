@@ -28,6 +28,17 @@ const keywords = [
   },
 ]
 
+function buildKeywords(count: number, kind: "positive" | "negative" = "positive") {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `00000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+    term: `keyword-${String(index + 1).padStart(2, "0")}`,
+    kind,
+    enabled: true,
+    created_at: "2026-08-11T00:00:00Z",
+    updated_at: "2026-08-11T00:00:00Z",
+  }))
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -148,5 +159,79 @@ describe("RssKeywordsPage", () => {
 
     expect(await screen.findByRole("region", { name: "正向关键词" })).toHaveTextContent("尚未配置正向关键词")
     expect(deleteRequest).toHaveBeenCalledOnce()
+  })
+
+  it("filters keywords per panel via the search input", async () => {
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([])),
+      http.get("/api/rss/keywords", () => HttpResponse.json(keywords)),
+    )
+    renderPage()
+
+    const positive = await screen.findByRole("region", { name: "正向关键词" })
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索正向关键词" }), "zzz")
+
+    expect(positive).toHaveTextContent("没有匹配「zzz」的正向关键词")
+    expect(positive).not.toHaveTextContent("AI agents")
+    expect(screen.getByRole("region", { name: "反向关键词" })).toHaveTextContent("sponsored post")
+  })
+
+  it("collapses long lists behind an expand toggle", async () => {
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([])),
+      http.get("/api/rss/keywords", () => HttpResponse.json(buildKeywords(31))),
+    )
+    renderPage()
+
+    const positive = await screen.findByRole("region", { name: "正向关键词" })
+    expect(positive).toHaveTextContent("keyword-30")
+    expect(positive).not.toHaveTextContent("keyword-31")
+
+    await userEvent.click(screen.getByRole("button", { name: "展开全部 31 条" }))
+    expect(positive).toHaveTextContent("keyword-31")
+
+    await userEvent.click(screen.getByRole("button", { name: "收起" }))
+    expect(positive).not.toHaveTextContent("keyword-31")
+  })
+
+  it("search bypasses collapse and restores it when cleared", async () => {
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([])),
+      http.get("/api/rss/keywords", () => HttpResponse.json(buildKeywords(31))),
+    )
+    renderPage()
+
+    const positive = await screen.findByRole("region", { name: "正向关键词" })
+    const search = screen.getByRole("textbox", { name: "搜索正向关键词" })
+    await userEvent.type(search, "keyword-31")
+
+    expect(positive).toHaveTextContent("keyword-31")
+    expect(positive).toHaveTextContent("1 / 31 个关键词")
+    expect(screen.queryByRole("button", { name: /展开全部/ })).not.toBeInTheDocument()
+
+    await userEvent.clear(search)
+    expect(positive).not.toHaveTextContent("keyword-31")
+    expect(screen.getByRole("button", { name: "展开全部 31 条" })).toBeInTheDocument()
+  })
+
+  it("keeps actions available on filtered results", async () => {
+    let currentKeywords = [keywords[0]]
+    let requestBody: unknown
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([])),
+      http.get("/api/rss/keywords", () => HttpResponse.json(currentKeywords)),
+      http.put("/api/rss/keywords/:id", async ({ request }) => {
+        requestBody = await request.json()
+        currentKeywords = [{ ...keywords[0], ...(requestBody as object) }]
+        return HttpResponse.json(currentKeywords[0])
+      }),
+    )
+    renderPage()
+
+    await userEvent.type(await screen.findByRole("textbox", { name: "搜索正向关键词" }), "AI")
+    await userEvent.click(screen.getByRole("button", { name: "停用 AI agents" }))
+
+    expect(await screen.findByRole("region", { name: "正向关键词" })).toHaveTextContent("已停用")
+    expect(requestBody).toEqual({ term: "AI agents", kind: "positive", enabled: false })
   })
 })

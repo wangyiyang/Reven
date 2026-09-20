@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "核查 provider 跨层一致性：注册表/schema/secret 脱敏/CMS union 与测试矩阵"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "server 侧质量门与禁用模式"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "migration 正确性（upgrade/downgrade）"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "错误显式处理、无静默失败核查"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "web 侧质量门"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "Provider union 与 guard 一致性核查"}

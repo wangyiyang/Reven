@@ -27,6 +27,7 @@ from reven.config import get_settings
 from reven.integrations.agent_llm.service import register_agent_llm_adapter
 from reven.integrations.embedding.service import register_embedding_adapter
 from reven.integrations.feishu.service import register_feishu_adapter
+from reven.integrations.feishu_bot.service import register_feishu_bot_adapter
 from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import register_aliyun_adapter
@@ -38,6 +39,7 @@ router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 # 显式注册连接测试适配器，使 POST /api/integrations/{provider}/test 可用
 register_notion_adapter()
 register_feishu_adapter()
+register_feishu_bot_adapter()
 register_baidu_adapter()
 register_aliyun_adapter()
 register_embedding_adapter()
@@ -76,6 +78,16 @@ def _ensure_known_provider(provider: str) -> None:
 
 def _error_response(exc: IntegrationError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"code": exc.code, "message": exc.message})
+
+
+def _reload_feishu_bot_supervisor(request: Request, provider: str) -> None:
+    """feishu_bot 配置变更后触发热更新：supervisor 不在（未启用入站能力）时静默跳过。"""
+    if provider != "feishu_bot":
+        return
+    supervisor = getattr(request.app.state, "feishu_bot_supervisor", None)
+    if supervisor is None:
+        return
+    supervisor.reload()
 
 
 async def _parse_put_body(provider: str, request: Request) -> IntegrationPut:
@@ -122,17 +134,19 @@ async def put_integration(provider: str, request: Request, session: SessionDep) 
         secret=body.secret.model_dump(exclude_none=True) if body.secret is not None else None,
     )
     await session.commit()
+    _reload_feishu_bot_supervisor(request, provider)
     return to_response(integration)
 
 
 @router.delete("/{provider}/secret", response_model=IntegrationResponse)
-async def delete_secret(provider: str, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def delete_secret(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
         integration = await IntegrationService(session, _secret_box()).delete_secret(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     await session.commit()
+    _reload_feishu_bot_supervisor(request, provider)
     return to_response(integration)
 
 

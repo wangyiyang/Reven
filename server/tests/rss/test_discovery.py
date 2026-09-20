@@ -48,6 +48,17 @@ class FailingLocalizer:
         raise RuntimeError("translation unavailable")
 
 
+class RecordingReviewPusher:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.calls = 0
+        self._fail = fail
+
+    async def push_pending_review(self) -> None:
+        self.calls += 1
+        if self._fail:
+            raise RuntimeError("review push unavailable")
+
+
 class PartiallyFailingLocalizer:
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
         localized = (
@@ -155,3 +166,56 @@ async def test_interrupted_running_task_resumes_instead_of_staying_stuck(
     assert result.new_count == 1
     assert feed.calls == 1
     assert len(notifier.notifications) == 1
+
+
+@pytest.mark.anyio
+async def test_review_card_pusher_runs_after_summary_notification(
+    db_session: AsyncSession,
+) -> None:
+    source = RssSource(name="Example", feed_url="https://example.com/review-push.xml", enabled=True)
+    db_session.add(source)
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    notifier = RecordingNotifier()
+    review_pusher = RecordingReviewPusher()
+
+    result = await RssDiscoveryService(
+        factory,
+        StubFeedReader(),
+        StubLocalizer(),
+        notifier,
+        review_pusher=review_pusher,
+    ).run(date(2026, 8, 15))
+
+    assert result.status == "completed"
+    assert len(notifier.notifications) == 1
+    assert review_pusher.calls == 1
+
+
+@pytest.mark.anyio
+async def test_review_card_pusher_failure_does_not_affect_run_or_notification(
+    db_session: AsyncSession,
+) -> None:
+    source = RssSource(name="Example", feed_url="https://example.com/review-push-fail.xml", enabled=True)
+    db_session.add(source)
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    notifier = RecordingNotifier()
+    review_pusher = RecordingReviewPusher(fail=True)
+
+    result = await RssDiscoveryService(
+        factory,
+        StubFeedReader(),
+        StubLocalizer(),
+        notifier,
+        review_pusher=review_pusher,
+    ).run(date(2026, 8, 16))
+
+    assert result.status == "completed"
+    assert review_pusher.calls == 1
+    assert len(notifier.notifications) == 1
+    async with factory() as session:
+        run = await session.get(RssDiscoveryRun, result.run_id)
+        assert run is not None
+        assert run.notification_sent_at is not None  # 推送失败不影响汇总通知标记
+        assert run.notification_error is None
