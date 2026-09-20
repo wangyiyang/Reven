@@ -1,4 +1,8 @@
-# Reven 单机部署运行手册
+# Reven 维护者现有生产部署手册
+
+本文件保留维护者现有 ACR、外部 PostgreSQL 与 HTTP 3001 部署契约。新用户请从
+[自托管指南](self-hosting.md) 安装标准 PostgreSQL 与 HTTPS 入口；不要照搬本文件中的
+维护者域名、账号或私有镜像地址。本次开源准备不迁移现有生产环境。
 
 Reven 以 Docker Compose 部署在 `dev.wangyiyang.cc`，时区统一使用
 `Asia/Shanghai`。Compose 只运行 Reven 与 Caddy；PostgreSQL 使用

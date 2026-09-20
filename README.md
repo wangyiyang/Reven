@@ -1,86 +1,54 @@
 # Reven
 
-Reven 是面向超级个体的个人经营工作台。
+Reven 是面向独立创作者的单用户、自托管内容运营工作台。它把 RSS 发现、人工筛选、Notion 写作与内容交付连接起来，让你集中处理需要判断的事项。
 
-它的起点是内容发布：保留 Notion 作为写作与思考的主场，把稿件同步、发布校验、博客发布、微信公众号草稿和结果通知集中到一个工作台。长期而言，Reven 会逐步成为一个“待决策中心”——帮助你一眼看到哪些事情需要自己判断和处理，而不是试图成为一套重型 ERP。
-
-## 当前 MVP
-
-第一版打通内容发布闭环，并由 Reven 原生承担 RSS 内容发现：
+当前处于 **Alpha** 阶段。首次体验以 **RSS → 人工筛选 → Notion Inbox** 为验收范围；博客、公众号和 AI 按需接入。开源发布准备与尚未完成的验收见 [Issue #127](https://github.com/wangyiyang/Reven/issues/127)。
 
 ```text
-Notion 稿件库
-  → Reven 同步、校验与调度
-  → 个人博客自动发布
-  → 微信公众号自动创建草稿
-  → 飞书通知结果
-
-RSS 源
-  → 每日抓取、翻译与分层筛选
-  → 候选工作台人工确认
-  → Notion Inbox
-  → 飞书每日汇总
+RSS 订阅 → 每日发现与筛选 → 人工确认 → Notion Inbox
+                                        ↓
+                                   Notion 稿件库
+                                        ↓
+                              同步、校验与发布调度
+                                ↙               ↘
+                         博客 GitHub PR       微信公众号草稿
+                                ↘               ↙
+                                   飞书结果通知
 ```
 
-Notion 仍是稿件正文的唯一权威来源。Reven 不替代 Notion 编辑器或 Notion AI；它只接管写稿后的发布流程。
+Notion 是稿件正文的权威来源。公众号公开发布仍由你在微信平台确认；Reven 只创建草稿。
 
-### MVP 边界
+## 开始使用
 
-- 稿件状态变为“待发布”后，Reven 按上海时间执行发布计划。
-- 博客发布采用 GitHub Flow：创建 PR、等待 CI、合并并验证上线。
-- 微信公众号仅自动创建草稿，公开发布仍由用户在公众号平台确认。
-- 缺少封面或集成凭据无效时，发布会被明确阻止。
-- 结果、阻塞与失败通过飞书机器人通知。
+按 [自托管指南](docs/self-hosting.md) 从源码构建，启动 PostgreSQL 17、Reven 和 Caddy。无需维护者的私有镜像、数据库或云账号。
 
-当前流程仍不包含自动公开发布、多用户权限或通用 ERP 功能。
-仓库已提供腾讯云 COS 内容寻址资产存储基础，后续由原子内容同步流程接入各发布渠道。
+- 正式支持目标为 **Linux AMD64**；ARM64 和 Docker Desktop 尚未正式验证。
+- 公网入口使用自己的域名和 Caddy 自动 HTTPS；本机体验提供仅绑定 loopback 的 HTTP 配置。
+- 启动基础服务只需数据库密码、管理员密码与加密主密钥；推送 Inbox 需要你自己的 Notion 集成。
+- 首次 RSS 流程不需要腾讯云 COS；完整稿件同步及发布需要额外集成，见 [后续集成](docs/integrations.md)。
 
-## 产品方向
+安装后先按指南完成首次登录、两个 Notion 数据源的字段初始化，再配置 RSS 源和正向关键词。
 
-Reven 的长期方向不是堆叠模块，而是聚合个人需要做出的决策。
+## Alpha 限制
 
-首页将逐步呈现各领域的待决策事项及数量，例如待筛选的内容候选、待推送的选题、待发布稿件和被阻塞的发布任务。各业务模块独立负责自身数据与操作，Dashboard 只做聚合；在需求稳定前，不预先设计万能任务或工作流系统。
+- 单个管理员账号，无多用户权限或租户隔离。
+- RSS 每天 `06:00 Asia/Shanghai` 调度，同一天最多执行一次。服务当天已空跑时，新增源可能要等次日；当前没有手动抓取入口。
+- 未配置翻译服务时可能保留原文；未配置 Embedding 时按字面与 BM25 筛选并显示降级状态。安装成功不表示所有 AI 功能已启用。
+- 博客与渲染器依赖 Linux 用户命名空间和 bubblewrap 沙箱，宿主不支持时会明确失败。
+- 博客上线校验仍限定维护者站点，任意博客域名尚未支持；自己的 GitHub 仓库与 Token 不足以完成接入。
+- 数据库与配置仍可能演进，升级前须备份；回滚应用不会自动回滚数据库。
 
-## RSS 内容发现
+## 文档与贡献
 
-Reven 原生执行 RSS 内容发现；生产切换与 OpenClaw 停用按运行手册完成：
+- [自托管、首次验收](docs/self-hosting.md)
+- [备份、恢复与升级](docs/self-hosting-operations.md)
+- [AI、COS、博客、公众号及通知集成](docs/integrations.md)
+- [贡献指南](CONTRIBUTING.md) · [安全问题反馈](SECURITY.md)
+- [维护者现有生产部署手册](docs/runbook.md)（ACR / 外部 PostgreSQL 路径）
 
-```text
-RSS 源
-  → Reven 每日 06:00（Asia/Shanghai）抓取
-  → 去重、翻译与多层筛选
-  → 候选工作台供人工判断
-  → 一键推送 Notion Inbox
-  → 飞书汇总通知
-```
+应用采用 React / TypeScript / Vite 前端、Python / FastAPI 后端和标准 PostgreSQL。部署为模块化单体，业务时间统一为 `Asia/Shanghai`，数据库存储 UTC。
 
-每条 RSS item 是素材，而不是一篇待转换稿件。你在 Notion 的 Inbox 中可以组合多条素材、加入自己的思考并写成稿件；Inbox 与稿件库会通过多对多关联保留素材追溯关系。
+## 许可证
 
-RSS 翻译在“集成设置”中配置百度翻译或阿里翻译，按优先级自动故障切换；百度请求按 1 QPS、单片最多 1,000 字符的保守限制执行。两家均不可用或未配置时才回退到 Qwen。腾讯翻译已停止支持，升级迁移会永久删除旧腾讯翻译配置及其密文凭证，回滚代码不会恢复这些凭证。
-
-相关实现议题：
-
-- [以 Reven 一次性替换 OpenClaw 的 RSS 内容发现工作流](https://github.com/wangyiyang/Reven/issues/10)
-- [在 Reven 维护 RSS 源、正向关键词与反向关键词](https://github.com/wangyiyang/Reven/issues/11)
-- [Reven 定时抓取 RSS、去重并发送飞书汇总](https://github.com/wangyiyang/Reven/issues/12)
-- [为 RSS item 增加翻译、规则、BM25、Embedding 与模型推荐筛选](https://github.com/wangyiyang/Reven/issues/13)
-- [人工确认后将 RSS 候选推送到 Notion Inbox](https://github.com/wangyiyang/Reven/issues/14)
-- [在 Notion 建立 Inbox 素材与稿件库的双向多对多关联](https://github.com/wangyiyang/Reven/issues/15)
-- [接入 SiliconFlow BAAI/bge-m3 Embedding 服务](https://github.com/wangyiyang/Reven/issues/17)
-
-## 架构原则
-
-- 前端：React、TypeScript、Vite、shadcn/ui、Tailwind CSS。
-- 后端：Python、FastAPI、SQLAlchemy、Alembic。
-- 数据库：Supabase Postgres。
-- 部署：一个统一部署的模块化单体；前后端代码分离，但不拆微服务、独立 Worker、Redis 或消息队列。
-- 业务时间统一使用 `Asia/Shanghai`，数据库统一存储 UTC。
-- 密钥通过环境变量或加密集成配置管理，绝不写入前端、代码仓库或日志。
-
-## 开发状态
-
-Reven 正在重建发布 MVP。详细的产品设计与实施计划见：
-
-- [`docs/superpowers/specs/2026-07-29-editorial-publishing-mvp-design.md`](docs/superpowers/specs/2026-07-29-editorial-publishing-mvp-design.md)
-- [`docs/superpowers/plans/2026-07-29-editorial-publishing-mvp.md`](docs/superpowers/plans/2026-07-29-editorial-publishing-mvp.md)
-- [`docs/ai-test-map.md`](docs/ai-test-map.md)：AI 测试地图，覆盖全功能、全路径与安全红线。
+Reven 原创代码采用 [Apache-2.0](LICENSE)，版权持有人为 Wang Yiyang。
+第三方代码、字体、依赖和开发工具保留各自许可；其中 Doocs 为 WTFPL v2，Trellis 工具模板为 AGPL。具体边界和分发声明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
