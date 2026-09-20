@@ -113,9 +113,7 @@ def _stub_harness(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
 
 
 @pytest.mark.anyio
-async def test_launch_with_mcp_context_injects_patch_and_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_launch_with_mcp_context_injects_patch_and_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _stub_harness(monkeypatch)
     mcp = AgentMcpContext(url="http://127.0.0.1:8000/agent/mcp", token="tok-secret")
     runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"), mcp=mcp)

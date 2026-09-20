@@ -65,7 +65,11 @@ async def test_resolves_config_from_integration_table(
 ) -> None:
     await _save_integration(
         session_factory,
-        public_config={"provider": "deepseek-official", "model": "deepseek-v4-pro", "base_url": "https://api.deepseek.com"},
+        public_config={
+            "provider": "deepseek-official",
+            "model": "deepseek-v4-pro",
+            "base_url": "https://api.deepseek.com",
+        },
         api_key="sk-db-key",
     )
     settings = _make_settings(dsh_home=tmp_path / "dsh")
