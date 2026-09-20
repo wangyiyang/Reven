@@ -6,8 +6,6 @@ import { CrmPage } from "@/features/crm/crm-page"
 import { CustomerDetailPage } from "@/features/crm/customer-detail-page"
 import { BrandPage } from "@/features/brand/brand-page"
 import { IntegrationsPage } from "@/features/integrations/integrations-page"
-import { ArticleDetailPage } from "@/features/articles/article-detail-page"
-import { ArticlesPage } from "@/features/articles/articles-page"
 import { FinanceLayout } from "@/features/finance/finance-layout"
 import { FinanceLedgerPage } from "@/features/finance/finance-ledger-page"
 import { FinanceOverviewPage } from "@/features/finance/finance-overview-page"
@@ -34,8 +32,6 @@ function ShellRoutes() {
   return (
     <AppShell>
       <Routes>
-        <Route element={<ArticlesPage />} path="/articles" />
-        <Route element={<ArticleDetailPage />} path="/articles/:articleId" />
         <Route element={<BrandPage />} path="/brand" />
         <Route element={<IntegrationsPage />} path="/integrations" />
         <Route element={<CrmPage />} path="/crm" />
@@ -55,7 +51,7 @@ function ShellRoutes() {
         <Route element={<SystemPage />} path="/system" />
         <Route element={<TalentsPage />} path="/talents" />
         <Route element={<TalentDetailPage />} path="/talents/:talentId" />
-        <Route element={<Navigate replace to="/articles" />} path="*" />
+        <Route element={<Navigate replace to="/rss/candidates" />} path="*" />
       </Routes>
     </AppShell>
   )

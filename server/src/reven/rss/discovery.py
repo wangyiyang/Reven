@@ -11,7 +11,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.publishing.notifications import DeliveryNotifier, Notification
+from reven.notifications import DeliveryNotifier, Notification
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.normalization import normalize_keyword
 from reven.scheduling import utc_now

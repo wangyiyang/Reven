@@ -1,4 +1,0 @@
-title: Reven sandbox fixture
-plugins_dir: _plugins
-exclude:
-  - Gemfile

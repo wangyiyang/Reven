@@ -15,9 +15,9 @@ Issue #115 修复了仅限制生产发布入口、却遗漏普通 CI 测试镜�
 ## 3. 行为契约
 
 - `jobs.container.if` 必须为 `inputs.full`，不得再由变更路径启用。
-- 普通 PR/main CI 不构建 `reven:test`；backend、migration、frontend、renderer 保留各自的路径过滤及 full 覆盖。
+- 普通 PR/main CI 不构建 `reven:test`；backend、migration、frontend 保留各自的路径过滤及 full 覆盖。
 - changes 不输出 container，也不维护 container 路径过滤。
-- 发版完整 CI 保留容器运行、沙箱、SBOM 和漏洞检查。正式 image 任务依赖 quality-gate 成功。
+- 发版完整 CI 保留容器运行、嵌入式 Agent、SBOM 和漏洞检查。正式 image 任务依赖 quality-gate 成功。
 - 正式镜像构建和自动部署由 tag push 触发，不监听 `release.published`。
 - 手动部署和回滚不构建镜像；不得为验证本契约实际触发生产部署。
 

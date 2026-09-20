@@ -7,9 +7,7 @@ status badges, navigation, or light/dark behavior in `@reven/web`.
 
 The current product direction is the compact Notion-style blue/gray workbench
 introduced by PR #40 (`9c9b0f8`) and confirmed for Issue #105. Do not restore
-the earlier terminal-green poster UI. The WeChat renderer has an independent
-green output theme in `renderer/src/render.ts`; it does not define web app
-tokens and is outside this contract.
+the earlier terminal-green poster UI. 稿件发布与微信渲染器已退役，Web 的既有视觉规范继续适用。
 
 ## 2. Signatures
 
@@ -107,7 +105,7 @@ links.
   reject whole-control opacity hover on signal-filled controls.
 - Feature tests must prevent fixed palette regressions for semantic badges.
 - Run the web unit suite, ESLint, TypeScript build, and `git diff --check`.
-- In a real browser, audit `/articles`, `/crm`, and the shared sidebar in both
+- In a real browser, audit `/rss/candidates`, `/crm`, and the shared sidebar in both
   themes with axe-core's `color-contrast` rule. There must be no serious or
   critical violations.
 - Browser checks must include primary hover, destructive hover, and keyboard

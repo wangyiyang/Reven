@@ -15,7 +15,7 @@ ROOT = Path(__file__).parents[3]
 TALENTS_REVISION = "0015_talents"
 REMOVE_TENCENT_REVISION = "0015_remove_tencent_translation"
 MERGE_REVISION = "0016_merge_talents_tencent"
-FINAL_REVISION = "0020_rss_item_review_pushed_at"
+FINAL_REVISION = "0021_retire_publishing"
 
 
 def _alembic_config(database_url: str | None = None) -> Config:
@@ -57,8 +57,7 @@ def test_existing_branch_head_upgrades_through_merge_to_current_head(starting_re
     config = _alembic_config(database_url)
 
     try:
-        command.upgrade(config, "head")
-        command.downgrade(config, "0012_sops")
+        command.upgrade(config, "0012_sops")
         command.upgrade(config, starting_revision)
         versions, _, _ = asyncio.run(_schema_state(database_url))
         assert versions == {starting_revision}

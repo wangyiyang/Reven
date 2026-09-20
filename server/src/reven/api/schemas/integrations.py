@@ -8,7 +8,6 @@ material: only ``secret_configured`` and an irreversible ``secret_hint``.
 from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlsplit
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -18,10 +17,6 @@ from reven.integrations.service import public_config_without_hint, secret_hint_o
 
 PROVIDERS = SUPPORTED_INTEGRATION_PROVIDERS
 
-_OWNER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
-_REPO_PATTERN = r"^[A-Za-z0-9._-]{1,100}$"
-_BRANCH_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$"
-_APP_ID_PATTERN = r"^[A-Za-z0-9]{1,64}$"
 _FEISHU_WEBHOOK_PATTERN = r"^https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]+$"
 
 
@@ -46,23 +41,6 @@ def _validate_https_origin(value: str, *, field: str) -> str:
     return value.rstrip("/")
 
 
-class NotionPublicConfig(_Strict):
-    data_source_id: UUID
-    database_id: UUID
-    inbox_data_source_id: UUID | None = None
-
-
-class GitHubPublicConfig(_Strict):
-    owner: str = Field(pattern=_OWNER_PATTERN)
-    repo: str = Field(pattern=_REPO_PATTERN)
-    default_branch: str = Field(default="main", pattern=_BRANCH_PATTERN)
-
-
-class WeChatPublicConfig(_Strict):
-    app_id: str = Field(pattern=_APP_ID_PATTERN)
-    author: str | None = Field(default=None, max_length=64)
-
-
 class FeishuPublicConfig(_Strict):
     name: str = Field(min_length=1, max_length=64)
 
@@ -72,18 +50,6 @@ class FeishuBotPublicConfig(_Strict):
 
     whitelist_open_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list)
     enabled: bool = False
-
-
-class NotionSecret(_Strict):
-    token: str = Field(min_length=1, max_length=256)
-
-
-class GitHubSecret(_Strict):
-    token: str = Field(min_length=1, max_length=256)
-
-
-class WeChatSecret(_Strict):
-    app_secret: str = Field(min_length=1, max_length=256)
 
 
 class FeishuSecret(_Strict):
@@ -146,21 +112,6 @@ class AgentLlmSecret(_Strict):
     api_key: str = Field(min_length=1, max_length=256)
 
 
-class NotionIntegrationPut(_Strict):
-    public_config: NotionPublicConfig
-    secret: NotionSecret | None = None
-
-
-class GitHubIntegrationPut(_Strict):
-    public_config: GitHubPublicConfig
-    secret: GitHubSecret | None = None
-
-
-class WeChatIntegrationPut(_Strict):
-    public_config: WeChatPublicConfig
-    secret: WeChatSecret | None = None
-
-
 class FeishuIntegrationPut(_Strict):
     public_config: FeishuPublicConfig
     secret: FeishuSecret | None = None
@@ -192,10 +143,7 @@ class AgentLlmIntegrationPut(_Strict):
 
 
 IntegrationPut = (
-    NotionIntegrationPut
-    | GitHubIntegrationPut
-    | WeChatIntegrationPut
-    | FeishuIntegrationPut
+    FeishuIntegrationPut
     | FeishuBotIntegrationPut
     | BaiduTranslateIntegrationPut
     | AliyunTranslateIntegrationPut
@@ -204,9 +152,6 @@ IntegrationPut = (
 )
 
 PUT_MODELS: dict[str, type[IntegrationPut]] = {
-    "notion": NotionIntegrationPut,
-    "github": GitHubIntegrationPut,
-    "wechat": WeChatIntegrationPut,
     "feishu": FeishuIntegrationPut,
     "feishu_bot": FeishuBotIntegrationPut,
     "translate_baidu": BaiduTranslateIntegrationPut,
@@ -225,13 +170,6 @@ class IntegrationResponse(BaseModel):
     last_tested_at: datetime | None
     last_error: str | None
     last_latency_ms: int | None
-
-
-class BootstrapSchemaResponse(BaseModel):
-    """Notion 字段初始化结果：本次是否发送了 PATCH 以及补齐了哪些字段。"""
-
-    patched: bool
-    properties: list[str]
 
 
 def to_response(integration: Integration) -> IntegrationResponse:

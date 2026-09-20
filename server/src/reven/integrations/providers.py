@@ -10,9 +10,6 @@ TRANSLATION_PROVIDERS: tuple[TranslationProvider, ...] = (
 )
 
 SUPPORTED_INTEGRATION_PROVIDERS = (
-    "notion",
-    "github",
-    "wechat",
     "feishu",
     "feishu_bot",
     *TRANSLATION_PROVIDERS,

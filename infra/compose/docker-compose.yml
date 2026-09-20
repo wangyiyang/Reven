@@ -22,7 +22,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-      - seccomp=../docker/seccomp-bwrap.json
     healthcheck:
       test:
         - CMD

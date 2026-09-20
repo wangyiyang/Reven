@@ -154,7 +154,7 @@ def test_approve_action_dispatches_and_returns_success_toast() -> None:
     response = handler(_card_event())
 
     assert dispatch.calls == [("approve", ITEM_ID, "ou_boss")]
-    assert _toast_of(response) == ("success", "已采纳，推入 Notion Inbox")
+    assert _toast_of(response) == ("success", "已保存素材")
 
 
 def test_ignore_action_dispatches_and_returns_success_toast() -> None:

@@ -12,9 +12,9 @@ import httpcore
 import httpx
 from bs4 import BeautifulSoup
 
-from reven.publishing.assets import HttpcorePinnedRequester, PinnedRequester, Resolver, default_resolver
 from reven.rss.discovery import FeedEntry
 from reven.rss.models import RssSource
+from reven.security.outbound import HttpcorePinnedRequester, PinnedRequester, Resolver, default_resolver
 
 MAX_FEED_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 5

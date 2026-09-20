@@ -118,8 +118,7 @@ validate_release_infra() {
 
   for required_path in \
     compose/docker-compose.yml \
-    caddy/Caddyfile \
-    docker/seccomp-bwrap.json
+    caddy/Caddyfile
   do
     if [ ! -f "$validation_source/$required_path" ] || [ -L "$validation_source/$required_path" ]; then
       echo "Release image is missing required infra file: $required_path" >&2

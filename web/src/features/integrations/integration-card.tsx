@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react"
 import type { RefObject } from "react"
-import { ArrowUpRight, Check, LoaderCircle, Radio, Save, Send, ShieldAlert, Trash2, Wrench } from "lucide-react"
+import { Check, LoaderCircle, Radio, Save, Send, ShieldAlert, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,6 @@ import type { FieldDefinition, Integration, Provider, ProviderDefinition } from 
 interface IntegrationCardProps {
   definition: ProviderDefinition
   integration?: Integration
-  egressIp?: string | null
   runHealth?: RssRunHealth | null
   actionsDisabled: boolean
   busyAction?: string
@@ -22,7 +21,6 @@ interface IntegrationCardProps {
   onReplace: (provider: Provider, publicConfig: Record<string, unknown>, secret: Record<string, string>) => void
   onDelete: (provider: Provider) => Promise<boolean>
   onTest: (provider: Provider) => void
-  onBootstrap: () => void
 }
 
 export function IntegrationCard(props: IntegrationCardProps) {
@@ -35,7 +33,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
   return (
     <article className="integration-card group relative mb-6 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-6 shadow-sm">
       <CardHeader definition={props.definition} integration={props.integration} />
-      <ConfigFields definition={props.definition} egressIp={props.egressIp} form={form} integration={props.integration} />
+      <ConfigFields definition={props.definition} form={form} integration={props.integration} />
       <StatusNotices definition={props.definition} integration={props.integration} />
       <RunHealthNotice definition={props.definition} run={props.runHealth} />
       <CardActions
@@ -44,7 +42,6 @@ export function IntegrationCard(props: IntegrationCardProps) {
         definition={props.definition}
         form={form}
         integration={props.integration}
-        onBootstrap={props.onBootstrap}
         onDelete={() => setConfirmOpen(true)}
         deleteButtonRef={deleteButtonRef}
         onReplace={props.onReplace}
@@ -55,7 +52,7 @@ export function IntegrationCard(props: IntegrationCardProps) {
       <ConfirmDialog
         busy={busy}
         confirmLabel={`确认${deleteLabel}`}
-        description="删除后，依赖此密钥的自动同步或发布会立即停止。公共配置仍会保留。"
+        description="删除后，依赖此密钥的集成将无法运行。公共配置仍会保留。"
         onClose={() => setConfirmOpen(false)}
         onConfirm={() => handleDeleteConfirm(props, () => setConfirmOpen(false), deleteButtonRef, saveButtonRef)}
         open={confirmOpen}
@@ -131,21 +128,20 @@ function CardHeader({ definition, integration }: { definition: ProviderDefinitio
 function ConfigFields(props: {
   definition: ProviderDefinition
   integration?: Integration
-  egressIp?: string | null
   form: IntegrationForm
 }) {
   return (
     <div className="mt-8 grid gap-x-10 gap-y-6 lg:grid-cols-2">
       {props.definition.publicFields.map((field) => (
-        <PublicField definition={props.definition} field={field} form={props.form} key={field.key} />
+        <PublicField field={field} form={props.form} key={field.key} />
       ))}
       <SecretFields definition={props.definition} form={props.form} integration={props.integration} />
-      {props.definition.provider === "wechat" && <EgressIp value={props.egressIp} />}
+
     </div>
   )
 }
 
-function PublicField({ definition, field, form }: { definition: ProviderDefinition; field: FieldDefinition; form: IntegrationForm }) {
+function PublicField({ field, form }: { field: FieldDefinition; form: IntegrationForm }) {
   const id = `${form.formId}-${field.key}`
   if (field.type === "string_list") {
     return (
@@ -185,9 +181,6 @@ function PublicField({ definition, field, form }: { definition: ProviderDefiniti
         type={field.type === "number" ? "number" : "text"}
         value={form.publicConfig[field.key] ?? ""}
       />
-      {definition.provider === "github" && field.key === "default_branch" && (
-        <p className="mt-2 text-xs text-[var(--muted)]">以该分支作为发布基线，不在客户端猜测仓库默认值。</p>
-      )}
     </div>
   )
 }
@@ -264,7 +257,6 @@ interface CardActionsProps {
   onSave: IntegrationCardProps["onSave"]
   onReplace: IntegrationCardProps["onReplace"]
   onTest: IntegrationCardProps["onTest"]
-  onBootstrap: () => void
   onDelete: () => void
   deleteButtonRef: RefObject<HTMLButtonElement | null>
   saveButtonRef: RefObject<HTMLButtonElement | null>
@@ -293,7 +285,6 @@ function CardActions(props: CardActionsProps) {
         <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
       </Button>
       <TestButton actionsDisabled={props.actionsDisabled} definition={definition} integration={integration} onTest={props.onTest} />
-      {definition.provider === "notion" && <Button disabled={props.actionsDisabled} onClick={props.onBootstrap} variant="outline"><Wrench aria-hidden size={15} />初始化字段</Button>}
       {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} disabled={props.actionsDisabled} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
       {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--muted)]" size={18} />}
       </div>
@@ -366,16 +357,4 @@ function formatShanghai(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Shanghai",
   }).format(new Date(value))
-}
-
-function EgressIp({ value }: { value?: string | null }) {
-  return (
-    <div>
-      <Label>出口 IP</Label>
-      <div className="mt-2 flex min-h-8 items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2 font-mono text-sm">
-        <ArrowUpRight aria-hidden size={15} className="text-[var(--muted)]" />{value ?? "暂时无法获取"}
-      </div>
-      <p className="mt-2 text-xs text-[var(--muted)]">请将该地址加入微信公众号 IP 白名单。</p>
-    </div>
-  )
 }

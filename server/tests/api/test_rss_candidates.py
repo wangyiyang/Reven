@@ -1,25 +1,11 @@
 import asyncio
 import hashlib
 from datetime import UTC, date, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
-from reven.rss.inbox import InboxPushResult
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-
-class RecordingInbox:
-    def __init__(self) -> None:
-        self.item_ids: list[UUID] = []
-
-    async def push(self, item_id: UUID) -> InboxPushResult:
-        self.item_ids.append(item_id)
-        return InboxPushResult(
-            item_id,
-            UUID("55555555-5555-5555-5555-555555555555"),
-            "https://www.notion.so/material",
-        )
 
 
 class RecordingEmbeddingRefresher:
@@ -103,8 +89,7 @@ def test_user_can_list_and_ignore_candidates(workbench: tuple[TestClient, async_
                 "reason": "正向信号达到阈值",
                 "rules_version": "rss-v1",
                 "screening_error": None,
-                "push_error": None,
-                "notion_url": None,
+                "saved_at": None,
             }
         ],
         "total": 1,
@@ -172,21 +157,40 @@ def test_candidates_paginate_with_page_and_page_size(workbench: tuple[TestClient
     assert client.get("/api/rss/candidates?page=0").status_code == 422
 
 
-def test_user_can_confirm_candidate_for_notion(workbench: tuple[TestClient, async_sessionmaker]) -> None:
+def test_user_can_save_and_list_material_without_integrations(workbench: tuple[TestClient, async_sessionmaker]) -> None:
     client, factory = workbench
     item_id = asyncio.run(seed_candidate(factory))
-    inbox = RecordingInbox()
-    client.app.state.rss_inbox_service = inbox
+    candidate = client.get("/api/rss/candidates").json()["items"][0]
 
     response = client.post(f"/api/rss/candidates/{item_id}/confirm")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "item_id": str(item_id),
-        "notion_page_id": "55555555-5555-5555-5555-555555555555",
-        "notion_url": "https://www.notion.so/material",
-    }
-    assert inbox.item_ids == [item_id]
+    saved = response.json()
+    assert saved["saved_at"] is not None
+    assert saved == {**candidate, "status": "saved", "saved_at": saved["saved_at"]}
+    repeated = client.post(f"/api/rss/candidates/{item_id}/confirm")
+    assert repeated.status_code == 200
+    assert repeated.json() == saved
+    assert client.get("/api/rss/candidates").json()["items"] == []
+    materials = client.get("/api/rss/candidates?status=saved").json()
+    assert materials["total"] == 1
+    assert materials["items"] == [saved]
+    assert client.post(f"/api/rss/candidates/{item_id}/ignore").status_code == 409
+
+
+def test_user_cannot_save_ignored_or_missing_candidate(workbench: tuple[TestClient, async_sessionmaker]) -> None:
+    client, factory = workbench
+    item_id = asyncio.run(seed_candidate(factory))
+    assert client.post(f"/api/rss/candidates/{item_id}/ignore").status_code == 200
+
+    ignored = client.post(f"/api/rss/candidates/{item_id}/confirm")
+    missing = client.post(f"/api/rss/candidates/{uuid4()}/confirm")
+
+    assert ignored.status_code == 409
+    assert ignored.json()["code"] == "RSS_CANDIDATE_NOT_SAVABLE"
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "RSS_CANDIDATE_NOT_FOUND"
+    assert client.get("/api/rss/candidates?status=saved").json()["items"] == []
 
 
 def test_user_can_explicitly_rebuild_keyword_embeddings(

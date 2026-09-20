@@ -14,8 +14,9 @@
 4. **证据闭环**：每个用例记录：用例 ID、环境、时间、账号/会话、请求/页面路径、实际结果、截图或响应摘要、结论。
 5. **同源写请求**：浏览器内写 API 必须带 `X-Reven-CSRF: 1`；跨域/curl 写请求预期被 CSRF/Origin 拦截。
 6. **UI 与 API 双层验证**：UI 操作后必须回查 API/列表；API 操作后必须回查 UI 是否一致。
-7. **开放词表容错**：凡来自外部系统的自由词表字段（Notion 多选/状态、RSS 标题摘要等），前端必须容忍「结构合法但取值陌生」的数据——只展示、不拦截；测试 fixture 必须包含「合法但陌生」的值（事故回归：#66，Notion 目标渠道新增「掘金」导致列表页整页报错）。
-8. **翻页即巡检**：列表类页面巡检必须覆盖到最后一页，毒数据常藏在非首页（事故回归：#66 的异常行只在 `/articles?page=2`）。
+7. **外部内容容错**：RSS 标题与摘要作为数据展示，危险协议或脚本不得执行。
+8. **列表巡检**：待审核与已保存素材均验证分页、空态和加载错误。
+
 
 ---
 
@@ -28,12 +29,12 @@
 | 登录页 | `GET /login` | 显示 Reven 登录页 |
 | 会话 Cookie | `reven_session` | `HttpOnly`；无 `Secure`；`SameSite=Lax` |
 | 未授权保护 | 直接访问任意业务页/API | 页面跳 `/login?next=...`；API 返回 401 |
-| 系统状态 | `GET /api/system/status` | database / notion_sync / scheduler 三段结构 |
+| 系统状态 | `GET /api/system/status` | database / rss_discovery 两段结构 |
 | 出口 IP | `GET /api/system/egress-ip` | 可用时返回 `ip`；失败不得编造地址 |
 
 ### ENV-001 部署冒烟
 - 步骤：打开 `/login` → 登录 → 逐个打开主导航 8 个入口。
-- 预期：无白屏；无 5xx；未知路径回到 `/articles`；业务页都有标题、表单/列表或明确占位。
+- 预期：无白屏；无 5xx；未知路径回到 `/rss/candidates`；业务页都有标题、表单/列表或明确占位。
 
 ---
 
@@ -66,8 +67,6 @@
 ### 路由
 | 路径 | 页面 | 导航 label |
 |---|---|---|
-| `/articles` | 稿件列表 | 稿件 |
-| `/articles/:articleId` | 稿件详情 | — |
 | `/finance` | 财务收支 | 财务 |
 | `/projects` | 项目库 | 项目 |
 | `/sops` | SOP（标准作业流程） | SOP（标准作业流程） |
@@ -75,61 +74,30 @@
 | `/rss` | RSS 配置 | RSS 配置 |
 | `/integrations` | 集成设置 | 集成设置 |
 | `/system` | 系统状态占位 | 系统状态 |
-| `*` | 兜底 | 跳 `/articles` |
+| `*` | 兜底 | 跳 `/rss/candidates` |
 
 ### 用例
 - **SHELL-001 导航完整**：8 个菜单项可见，点击均能到对应路由。
-- **SHELL-002 激活态**：当前路由菜单项高亮；Logo 回到 `/articles`。
+- **SHELL-002 激活态**：当前路由菜单项高亮；Logo 回到 `/rss/candidates`。
 - **SHELL-003 内容区间距**：桌面端侧边栏与内容区有明显留白，内容不贴边（回归 #51）。
 - **SHELL-004 移动端头部**：窄屏下头部为两行——首行 logo + 纯图标退出/主题按钮（44×44，无文字），次行为带文字标签的可横滑导航 tab（右缘渐隐提示可滑；切换路由后激活 tab 自动入视）；整页不横向溢出（回归 #62、#65）。
 - **SHELL-005 Toast**：成功/失败操作只出现一次 toast；失败不得伪装成功。
 
 ---
 
-## 4. 稿件（ARTICLES）
+## 4. 已退役稿件功能
 
-### 页面路径
-- `/articles`：筛选、排序、分页、同步、渠道状态。
-- `/articles/:articleId`：详情、预览、复制 Markdown、重试/取消任务。
-
-### API
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/articles` | 列表，支持筛选/排序/分页 |
-| GET | `/api/articles/{article_id}` | 详情 + 最近任务历史 |
-| GET | `/api/articles/{article_id}/jobs/{job_id}` | 单任务详情 |
-| POST | `/api/articles/{article_id}/preview/wechat` | 微信预览 |
-| POST | `/api/articles/{article_id}/portable-markdown` | 复制用 Markdown |
-| POST | `/api/articles/{article_id}/jobs/{job_id}/retry` | 重试失败/阻塞任务 |
-| POST | `/api/articles/{article_id}/jobs/{job_id}/cancel` | 取消未开始任务 |
-| POST | `/api/sync/notion` | 全量同步 Notion |
-| POST | `/api/articles/{article_id}/sync` | 单篇同步，202 |
-| GET | `/api/articles/{article_id}/sync-runs/{run_id}` | 查询同步运行 |
-
-### 用例
-- **ART-001 列表筛选 URL 持久化**：状态/渠道/页码/排序写入 query；刷新后保持；API 请求参数一致。
-- **ART-002 列表渠道状态**：每行展示最新渠道状态；默认渠道语义正确；移动端汇总不丢状态。
-- **ART-003 防重复同步**：同步请求 pending 时按钮禁用，不重复发请求。
-- **ART-004 详情五区块**：概览、内容/封面、渠道时间线、任务历史、恢复建议均渲染。
-- **ART-005 历史边界**：任务历史按时间倒序且有上限；相同时间按 id 倒序。
-- **ART-006 微信预览沙箱**：返回 HTML 只在 sandbox iframe 渲染；不得直接注入 DOM。
-- **ART-007 复制 Markdown**：使用当前校验快照；快照变旧后禁用复制并刷新。
-- **ART-008 剪贴板失败**：无权限时不降级成明文复制，给出明确错误。
-- **ART-009 重试仅失败渠道**：成功渠道不得重试；失败/阻塞渠道可重试并更新 revision。
-- **ART-010 取消限制**：只允许取消未开始/等待任务；其他状态拒绝。
-- **ART-011 异常脱敏**：集成/任务错误不泄露密钥；给出稳定 fallback 操作。
-- **ART-012 畸形响应**：列表/详情/预览/动作返回非法 JSON 或缺字段时，显示本地错误，不报假成功。
-- **ART-013 陌生渠道值容错**：`target_channels` 含发布链路外的规划渠道（如「掘金」）时，列表/详情正常渲染并原样展示，不报「响应格式无效」（回归 #66）。
-- **ART-014 翻页巡检**：列表至少翻到第 2 页及末页，确认每页均正常渲染；分页器边界（首页/末页/超出页码）不报错。
-- **ART-015 详情返回上下文**：从第 2 页或筛选态进入详情，「返回稿件索引」必须还原来源 URL（含 page/query/status/channel）；直达详情时回退列表首页（回归 #73，实现为 Link state 传递 + /articles 前缀校验）。
-- **ART-016 状态一致性**：发布门禁标红（封面校验/发布前校验）时，「下一步怎么处理」必须列出对应问题与建议，不得显示「当前没有需要处理的错误」（回归 #72）。
+- /articles 和 /articles/:id 不再注册页面，访问后回到 RSS 候选。
+- 稿件、同步与发布相关 API 不再注册；认证后请求返回 404。
+- 后台只运行 RSS，不再同步稿件、执行发布或重试发布通知。
 
 ---
 
 ## 5. RSS 发现（RSS）
 
 ### 页面路径
-- `/rss/candidates`：候选队列、证据、忽略、确认入 Notion Inbox。
+- `/rss/candidates`：待审核候选、证据、忽略与采纳。
+- `/rss/candidates?status=saved`：已保存素材。
 - `/rss`：RSS 源、正向关键词、反向关键词维护。
 
 ### API
@@ -137,7 +105,7 @@
 |---|---|---|
 | GET | `/api/rss/candidates` | 候选列表 |
 | POST | `/api/rss/candidates/{item_id}/ignore` | 忽略候选 |
-| POST | `/api/rss/candidates/{item_id}/confirm` | 确认推送 Notion Inbox |
+| POST | `/api/rss/candidates/{item_id}/confirm` | 采纳并保存到 Reven |
 | POST | `/api/rss/embeddings/rebuild` | 重建关键词 embedding |
 | GET/POST | `/api/rss/sources` | 源列表/新增 |
 | PUT/DELETE | `/api/rss/sources/{source_id}` | 编辑/禁用/删除源 |
@@ -147,7 +115,9 @@
 ### 用例
 - **RSS-001 候选证据**：候选展示标题、来源、命中证据、素材内容。
 - **RSS-002 忽略**：忽略后从队列移除；API 状态同步。
-- **RSS-003 确认入 Inbox**：返回 Notion 目标；成功 toast；不得重复推送。
+- **RSS-003 采纳素材**：返回 saved 记录及 saved_at；显示保存成功；重复采纳返回同一记录和原保存时间。
+- **RSS-004 素材浏览**：切到已保存素材可查原文和摘要，不再显示采纳/忽略操作。
+- **RSS-005 并发审核**：采纳与忽略竞争时只允许一个决策生效，重筛不能覆盖人工决策。
 - **RSS-004 新增源**：URL 合法且唯一；重复 URL 被拒；新增后刷新列表。
 - **RSS-005 编辑/禁用源**：共用表单回填；禁用不改变其他字段。
 - **RSS-006 删除源确认**：必须二次确认；取消不删除；确认后列表移除。
@@ -163,7 +133,7 @@
 ## 6. 集成设置（INTEGRATIONS）
 
 ### 页面路径
-- `/integrations`：Notion / GitHub / 飞书等集成卡片；密钥只写不读。
+- `/integrations`：飞书 / 翻译 / Embedding / Agent 等集成卡片；密钥只写不读。
 
 ### API
 | 方法 | 路径 | 说明 |
@@ -173,7 +143,6 @@
 | PUT | `/api/integrations/{provider}` | 创建/更新公开配置，可选替换密钥 |
 | DELETE | `/api/integrations/{provider}/secret` | 删除密钥 |
 | POST | `/api/integrations/{provider}/test` | 连接测试 |
-| POST | `/api/integrations/notion/bootstrap-schema` | 初始化 Notion 字段 |
 
 ### 用例
 - **INT-001 加载骨架**：加载中显示 skeleton，不得误判为未配置。
@@ -184,7 +153,6 @@
 - **INT-006 删除密钥确认**：二次确认；取消焦点回删除按钮；删除后 hint 清空。
 - **INT-007 跨卡片动作锁**：任一卡片动作进行中，其他卡片动作禁用；失败释放锁。
 - **INT-008 连接测试**：无适配器 503；成功更新状态；失败原因脱敏；密钥损坏给领域错误。
-- **INT-009 Notion bootstrap**：无集成 404；无密钥 409；配置错误 400 脱敏；重复执行幂等 no-op。
 - **INT-010 畸形响应**：动作返回非法 JSON 不报成功。
 
 ---
@@ -219,7 +187,7 @@
 ## 8. 项目库（PROJECTS）
 
 ### 页面路径
-- `/projects`：项目台账；名称、目标、状态、部门、截止日、GitHub、Notion。
+- `/projects`：项目台账；名称、目标、状态、部门、截止日、GitHub。
 
 ### API
 | 方法 | 路径 | 说明 |
@@ -232,7 +200,7 @@
 ### 用例
 - **PRJ-001 新增**：必填名称；提交后列表刷新；toast 一次。
 - **PRJ-002 状态筛选**：进行中/已暂停/已完成过滤正确。
-- **PRJ-003 链接字段**：GitHub/Notion URL 保存并在列表展示；外部链接新开页。
+- **PRJ-003 链接字段**：GitHub URL 保存并在列表展示；外部链接新开页。
 - **PRJ-004 截止日**：空值显示空/`—`，不显示 0 年 0 月；有值按日期展示。
 - **PRJ-005 删除**：删除后列表移除；刷新不复活。
 - **PRJ-006 未找到**：更新/删除不存在项目返回 404。
@@ -277,21 +245,17 @@
 
 ### 用例
 - **SYS-001 占位页**：标题“系统状态”，文案“此页面将在下一阶段接入”。
-- **SYS-002 status**：database 可用性、notion_sync/scheduler heartbeat 结构正确。
+- **SYS-002 status**：database 可用性、rss_discovery heartbeat 结构正确。
 - **SYS-003 egress-ip**：成功返回合法 IP；失败返回 `available:false,ip:null`，不得编造。
 
 ---
 
-## 11. 任务与后台调度（JOBS）
+## 11. RSS 后台调度
 
-> 主要经稿件详情/API 间接验证；后台 lease/重试逻辑由服务端测试覆盖，AI 巡检重点看“用户可见结果”。
-
-### 用例
-- **JOB-001 状态可见**：等待/处理中/成功/失败/阻塞/取消在 UI 有一致映射。
-- **JOB-002 失败恢复建议**：封面缺失、微信白名单、GitHub 构建、Notion 字段分别给出对应建议。
-- **JOB-005 同步链路依赖面**：内容同步依次依赖 Notion 可读 → 封面（仅发布期强校验，#68 起同步期容忍）→ **腾讯 COS 归档**（缺 `COS_BUCKET/COS_REGION/COS_SECRET_ID/COS_SECRET_KEY/COS_PUBLIC_BASE_URL` 任一即 `COS_NOT_CONFIGURED` 硬失败）。巡检到同步失败先按此链分诊；`content_sync_runs.error_code` 精确定位断点。
-- **JOB-003 重试幂等**：重复点击不产生重复成功 toast；服务端 revision 只增加一次。
-- **JOB-004 错误脱敏**：日志/toast/页面不出现 token、密钥、数据库连接串。
+- 仅 RSS 发现循环运行，系统状态显示 rss_discovery 心跳。
+- 抓取异常记录为本次运行错误，不阻断其他源。
+- 同日重复运行不重复生成发现记录或发送已完成的汇总。
+- 无外部集成配置时，既有候选仍可采纳并在已保存素材中读取。
 
 ---
 
@@ -299,7 +263,7 @@
 
 - **SEC-001 CSRF**：无 `X-Reven-CSRF` 的 POST/PUT/DELETE 被拒；跨 Origin 写请求被拒。
 - **SEC-002 密钥边界**：任何 API 响应、页面、toast、console、日志不得出现明文密钥/token。
-- **SEC-003 外部 URL**：Notion/GitHub 链接只接受预期 HTTPS host；危险协议被拒。
+- **SEC-003 外部 URL**：GitHub 链接只接受预期 HTTPS host；危险协议被拒。
 - **SEC-004 iframe**：微信预览 sandbox；不得 `dangerouslySetInnerHTML` 直接上屏。
 - **SEC-005 401 跳转**：非 auth API 401 统一跳登录；auth API 401 不循环跳转。
 - **SEC-006 限流**：登录连续失败触发 429；恢复后可登录。
@@ -328,19 +292,11 @@
 
 ## 14. 当前自动化测试锚点
 
-后端 `server/tests`：
-- API：`test_articles.py`、`test_actions.py`、`test_portable_markdown.py`、`test_rss_candidates.py`、`test_rss_settings.py`、`test_integrations.py`、`test_integrations_notion.py`、`test_finance.py`、`test_projects.py`、`test_sops.py`、`test_system.py`
-- 任务/调度：`jobs/test_runner.py`、`jobs/test_service.py`、`jobs/test_retry.py`、`jobs/test_tick_integration.py`、`test_scheduling.py`
-- 配置/门禁：`test_config.py`、`test_ci_database_gate.py`
-
-前端 `web/src`：
-- 基础库：`lib/api.test.ts`、`lib/clipboard.test.ts`、`lib/external-url.test.ts`
-- 页面：articles / article-detail / rss-candidates / rss-settings / integrations / finance / projects / sops
-
-AI 测试地图优先级高于自动化测试清单：自动化没覆盖但地图列出的路径，仍要人工/代理验证。
-
----
-
+- API：RSS candidates/settings、integrations、brand、finance、projects、sops、crm、talents、system。
+- 领域：RSS 发现/翻译/Embedding/采纳竞争/重筛、Agent、飞书审核权限与重放。
+- 安全：认证、CSRF、网络出站、Secret 脱敏与部署流程。
+- 迁移：空库升级、经营表保留、退役 provider 清理与不可逆边界。
+- 前端：导航、RSS 素材闭环、集成配置、品牌与其他经营模块。
 ## 15. 待纳入（未合并前不作为当前验收）
 
 - CRM / 人才库：状态机、报价、成单路径（等 CRM 分支合并后补全）。

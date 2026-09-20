@@ -1,16 +1,10 @@
 import { apiRequest, ApiError } from "@/lib/api"
 import type { Integration, Provider } from "./types"
 
-export interface EgressResponse {
-  available: boolean
-  ip: string | null
-}
-
 export type IntegrationAction =
   | { action: "save"; provider: Provider; publicConfig: Record<string, unknown>; secret?: Record<string, string> }
   | { action: "delete"; provider: Provider }
   | { action: "test"; provider: Provider }
-  | { action: "bootstrap"; provider: "notion" }
 
 export interface RssRunError {
   stage?: string
@@ -57,13 +51,8 @@ export async function runIntegrationAction(action: IntegrationAction): Promise<{
     await requestIntegration(`/integrations/${action.provider}/secret`, { method: "DELETE" })
     return { message: "密钥已删除" }
   }
-  if (action.action === "test") {
-    await requestIntegration(`/integrations/${action.provider}/test`, { method: "POST" })
-    return { message: action.provider === "feishu" ? "测试消息已发送" : "连接测试已完成" }
-  }
-  const result = await apiRequest<unknown>("/integrations/notion/bootstrap-schema", { method: "POST" })
-  if (!isBootstrapResult(result)) throw invalidResponse()
-  return { message: "Notion 字段初始化完成" }
+  await requestIntegration(`/integrations/${action.provider}/test`, { method: "POST" })
+  return { message: action.provider === "feishu" ? "测试消息已发送" : "连接测试已完成" }
 }
 
 async function requestIntegration(path: string, init: RequestInit): Promise<Integration> {
@@ -85,9 +74,9 @@ function isIntegration(value: unknown): value is Integration {
 }
 
 function isProvider(value: unknown): value is Provider {
-  return value === "notion" || value === "github" || value === "wechat" || value === "feishu"
+  return value === "feishu"
     || value === "feishu_bot"
-    || value === "translate_baidu" || value === "translate_aliyun" || value === "embedding"
+    || value === "translate_baidu" || value === "translate_aliyun" || value === "embedding" || value === "agent-llm"
 }
 
 function isRssRunHealth(value: unknown): value is RssRunHealth {
@@ -115,11 +104,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string"
-}
-
-function isBootstrapResult(value: unknown): value is { patched: boolean; properties: string[] } {
-  return isRecord(value) && typeof value.patched === "boolean"
-    && Array.isArray(value.properties) && value.properties.every((item) => typeof item === "string")
 }
 
 function invalidResponse(): ApiError {

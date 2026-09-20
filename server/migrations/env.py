@@ -5,17 +5,14 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from reven.articles.models import Article  # noqa: F401
-from reven.brand.models import BrandAsset, BrandImportRun, BrandVersion, ChannelTemplateVersion  # noqa: F401
-from reven.content_sync.models import ContentSnapshot, ContentSyncRun, SnapshotAsset  # noqa: F401
+from reven.brand.models import BrandAsset, BrandVersion, ChannelTemplateVersion  # noqa: F401
 from reven.crm.models import Contact, Customer, FollowUp  # noqa: F401
 from reven.db import Base
 from reven.finance.models import FinanceEntry  # noqa: F401
 from reven.integrations.models import Integration  # noqa: F401
-from reven.jobs.models import PublicationJob  # noqa: F401
-from reven.jobs.notification_outbox import NotificationOutbox  # noqa: F401
 from reven.projects.models import Project  # noqa: F401
 from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource  # noqa: F401
+from reven.security.models import AuthSession  # noqa: F401
 from reven.sops.models import Sop  # noqa: F401
 from reven.system.models import SystemState  # noqa: F401
 from reven.talents.models import Talent, TalentInteraction  # noqa: F401
@@ -25,7 +22,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

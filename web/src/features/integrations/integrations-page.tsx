@@ -28,10 +28,8 @@ export function IntegrationsPage() {
               actionsDisabled={controller.isActionLocked}
               busyAction={controller.busyAction}
               definition={definition}
-              egressIp={controller.egress.data?.ip}
               integration={controller.byProvider.get(definition.provider)}
               key={definition.provider}
-              onBootstrap={() => controller.execute({ action: "bootstrap", provider: "notion" })}
               onDelete={(provider) => controller.execute({ action: "delete", provider })}
               onReplace={(provider, publicConfig, secret) => controller.execute({ action: "save", provider, publicConfig, secret })}
               onSave={(provider, publicConfig) => controller.execute({ action: "save", provider, publicConfig })}

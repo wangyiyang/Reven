@@ -72,12 +72,15 @@ PROVIDERS = (*PROVIDERS, "retired_provider")
 # One backend registry owns membership; API list responses filter repository
 # rows through it, and retirement includes an exact credential-purge migration.
 SUPPORTED_INTEGRATION_PROVIDERS = (
-    "notion",
-    "github",
-    "wechat",
     "feishu",
     "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",
+    "agent-llm",
 )
 ```
+
+## 2026-09 稿件退役
+
+迁移 0021 同时移除 notion/github/wechat 三个 provider 及密文凭据。
+退役路由返回 INTEGRATION_PROVIDER_UNKNOWN；RSS 采纳只更新本地素材，无外部写入。

@@ -18,7 +18,6 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(32), default="进行中")
     department: Mapped[str | None] = mapped_column(String(64), nullable=True)
     due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-    notion_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     github_repo: Mapped[str | None] = mapped_column(String(200), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

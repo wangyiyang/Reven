@@ -32,7 +32,7 @@ export function TemplatesSection() {
     <Card>
       <CardHeader>
         <h2 className="text-base font-semibold">渠道模板</h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">微信排版与文末模块、博客署名与封面回落；发布后对新任务生效。</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">管理微信排版与文末模块、博客署名与封面素材的模板版本。</p>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="wechat">
@@ -244,7 +244,7 @@ function BlogTemplateForm({ assets }: { assets: BrandAsset[] }) {
       </div>
       <AssetSelect
         assets={imageAssets}
-        label="默认封面素材（稿件无封面时回落）"
+        label="默认封面素材"
         onChange={(value) => setForm({ ...form, cover_fallback_asset_id: value })}
         value={form.cover_fallback_asset_id}
       />
@@ -283,7 +283,7 @@ function TemplateStatus({ published, hasDraft, onSave, onPublish, saving }: {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4 sm:col-span-2">
       <p className="text-xs text-[var(--muted)]">
-        {published ? `当前已发布 v${published.version}` : "尚未发布，该渠道使用默认样式与行为"}
+        {published ? `当前已发布 v${published.version}` : "尚未发布模板，请保存草稿后发布新版本"}
         {hasDraft && " · 存在未发布草稿"}
       </p>
       <div className="flex gap-2">

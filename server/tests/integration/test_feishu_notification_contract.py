@@ -3,8 +3,7 @@ import json
 import httpx
 import pytest
 from reven.integrations.models import Integration
-from reven.publishing.factory import ConfiguredFeishuNotifier
-from reven.publishing.notifications import Notification
+from reven.notifications import ConfiguredFeishuNotifier, Notification
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 

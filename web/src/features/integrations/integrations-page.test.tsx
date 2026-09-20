@@ -1,85 +1,13 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { delay, HttpResponse, http } from "msw"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { IntegrationsPage } from "./integrations-page"
 import { server } from "@/test/server"
+import { configuredRuntime, findCard, renderPage } from "./test-helpers"
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-
-const configuredWechat = {
-  provider: "wechat",
-  public_config: { app_id: "wx123", author: "王翊仰" },
-  secret_configured: true,
-  secret_hint: "已配置 · ****9f2a",
-  connection_status: "连接正常",
-  last_tested_at: "2026-07-30T00:01:00Z",
-  last_error: null,
-  last_latency_ms: null,
-}
-
-const configuredBaidu = {
-  provider: "translate_baidu",
-  public_config: { priority: 2, enabled: true },
-  secret_configured: true,
-  secret_hint: "已配置 · ****key1",
-  connection_status: "连接正常",
-  last_tested_at: "2026-08-20T00:01:00Z",
-  last_error: null,
-  last_latency_ms: 235,
-}
-
-const configuredEmbedding = {
-  provider: "embedding",
-  public_config: { base_url: "https://api.siliconflow.cn", model: "BAAI/bge-m3" },
-  secret_configured: true,
-  secret_hint: "已配置 · ****key2",
-  connection_status: "未测试",
-  last_tested_at: null,
-  last_error: null,
-  last_latency_ms: null,
-}
-
-const configuredFeishuBot = {
-  provider: "feishu_bot",
-  public_config: { whitelist_open_ids: ["ou_boss", "ou_ops"], enabled: true },
-  secret_configured: true,
-  secret_hint: "已配置 · ****alue",
-  connection_status: "连接正常",
-  last_tested_at: "2026-09-19T00:01:00Z",
-  last_error: null,
-  last_latency_ms: null,
-}
-
-const latestRun = {
-  run_date: "2026-08-25",
-  status: "completed",
-  started_at: "2026-08-25T00:00:00Z",
-  finished_at: "2026-08-25T00:05:00Z",
-  candidate_count: 12,
-  failure_count: 0,
-  errors: [],
-  notification_error: null,
-}
-
-async function findCard(title: string) {
-  const heading = await screen.findByRole("heading", { name: title })
-  const article = heading.closest("article")
-  if (!article) throw new Error(`找不到 ${title} 卡片`)
-  return within(article as HTMLElement)
-}
-
-function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <IntegrationsPage />
-    </QueryClientProvider>,
-  )
-}
 
 describe("IntegrationsPage", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -87,7 +15,7 @@ describe("IntegrationsPage", () => {
   it("shows a loading skeleton without implying integrations are unconfigured", async () => {
     server.use(http.get("/api/integrations", async () => {
       await delay(80)
-      return HttpResponse.json([configuredWechat])
+      return HttpResponse.json([configuredRuntime])
     }))
 
     renderPage()
@@ -98,112 +26,74 @@ describe("IntegrationsPage", () => {
   })
 
   it("shows configured state without putting the secret into the input", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredWechat])))
+    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])))
 
     renderPage()
 
     expect(await screen.findByText("已配置 · ****9f2a")).toBeInTheDocument()
-    expect(screen.getByLabelText("AppSecret")).toHaveValue("")
-  })
-
-  it("requires every GitHub public setting before enabling save or test", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
-    const user = userEvent.setup()
-    renderPage()
-
-    const saveButton = await screen.findByRole("button", { name: "保存GitHub配置" })
-    const testButton = screen.getByRole("button", { name: "测试GitHub连接" })
-
-    expect(saveButton).toBeDisabled()
-    expect(testButton).toBeDisabled()
-    expect(screen.getByText("请填写 Owner、Repo 和默认分支策略后保存配置。")).toBeInTheDocument()
-
-    await user.type(screen.getByLabelText("Owner"), "wangyiyang")
-    await user.type(screen.getByLabelText("Repo"), "wangyiyang.github.io")
-    await user.type(screen.getByLabelText("默认分支策略"), "main")
-
-    expect(saveButton).toBeEnabled()
-    expect(testButton).toBeDisabled()
-  })
-
-  it("keeps GitHub connection testing unavailable until a token is configured", async () => {
-    const github = {
-      provider: "github",
-      public_config: { owner: "wangyiyang", repo: "wangyiyang.github.io", default_branch: "main" },
-      secret_configured: false,
-      secret_hint: null,
-      connection_status: "未测试",
-      last_tested_at: null,
-      last_error: null,
-      last_latency_ms: null,
-    }
-    server.use(http.get("/api/integrations", () => HttpResponse.json([github])))
-    renderPage()
-
-    expect(await screen.findByRole("button", { name: "测试GitHub连接" })).toBeDisabled()
-    expect(screen.getByText("请先保存配置并设置 Token 后测试连接。")).toBeInTheDocument()
+    expect((await findCard("Embedding")).getByLabelText("API Key")).toHaveValue("")
   })
 
   it("keeps the existing secret when saving an empty secret input", async () => {
     let requestBody: unknown
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat])),
-      http.put("/api/integrations/wechat", async ({ request }) => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
+      http.put("/api/integrations/embedding", async ({ request }) => {
         requestBody = await request.json()
-        return HttpResponse.json(configuredWechat)
+        return HttpResponse.json(configuredRuntime)
       }),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "保存微信配置" }))
+    await userEvent.click(await screen.findByRole("button", { name: "保存Embedding配置" }))
 
     await waitFor(() => expect(requestBody).toEqual({
-      public_config: { app_id: "wx123", author: "王翊仰" },
+      public_config: { base_url: "https://api.siliconflow.cn", model: "BAAI/bge-m3" },
     }))
   })
 
   it("replaces a secret through a separate explicit action", async () => {
     let requestBody: unknown
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat])),
-      http.put("/api/integrations/wechat", async ({ request }) => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
+      http.put("/api/integrations/embedding", async ({ request }) => {
         requestBody = await request.json()
-        return HttpResponse.json({ ...configuredWechat, secret_hint: "已配置 · ****new1" })
+        return HttpResponse.json({ ...configuredRuntime, secret_hint: "已配置 · ****new1" })
       }),
     )
     renderPage()
 
-    await userEvent.type(await screen.findByLabelText("AppSecret"), "wechat-new1")
-    await userEvent.click(screen.getByRole("button", { name: "替换微信密钥" }))
+    await userEvent.type((await findCard("Embedding")).getByLabelText("API Key"), "embedding-new1")
+    await userEvent.click(screen.getByRole("button", { name: "替换Embedding密钥" }))
 
     await waitFor(() => expect(requestBody).toEqual({
-      public_config: { app_id: "wx123", author: "王翊仰" },
-      secret: { app_secret: "wechat-new1" },
+      public_config: { base_url: "https://api.siliconflow.cn", model: "BAAI/bge-m3" },
+      secret: { api_key: "embedding-new1" },
     }))
   })
 
   it("requires explicit confirmation before deleting a secret", async () => {
     const deleteRequest = vi.fn()
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat])),
-      http.delete("/api/integrations/wechat/secret", () => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
+      http.delete("/api/integrations/embedding/secret", () => {
         deleteRequest()
-        return HttpResponse.json({ ...configuredWechat, secret_configured: false, secret_hint: null })
+        return HttpResponse.json({ ...configuredRuntime, secret_configured: false, secret_hint: null })
       }),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "删除微信密钥" }))
+    await userEvent.click(await screen.findByRole("button", { name: "删除Embedding密钥" }))
     expect(deleteRequest).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole("button", { name: "确认删除微信密钥" }))
+    await userEvent.click(screen.getByRole("button", { name: "确认删除Embedding密钥" }))
     await waitFor(() => expect(deleteRequest).toHaveBeenCalledOnce())
   })
 
   it("returns keyboard focus to the delete trigger after dismissing confirmation", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredWechat])))
+    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])))
     renderPage()
 
-    const trigger = await screen.findByRole("button", { name: "删除微信密钥" })
+    const trigger = await screen.findByRole("button", { name: "删除Embedding密钥" })
     await userEvent.click(trigger)
     expect(screen.getByRole("dialog")).toBeInTheDocument()
     await userEvent.keyboard("{Escape}")
@@ -214,7 +104,7 @@ describe("IntegrationsPage", () => {
   it("only sends an active message when testing Feishu", async () => {
     const feishu = {
       provider: "feishu",
-      public_config: { name: "发布通知" },
+      public_config: { name: "RSS 汇总通知" },
       secret_configured: true,
       secret_hint: "已配置 · ****-123",
       connection_status: "未测试",
@@ -224,26 +114,26 @@ describe("IntegrationsPage", () => {
     }
     const tests: string[] = []
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat, feishu])),
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime, feishu])),
       http.post("/api/integrations/:provider/test", ({ params }) => {
         tests.push(String(params.provider))
-        return HttpResponse.json(params.provider === "feishu" ? { ...feishu, connection_status: "连接正常" } : configuredWechat)
+        return HttpResponse.json(params.provider === "feishu" ? { ...feishu, connection_status: "连接正常" } : configuredRuntime)
       }),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "测试微信连接" }))
+    await userEvent.click(await screen.findByRole("button", { name: "测试Embedding连接" }))
     const feishuButton = screen.getByRole("button", { name: "发送飞书测试消息" })
     await waitFor(() => expect(feishuButton).toBeEnabled())
     await userEvent.click(feishuButton)
-    await waitFor(() => expect(tests).toEqual(["wechat", "feishu"]))
+    await waitFor(() => expect(tests).toEqual(["embedding", "feishu"]))
     expect(screen.getByText("测试飞书会主动发送一条消息。")).toBeInTheDocument()
   })
 
   it("synchronously prevents duplicate Feishu test messages", async () => {
     const feishu = {
       provider: "feishu",
-      public_config: { name: "发布通知" },
+      public_config: { name: "RSS 汇总通知" },
       secret_configured: true,
       secret_hint: "已配置 · ****-123",
       connection_status: "未测试",
@@ -270,7 +160,7 @@ describe("IntegrationsPage", () => {
   it("disables every card action while a cross-card action is running", async () => {
     const feishu = {
       provider: "feishu",
-      public_config: { name: "发布通知" },
+      public_config: { name: "RSS 汇总通知" },
       secret_configured: true,
       secret_hint: "已配置 · ****-123",
       connection_status: "未测试",
@@ -279,17 +169,17 @@ describe("IntegrationsPage", () => {
       last_latency_ms: null,
     }
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat, feishu])),
-      http.post("/api/integrations/wechat/test", async () => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime, feishu])),
+      http.post("/api/integrations/embedding/test", async () => {
         await delay(100)
-        return HttpResponse.json(configuredWechat)
+        return HttpResponse.json(configuredRuntime)
       }),
     )
     renderPage()
-    const wechatButton = await screen.findByRole("button", { name: "测试微信连接" })
+    const embeddingButton = await screen.findByRole("button", { name: "测试Embedding连接" })
     const feishuButton = screen.getByRole("button", { name: "发送飞书测试消息" })
 
-    await userEvent.click(wechatButton)
+    await userEvent.click(embeddingButton)
 
     expect(feishuButton).toBeDisabled()
     expect(screen.getByRole("status")).toHaveTextContent("其他操作暂时不可用")
@@ -299,15 +189,15 @@ describe("IntegrationsPage", () => {
   it("releases the action lock after a failed request", async () => {
     let calls = 0
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat])),
-      http.post("/api/integrations/wechat/test", () => {
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
+      http.post("/api/integrations/embedding/test", () => {
         calls += 1
         if (calls === 1) return HttpResponse.json({ code: "failed", message: "连接失败" }, { status: 503 })
-        return HttpResponse.json(configuredWechat)
+        return HttpResponse.json(configuredRuntime)
       }),
     )
     renderPage()
-    const testButton = await screen.findByRole("button", { name: "测试微信连接" })
+    const testButton = await screen.findByRole("button", { name: "测试Embedding连接" })
 
     await userEvent.click(testButton)
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("连接失败"))
@@ -316,61 +206,32 @@ describe("IntegrationsPage", () => {
     await waitFor(() => expect(calls).toBe(2))
   })
 
-  it("initializes Notion fields through the explicit action", async () => {
-    const notion = {
-      provider: "notion",
-      public_config: {
-        database_id: "22222222-2222-2222-2222-222222222222",
-        data_source_id: "11111111-1111-1111-1111-111111111111",
-      },
-      secret_configured: true,
-      secret_hint: "已配置 · ****aaaa",
-      connection_status: "连接正常",
-      last_tested_at: null,
-      last_error: null,
-      last_latency_ms: null,
-    }
-    let calls = 0
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([notion])),
-      http.post("/api/integrations/notion/bootstrap-schema", () => {
-        calls += 1
-        return HttpResponse.json({ patched: true, properties: ["自动化状态"] })
-      }),
-    )
-    renderPage()
-
-    await userEvent.click(await screen.findByRole("button", { name: "初始化字段" }))
-
-    await waitFor(() => expect(calls).toBe(1))
-  })
-
   it("moves focus to the stable save action after successful secret deletion", async () => {
     let secretConfigured = true
-    const currentWechat = () => ({
-      ...configuredWechat,
+    const currentRuntime = () => ({
+      ...configuredRuntime,
       secret_configured: secretConfigured,
-      secret_hint: secretConfigured ? configuredWechat.secret_hint : null,
+      secret_hint: secretConfigured ? configuredRuntime.secret_hint : null,
     })
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([currentWechat()])),
-      http.delete("/api/integrations/wechat/secret", () => {
+      http.get("/api/integrations", () => HttpResponse.json([currentRuntime()])),
+      http.delete("/api/integrations/embedding/secret", () => {
         secretConfigured = false
-        return HttpResponse.json(currentWechat())
+        return HttpResponse.json(currentRuntime())
       }),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "删除微信密钥" }))
-    await userEvent.click(screen.getByRole("button", { name: "确认删除微信密钥" }))
+    await userEvent.click(await screen.findByRole("button", { name: "删除Embedding密钥" }))
+    await userEvent.click(screen.getByRole("button", { name: "确认删除Embedding密钥" }))
 
-    const stableTarget = await screen.findByRole("button", { name: "保存微信配置" })
+    const stableTarget = await screen.findByRole("button", { name: "保存Embedding配置" })
     await waitFor(() => expect(stableTarget).toHaveFocus())
-    expect(screen.queryByRole("button", { name: "删除微信密钥" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "删除Embedding密钥" })).not.toBeInTheDocument()
   })
 
   it.each([
-    ["malformed", () => HttpResponse.json({ provider: "wechat" })],
+    ["malformed", () => HttpResponse.json({ provider: "embedding" })],
     ["empty", () => new HttpResponse(null, { status: 200 })],
   ])("shows a recoverable error for %s successful responses", async (_, response) => {
     server.use(http.get("/api/integrations", response))
@@ -383,277 +244,15 @@ describe("IntegrationsPage", () => {
 
   it("does not report success when an action returns malformed JSON", async () => {
     server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredWechat])),
-      http.post("/api/integrations/wechat/test", () => HttpResponse.json({ ok: true })),
+      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
+      http.post("/api/integrations/embedding/test", () => HttpResponse.json({ ok: true })),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "测试微信连接" }))
+    await userEvent.click(await screen.findByRole("button", { name: "测试Embedding连接" }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("集成配置响应格式无效"))
     expect(toast.success).not.toHaveBeenCalled()
   })
 
-  it("renders translate and embedding cards with their defaults", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
-    renderPage()
-
-    const baidu = await findCard("百度翻译")
-    expect(screen.getByRole("heading", { name: "阿里翻译" })).toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "腾讯翻译" })).not.toBeInTheDocument()
-    const embedding = await findCard("Embedding")
-
-    expect(baidu.getByLabelText("优先级")).toHaveValue(1)
-    expect(baidu.getByLabelText("参与故障切换")).toBeChecked()
-    expect(baidu.getByLabelText("AppID")).toHaveValue("")
-    expect(embedding.getByLabelText("Base URL")).toHaveValue("https://api.siliconflow.cn")
-    expect(embedding.getByLabelText("模型")).toHaveValue("BAAI/bge-m3")
-  })
-
-  it("renders the Agent LLM card with defaults and omits an empty optional base_url on save", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.put("/api/integrations/agent-llm", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json({
-          provider: "agent-llm",
-          public_config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
-          secret_configured: false,
-          secret_hint: null,
-          connection_status: "未测试",
-          last_tested_at: null,
-          last_error: null,
-          last_latency_ms: null,
-        })
-      }),
-    )
-    renderPage()
-
-    const card = await findCard("Agent LLM")
-    expect(card.getByLabelText("Provider")).toHaveValue("deepseek-official")
-    expect(card.getByLabelText("模型")).toHaveValue("deepseek-v4-flash")
-    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
-    }))
-  })
-
-  it("serializes translate public config with number and boolean types", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.put("/api/integrations/translate_baidu", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json({
-          provider: "translate_baidu",
-          public_config: { priority: 3, enabled: false },
-          secret_configured: false,
-          secret_hint: null,
-          connection_status: "未测试",
-          last_tested_at: null,
-          last_error: null,
-          last_latency_ms: null,
-        })
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("百度翻译")
-    const priority = card.getByLabelText("优先级")
-    await user.clear(priority)
-    await user.type(priority, "3")
-    await user.click(card.getByLabelText("参与故障切换"))
-    await user.click(card.getByRole("button", { name: "保存百度翻译配置" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { priority: 3, enabled: false },
-    }))
-  })
-
-  it("requires every secret field before replacing translate credentials", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])),
-      http.put("/api/integrations/translate_baidu", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredBaidu)
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("百度翻译")
-    const replaceButton = card.getByRole("button", { name: "替换百度翻译密钥" })
-    expect(replaceButton).toBeDisabled()
-
-    await user.type(card.getByLabelText("AppID"), "baidu-id")
-    expect(replaceButton).toBeDisabled()
-
-    await user.type(card.getByLabelText("密钥"), "baidu-key")
-    expect(replaceButton).toBeEnabled()
-    await user.click(replaceButton)
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { priority: 2, enabled: true },
-      secret: { app_id: "baidu-id", app_key: "baidu-key" },
-    }))
-  })
-
-  it("keeps existing translate secrets when saving config with empty secret inputs", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])),
-      http.put("/api/integrations/translate_baidu", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredBaidu)
-      }),
-    )
-    renderPage()
-
-    const card = await findCard("百度翻译")
-    await userEvent.click(card.getByRole("button", { name: "保存百度翻译配置" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { priority: 2, enabled: true },
-    }))
-  })
-
-  it("tests an embedding provider connection", async () => {
-    const tests: string[] = []
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredEmbedding])),
-      http.post("/api/integrations/embedding/test", () => {
-        tests.push("embedding")
-        return HttpResponse.json({ ...configuredEmbedding, connection_status: "连接正常", last_latency_ms: 180 })
-      }),
-    )
-    renderPage()
-
-    const card = await findCard("Embedding")
-    await userEvent.click(card.getByRole("button", { name: "测试Embedding连接" }))
-
-    await waitFor(() => expect(tests).toEqual(["embedding"]))
-    expect(toast.success).toHaveBeenCalledWith("连接测试已完成")
-  })
-
-  it("shows the last test latency next to the test time", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])))
-    renderPage()
-
-    const card = await findCard("百度翻译")
-    expect(card.getByText(/· 235 ms/)).toBeInTheDocument()
-  })
-
-  it("shows daily run health on translate and embedding cards", async () => {
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.get("/api/rss/runs/latest", () => HttpResponse.json(latestRun)),
-    )
-    renderPage()
-
-    expect(await screen.findAllByText("最近每日任务：成功")).toHaveLength(3)
-  })
-
-  it("lists deduplicated error types when the daily run is degraded", async () => {
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.get("/api/rss/runs/latest", () => HttpResponse.json({
-        ...latestRun,
-        status: "partial",
-        failure_count: 2,
-        errors: [
-          { stage: "embedding", error_type: "embedding_timeout" },
-          { stage: "translate", error_type: "translate_http_429" },
-          { stage: "embedding", error_type: "embedding_timeout" },
-        ],
-      })),
-    )
-    renderPage()
-
-    expect(await screen.findAllByText("最近每日任务：降级 · embedding_timeout、translate_http_429")).toHaveLength(3)
-  })
-
-  it("shows an empty state when no daily run has been recorded", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([])))
-    renderPage()
-
-    expect(await screen.findAllByText("最近每日任务：暂无运行记录")).toHaveLength(3)
-  })
-
-  it("renders the Feishu bot card with the whitelist as newline-separated text", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])))
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    expect(card.getByLabelText("白名单 Open ID")).toHaveValue("ou_boss\nou_ops")
-    expect(card.getByLabelText("启用机器人长连接")).toBeChecked()
-    expect(card.getByText("已配置 · ****alue")).toBeInTheDocument()
-  })
-
-  it("serializes the Feishu bot whitelist as a string list with the enabled flag", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.put("/api/integrations/feishu_bot", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await user.type(card.getByLabelText("白名单 Open ID"), "ou_boss, ou_ops\nou_backup")
-    await user.click(card.getByLabelText("启用机器人长连接"))
-    await user.click(card.getByRole("button", { name: "保存飞书应用配置" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { whitelist_open_ids: ["ou_boss", "ou_ops", "ou_backup"], enabled: true },
-    }))
-  })
-
-  it("replaces Feishu bot credentials through the explicit action", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])),
-      http.put("/api/integrations/feishu_bot", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await user.type(card.getByLabelText("App ID"), "cli_new")
-    await user.type(card.getByLabelText("App Secret"), "new-secret")
-    await user.click(card.getByRole("button", { name: "替换飞书应用密钥" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { whitelist_open_ids: ["ou_boss", "ou_ops"], enabled: true },
-      secret: { app_id: "cli_new", app_secret: "new-secret" },
-    }))
-  })
-
-  it("tests the Feishu bot connection without the webhook messaging copy", async () => {
-    const tests: string[] = []
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])),
-      http.post("/api/integrations/feishu_bot/test", () => {
-        tests.push("feishu_bot")
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await userEvent.click(card.getByRole("button", { name: "测试飞书应用连接" }))
-
-    await waitFor(() => expect(tests).toEqual(["feishu_bot"]))
-    expect(toast.success).toHaveBeenCalledWith("连接测试已完成")
-    expect(card.queryByText("测试飞书会主动发送一条消息。")).not.toBeInTheDocument()
-  })
 })

@@ -161,14 +161,6 @@ channel:
 packages:
   web:
     path: web
-  renderer:
-    path: renderer
-  core:
-    path: vendor/doocs-md/packages/core
-  shared:
-    path: vendor/doocs-md/shared
-  config:
-    path: vendor/doocs-md/config
   reven-server:
     path: server
-default_package: @reven/web
+default_package: web
