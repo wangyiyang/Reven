@@ -1,5 +1,5 @@
 export type Provider =
-  | "notion" | "github" | "wechat" | "feishu"
+  | "notion" | "github" | "wechat" | "feishu" | "feishu_bot"
   | "translate_baidu" | "translate_aliyun" | "embedding"
 
 export interface Integration {
@@ -17,7 +17,7 @@ export interface FieldDefinition {
   key: string
   label: string
   placeholder?: string
-  type?: "text" | "password" | "number" | "checkbox"
+  type?: "text" | "password" | "number" | "checkbox" | "string_list"
   optional?: boolean
   defaultValue?: string
 }
@@ -81,8 +81,23 @@ export const PROVIDERS: ProviderDefinition[] = [
     secretFields: [{ key: "webhook_url", label: "Webhook", type: "password", placeholder: "输入新 Webhook URL" }],
   },
   {
-    provider: "translate_baidu",
+    provider: "feishu_bot",
     number: "05",
+    title: "飞书应用",
+    eyebrow: "审核机器人",
+    description: "每日候选稿以交互卡片推送给白名单成员，在飞书内完成采纳 / 忽略。",
+    publicFields: [
+      { key: "whitelist_open_ids", label: "白名单 Open ID", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
+      { key: "enabled", label: "启用机器人长连接", type: "checkbox" },
+    ],
+    secretFields: [
+      { key: "app_id", label: "App ID", placeholder: "cli_…" },
+      { key: "app_secret", label: "App Secret", type: "password", placeholder: "输入新 App Secret" },
+    ],
+  },
+  {
+    provider: "translate_baidu",
+    number: "06",
     title: "百度翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -97,7 +112,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_aliyun",
-    number: "06",
+    number: "07",
     title: "阿里翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -112,7 +127,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "embedding",
-    number: "07",
+    number: "08",
     title: "Embedding",
     eyebrow: "语义向量",
     description: "候选语义打分使用的向量服务，默认 SiliconFlow bge-m3，兼容 OpenAI 端点。",

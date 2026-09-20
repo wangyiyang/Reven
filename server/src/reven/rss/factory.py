@@ -1,5 +1,6 @@
 """Production adapters for the daily RSS discovery workflow."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
 from reven.integrations.embedding.configuration import EmbeddingConfig, load_embedding_config
+from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
 from reven.integrations.notion.client import NotionClient
 from reven.integrations.notion.configuration import IntegrationConfigurationError, load_notion_inbox_config
 from reven.integrations.notion.models import NotionError
@@ -18,7 +20,7 @@ from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.integrations.translation.configuration import load_translation_configs
 from reven.publishing.notifications import DeliveryNotifier
 from reven.rss.ai import SiliconFlowChatClient
-from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, RssDiscoveryService
+from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, ReviewCardPush, RssDiscoveryService
 from reven.rss.embedding import (
     BGE_M3_DIMENSION,
     BGE_M3_MODEL,
@@ -31,13 +33,17 @@ from reven.rss.embedding import (
 from reven.rss.feed import SecureFeedReader
 from reven.rss.inbox import InboxPushError, InboxPushResult, RssInboxService
 from reven.rss.models import RssDiscoveryRun
+from reven.rss.review_service import CandidateReviewService
 from reven.rss.scheduler import RssScheduleTick
 from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from reven.rss.translation import configured_translation_localizer
+from reven.security.secrets import SecretBox
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn"
 SILICONFLOW_TIMEOUT = httpx.Timeout(45.0)
+
+logger = logging.getLogger(__name__)
 
 
 class _UnavailableSiliconFlow:
@@ -82,11 +88,27 @@ class ConfiguredRssDiscoveryTick:
         factory: async_sessionmaker[AsyncSession],
         settings: Settings,
         notifier: DeliveryNotifier,
+        *,
+        review_pusher: ReviewCardPush | None = None,
     ) -> None:
         self._factory = factory
         self._settings = settings
         self._notifier = notifier
+        self._review_pusher = review_pusher if review_pusher is not None else self._build_review_pusher()
         self._completed_date: date | None = None
+
+    def _build_review_pusher(self) -> ReviewCardPusher | None:
+        """按 settings 组装默认审核卡片推送器；密钥不可用时降级停用，不影响 discovery 主流程。"""
+        try:
+            secret_box = SecretBox.from_base64(self._settings.reven_master_key.get_secret_value())
+        except Exception as exc:
+            logger.warning("飞书机器人审核卡片推送停用：密钥不可用（error_type=%s）", type(exc).__name__)
+            return None
+        return ReviewCardPusher(
+            self._factory,
+            secret_box,
+            CandidateReviewService(self._factory, ConfiguredRssInboxPusher(self._factory)),
+        )
 
     async def __call__(self) -> None:
         await RssScheduleTick(self)()
@@ -102,6 +124,7 @@ class ConfiguredRssDiscoveryTick:
                 unavailable,
                 self._notifier,
                 candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                review_pusher=self._review_pusher,
             ).run(run_date)
             await self._remember_completion(run_date)
             return result
@@ -145,6 +168,7 @@ class ConfiguredRssDiscoveryTick:
                         self._notifier,
                         screener=screening,
                         candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                        review_pusher=self._review_pusher,
                     )
                     result = await discovery.run(run_date)
                     await self._backfill_degraded(screening, result.run_id)

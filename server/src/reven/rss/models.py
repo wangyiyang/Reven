@@ -101,5 +101,6 @@ class RssItem(Base):
     push_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     push_error: Mapped[str | None] = mapped_column(Text)
     pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

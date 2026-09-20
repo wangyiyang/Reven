@@ -28,6 +28,7 @@ SECRET_HINT_FIELDS = {
     "github": "token",
     "wechat": "app_secret",
     "feishu": "webhook_url",
+    "feishu_bot": "app_secret",
     "translate_baidu": "app_key",
     "translate_aliyun": "access_key_secret",
     "embedding": "api_key",
