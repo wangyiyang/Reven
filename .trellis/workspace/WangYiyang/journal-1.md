@@ -199,3 +199,25 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: PR #128 交付与收尾
+
+**Date**: 2026-09-21
+**Task**: PR #128 交付与收尾
+**Package**: web
+**Branch**: `codex/remove-notion-publishing`
+
+### Summary
+
+已将 codex/remove-notion-publishing 推送到 origin，并创建 PR #128：https://github.com/wangyiyang/Reven/pull/128，目标 main。任务 09-21-remove-notion-publishing 已归档，本地全套测试及构建验证结果已记录，收尾检查时工作区干净。GitHub CI 尚在运行；PR 尚未合并，未部署生产。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e29860` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-09-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~201 | Active |
+| `journal-1.md` | ~223 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-09-21 | PR #128 交付与收尾 | `3e29860` | `codex/remove-notion-publishing` |
 | 4 | 2026-09-21 | 移除稿件发布与 Notion 集成 | `3e29860` | `codex/remove-notion-publishing` |
 | 3 | 2026-09-06 | Issue #115：仅发版构建容器镜像 | `4afe0c9` | `codex/gh-115-release-only-container` |
 | 2 | 2026-09-06 | gh-108 财务工作区：三子页面拆分 + 抽屉录入 + 待收付流程打通 | `afb89d5`, `9c64247`, `bffb506`, `853ed10` | `issue/gh-108-feat-finance` |
