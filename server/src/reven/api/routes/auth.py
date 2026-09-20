@@ -83,7 +83,13 @@ async def logout(request: Request, session: SessionDep) -> Response:
         await session.execute(delete(AuthSession).where(AuthSession.token_hash == hash_token(token)))
         await session.commit()
     response = Response(status_code=204)
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        secure=get_settings().public_base_url.startswith("https://"),
+        httponly=True,
+        samesite="lax",
+    )
     return response
 
 

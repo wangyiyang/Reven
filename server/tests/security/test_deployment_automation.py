@@ -95,3 +95,52 @@ def test_container_ci_verifies_embedded_infra_and_fake_docker_deployments() -> N
     assert "--format cyclonedx --output /work/reven-sbom.cdx.json reven:test" in container
     assert "--exit-code 1 --ignore-unfixed --severity CRITICAL reven:test" in container
     assert "name: reven-container-sbom" in container
+
+
+def test_full_ci_can_be_requested_manually_without_a_release() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    events = workflow.get("on", workflow.get(True))
+    assert events["workflow_dispatch"]["inputs"]["full"] == {
+        "description": "Run all checks, including isolated self-host containers (no deployment)",
+        "required": False,
+        "type": "boolean",
+        "default": False,
+    }
+    assert workflow["jobs"]["container"]["if"] == "inputs.full"
+    assert workflow["jobs"]["container"]["runs-on"] == "ubuntu-22.04"
+    assert "deploy" not in workflow["jobs"]
+    assert "environment: production" not in str(workflow)
+
+
+def test_self_host_smoke_precedes_legacy_host_relaxation() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["container"]["steps"]
+    runs = [step.get("run", "") for step in steps]
+    smoke_index = runs.index("python3 scripts/self_host_smoke.py")
+    relaxation_index = next(i for i, run in enumerate(runs) if "sudo sysctl" in run)
+    build_index = next(i for i, run in enumerate(runs) if "docker build --pull" in run)
+    assert build_index < smoke_index < relaxation_index
+    assert steps[smoke_index].get("continue-on-error", False) is False
+
+
+def test_self_host_changes_select_backend_regressions_without_enabling_container() -> None:
+    from fnmatch import fnmatchcase
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    filter_step = next(step for step in workflow["jobs"]["changes"]["steps"] if step.get("id") == "filter")
+    filters = yaml.safe_load(filter_step["with"]["filters"])
+    for changed_path in (
+        "infra/self-host/docker-compose.yml",
+        "infra/self-host/Caddyfile",
+        "infra/docker/Dockerfile.dockerignore",
+        "scripts/self_host_smoke.py",
+        "scripts/self_host_http_smoke.py",
+    ):
+        assert any(fnmatchcase(changed_path, pattern) for pattern in filters["backend"]), changed_path
+    assert workflow["jobs"]["container"]["if"] == "inputs.full"

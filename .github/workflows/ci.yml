@@ -1,6 +1,13 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run all checks, including isolated self-host containers (no deployment)
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       full:
@@ -42,6 +49,9 @@ jobs:
           filters: |
             backend:
               - 'server/**'
+              - 'infra/self-host/**'
+              - 'infra/docker/Dockerfile.dockerignore'
+              - 'scripts/self_host*.py'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/ci.yml'
@@ -168,12 +178,22 @@ jobs:
   container:
     if: inputs.full
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # ubuntu-24.04 内核默认通过 AppArmor 拦截非特权 user namespace，bwrap 需要放行
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: docker build --pull --no-cache -f infra/docker/Dockerfile -t reven:test .
+      - name: Pull pinned self-host dependencies
+        run: |
+          docker pull postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+          docker pull caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+      # This must precede legacy host relaxation: default Compose remains the release gate.
+      - name: Verify isolated self-host HTTP, trusted HTTPS, persistence and sandboxes
+        run: python3 scripts/self_host_smoke.py
+      # Legacy smoke tests use a relaxed host/profile and are not default self-host evidence.
+      - run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Verify embedded release infra
         run: |
           exported_infra="$(mktemp -d)"

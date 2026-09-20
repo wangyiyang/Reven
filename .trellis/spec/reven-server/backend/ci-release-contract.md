@@ -7,8 +7,9 @@ Issue #115 修复了仅限制生产发布入口、却遗漏普通 CI 测试镜�
 
 ## 2. 调用签名
 
-- CI：`pull_request` 指向 main、`push` 到 main，以及 `workflow_call`。
-- `workflow_call.inputs.full`：可选 boolean，默认 `false`。
+- CI：`pull_request` 指向 main、`push` 到 main、`workflow_call`，以及独立的 `workflow_dispatch`。
+- `workflow_call.inputs.full` 与 `workflow_dispatch.inputs.full`：可选 boolean，默认 `false`。
+- 手动 CI 在选择的分支执行；`full=true` 运行完整质量检查，不发布镜像、不触发生产部署。
 - 发版：`push.tags: ['v*']`；quality-gate 调用 CI 并传入 `full: true`。
 - 手动：`workflow_dispatch(operation: deploy | rollback, version?: string)` 使用已有镜像。
 
@@ -17,6 +18,7 @@ Issue #115 修复了仅限制生产发布入口、却遗漏普通 CI 测试镜�
 - `jobs.container.if` 必须为 `inputs.full`，不得再由变更路径启用。
 - 普通 PR/main CI 不构建 `reven:test`；backend、migration、frontend、renderer 保留各自的路径过滤及 full 覆盖。
 - changes 不输出 container，也不维护 container 路径过滤。
+- backend 路径过滤包含 `infra/self-host/**`、`infra/docker/Dockerfile.dockerignore`、`scripts/self_host*.py`，使自托管配置单独变化时也运行对应回归；不因此开启 container。
 - 发版完整 CI 保留容器运行、沙箱、SBOM 和漏洞检查。正式 image 任务依赖 quality-gate 成功。
 - 正式镜像构建和自动部署由 tag push 触发，不监听 `release.published`。
 - 手动部署和回滚不构建镜像；不得为验证本契约实际触发生产部署。
@@ -27,6 +29,8 @@ Issue #115 修复了仅限制生产发布入口、却遗漏普通 CI 测试镜�
 | --- | --- | --- |
 | PR/main push，任意改动路径 | skipped | 其他检查按路径执行 |
 | workflow_call，未传 full 或 full=false | skipped | 其他检查按路径执行 |
+| 手动 CI workflow_dispatch，full=true | 执行 | 完整验证当前分支；不运行 release/deploy |
+| 手动 CI workflow_dispatch，full=false | skipped | 其他检查仍遵循路径条件 |
 | 发版 workflow_call，full=true | 执行 | 完整质量检查通过后允许 image |
 | quality-gate 失败 | 发版失败 | 不运行 image，不自动部署 |
 | 手动部署或回滚 | 不运行 quality-gate/image | 解析已有镜像或上一健康镜像 |
@@ -46,7 +50,7 @@ GitHub 对 job-level `if` 跳过的检查按成功处理，即使它仍列为 re
 
 `server/tests/security/test_deployment_automation.py` 应验证：
 
-- CI full 为 boolean 且默认 false，container 只由 full 启用。
+- CI 的 workflow_call/workflow_dispatch full 均为 boolean 且默认 false，container 只由 full 启用。
 - container 路径过滤及输出已移除，其他任务仍具备各自的路径条件。
 - 发版调用传入 full true、image 依赖 quality-gate，并保留 tag 与手动通道条件。
 - 原有容器基础设施同步验证、部署脚本 smoke 检查仍存在。
@@ -63,3 +67,19 @@ if: inputs.full || needs.changes.outputs.container == 'true'
 # 正确：由发版调用显式启用完整验证
 if: inputs.full
 ```
+
+
+## 8. 自托管完整检查（#127）
+
+- 仅完整 container job 固定使用 `ubuntu-22.04` 原生 AMD64 runner，其他 job 保持原 runner。该选择不代表所有 Ubuntu/Docker AppArmor 策略均已验证。
+- 完整 container job 在构建 `reven:test` 并拉取固定 PostgreSQL/Caddy 依赖后，执行 `python3 scripts/self_host_smoke.py`。
+- 自托管 smoke 必须位于现有宿主 AppArmor sysctl 调整之前；旧调整仅在对应 `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` 存在时执行。旧 smoke 使用 `apparmor=unconfined`，其成功不能替代默认 self-host 安全设置的通过证据。
+- 入口只接受原生 Linux AMD64 Docker 宿主与 AMD64 应用镜像；不将本机 ARM 仿真结果算作正式支持证据。
+- 使用随机 `reven-ci-self-host-*` Compose project、空 named volumes、临时随机凭据；测试只复用本地 `reven:test`，`up --no-build --pull never`，不运行生产脚本。
+- 临时 override 仅添加测试镜像身份和只读 fixture 挂载；容器仍采用 self-host Compose 的 readonly、cap_drop、seccomp、资源限制，不得以 privileged、额外 capabilities 或 unconfined 绕过沙箱失败。
+- 验证顺序：HTTP 首页/健康/认证/CSRF/MCP拒绝 → 非 root 与许可文件 → 重建全部容器后会话、数据库与三个应用卷持久化 → HTTPS → renderer 与既有博客恶意 fixture/资源探针。
+- HTTPS 只在临时测试 Caddyfile 添加 `tls internal`，导出根证书并明确传入客户端的 SSL trust store；不得使用 `curl -k`、CERT_NONE 或关闭 hostname 校验。正式 self-host 配置仍使用自动 ACME。
+- 无论启动、断言或诊断在哪一阶段失败，先打印当前 project 状态，再清理该 project 的容器与卷。任何清理失败也必须显式失败；不能清理共享或生产卷。
+- 宿主 user namespace/AppArmor 不满足要求时，测试明确失败。应提供可复现的宿主支持证据或定向策略，不能默认关闭全局安全能力。
+
+相关回归：`server/tests/security/test_deployment_automation.py` 与 `test_self_host_smoke.py`。前者覆盖入口和默认设置验证的执行顺序，后者覆盖失败清理、项目隔离、集成环境隔离及原生架构门禁。

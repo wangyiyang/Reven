@@ -1,6 +1,6 @@
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 .git
 .github
 .mypy_cache
@@ -14,3 +14,13 @@
 README.md
 docs
 server/tests
+
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_ed25519
+**/.data
+**/.dsh-runtime
+**/backups
+**/*.dump
+**/*.sql

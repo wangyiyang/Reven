@@ -1,9 +1,10 @@
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from reven.security.origin import normalize_origin
 
 DEFAULT_AGENT_MCP_URL = "http://127.0.0.1:8000/agent/mcp"
 
@@ -44,18 +45,10 @@ class Settings(BaseSettings):
     @field_validator("public_base_url")
     @classmethod
     def validate_public_base_url(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        if (
-            parsed.scheme != "http"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("PUBLIC_BASE_URL 必须是 HTTP origin")
-        return value.rstrip("/")
+        try:
+            return normalize_origin(value)
+        except ValueError as error:
+            raise ValueError("PUBLIC_BASE_URL 必须是 HTTP 或 HTTPS origin，域名请使用 ASCII 或 Punycode") from error
 
 
 @lru_cache

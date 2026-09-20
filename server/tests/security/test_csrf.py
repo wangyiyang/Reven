@@ -3,9 +3,11 @@ import os
 from collections.abc import Iterator
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from reven.app import create_app
 from reven.config import get_settings
+from reven.security.csrf import CsrfOriginMiddleware
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -94,3 +96,59 @@ def test_preflight_does_not_enable_cross_origin_access(csrf_client: TestClient) 
 
     assert response.status_code == 401
     assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.fixture
+def https_csrf_client() -> Iterator[TestClient]:
+    app = FastAPI()
+    app.add_middleware(CsrfOriginMiddleware, public_base_url="https://reven.example")
+
+    @app.post("/write")
+    async def write() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.mark.parametrize("origin", ["https://reven.example", "https://reven.example:443", "HTTPS://REVEN.EXAMPLE"])
+def test_https_origin_and_default_port_are_equivalent(https_csrf_client: TestClient, origin: str) -> None:
+    response = https_csrf_client.post("/write", headers={"Origin": origin, "X-Reven-CSRF": "1"})
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://reven.example",
+        "https://reven.example:8443",
+        "https://reven.example:0",
+        "https://reven.example:invalid",
+        "https://reven.example:",
+        "https://reven.example.evil.example",
+        "https://reven.example/path",
+        "https://reven.example?",
+        "https://reven.example#",
+        " https://reven.example",
+        "https://rev\ten.example",
+        "https://reven.example\n",
+        "https://user@reven.example",
+        "null",
+    ],
+)
+def test_https_write_rejects_invalid_or_different_origin(https_csrf_client: TestClient, origin: str) -> None:
+    response = https_csrf_client.post(
+        "/write",
+        headers={
+            "Origin": origin,
+            "X-Reven-CSRF": "1",
+            "X-Forwarded-Host": "reven.example",
+            "X-Forwarded-Proto": "https",
+        },
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("headers", [{"Origin": "https://reven.example"}, {"X-Reven-CSRF": "1"}])
+def test_https_write_requires_both_csrf_headers(https_csrf_client: TestClient, headers: dict[str, str]) -> None:
+    assert https_csrf_client.post("/write", headers=headers).status_code == 403
