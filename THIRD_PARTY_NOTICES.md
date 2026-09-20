@@ -13,6 +13,7 @@ Reven 原创应用代码按根目录 [LICENSE](LICENSE) 中的 Apache License 2.
 | Doocs Markdown 渲染组件 | [doocs/md `c37c1d6`](https://github.com/doocs/md/tree/c37c1d6cc0e0a259de20305b9e4c3b59c7029da7) | `vendor/doocs-md/LICENSE`：WTFPL v2，Copyright 2025 Doocs。同步范围及 2026-09-21 的服务配置移除见 `vendor/doocs-md/UPSTREAM.md`。 |
 | Juice 11.1.1 补丁 | `vendor/doocs-md/patches/juice@11.1.1.patch` | 补丁来自上述 Doocs 提交；Juice 本身及其依赖保留各自许可证，不能以 WTFPL 替代。构建时收集 Juice 包内原文。 |
 | Trellis 0.6.15 工具与模板 | [mindfold-ai/Trellis v0.6.15](https://github.com/mindfold-ai/Trellis/tree/v0.6.15) | AGPL，Copyright 2026 Mindfold LLC。原文、版本表述差异、213 个文件的来源及修改记录见 `licenses/trellis/`。开发工具不进入应用运行镜像。 |
+| Reven AppArmor 宿主策略 | [Moby v28.0.4](https://github.com/moby/moby/blob/v28.0.4/profiles/apparmor/template.go) | 基于默认模板局部修改，Apache-2.0；原始 LICENSE/NOTICE、来源和修改说明见 `infra/self-host/apparmor/`。 |
 
 第三方工具文件与 Reven 的原创任务记录、业务规范和应用代码分别授权；不能仅凭目录名称判定版权归属。
 分发修改后的 Trellis 工具时保留上游声明、对应源码及修改记录。

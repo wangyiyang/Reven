@@ -48,6 +48,7 @@ def test_every_failure_still_cleans_only_its_project(smoke, failure: str) -> Non
 
 
 def test_smoke_refuses_emulation_as_native_linux_evidence(smoke, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smoke.sys, "argv", ["self_host_smoke.py"])
     monkeypatch.setattr(smoke, "run", lambda *args, **kwargs: "linux/aarch64")
     with pytest.raises(SystemExit, match="Native Linux AMD64 host required"):
         smoke.main()
@@ -85,3 +86,11 @@ def test_compose_subprocess_does_not_inherit_live_integration_credentials(
     assert "SILICONFLOW_API_KEY" not in observed
     assert "COS_SECRET_KEY" not in observed
     assert "COMPOSE_FILE" not in observed
+
+
+def test_apparmor_override_is_an_explicit_host_choice(smoke, tmp_path: Path) -> None:
+    deployment = smoke.Deployment(tmp_path)
+    profile_compose = ROOT / "infra/self-host/compose.apparmor.yml"
+    assert profile_compose not in deployment.files
+    deployment = smoke.Deployment(tmp_path, apparmor=True)
+    assert profile_compose in deployment.files

@@ -30,12 +30,14 @@ def compose_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return env
 
 
-def render_compose(env: Path, *, local: bool = False) -> dict[str, Any]:
+def render_compose(env: Path, *, local: bool = False, apparmor: bool = False) -> dict[str, Any]:
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("Docker Compose CLI required for config validation; no daemon needed")
     args = [docker, "compose", "-p", "reven-self-host-test", "--env-file", str(env)]
     args.extend(["-f", str(SELF_HOST / "docker-compose.yml")])
+    if apparmor:
+        args.extend(["-f", str(SELF_HOST / "compose.apparmor.yml")])
     if local:
         args.extend(["-f", str(SELF_HOST / "compose.local.yml")])
     result = subprocess.run(args + ["config", "--format", "json"], check=True, capture_output=True, text=True)
@@ -110,3 +112,13 @@ def test_sensitive_configuration_is_required_and_volumes_remain_persistent() -> 
         "caddy-data",
         "caddy-config",
     }
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_apparmor_overlay_only_changes_the_application_profile(compose_env: Path, local: bool) -> None:
+    standard = render_compose(compose_env, local=local)
+    adapted = render_compose(compose_env, local=local, apparmor=True)
+    options = adapted["services"]["reven"]["security_opt"]
+    assert "apparmor=reven-self-host" in options
+    options.remove("apparmor=reven-self-host")
+    assert adapted == standard

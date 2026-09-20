@@ -186,9 +186,16 @@ jobs:
         run: |
           docker pull postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
           docker pull caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
-      # This must precede legacy host relaxation: default Compose remains the release gate.
+      - name: Load the documented Reven AppArmor profile
+        run: sudo apparmor_parser -r infra/self-host/apparmor/reven-self-host
+      # Test the documented host profile without changing global AppArmor/userns policy.
       - name: Verify isolated self-host HTTP, trusted HTTPS, persistence and sandboxes
-        run: python3 scripts/self_host_smoke.py
+        run: python3 scripts/self_host_smoke.py --apparmor
+      - name: Diagnose self-host AppArmor denials
+        if: failure()
+        run: |
+          sudo aa-status
+          sudo journalctl --dmesg --no-pager -n 100
       # Legacy smoke tests use a relaxed host/profile and are not default self-host evidence.
       - run: |
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then

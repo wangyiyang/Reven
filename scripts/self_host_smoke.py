@@ -1,9 +1,11 @@
 """Validate a local reven:test image with the documented Compose security settings.
 
-Run on a native Linux AMD64 Docker host. This never builds, pulls, publishes or
-relaxes host/container security; dependency images must be pulled beforehand.
+Run on a native Linux AMD64 Docker host, optionally with the documented named
+AppArmor profile. This never builds, pulls, publishes or changes global host
+policy; dependency images and any profile must be installed beforehand.
 """
 
+import argparse
 import base64
 import json
 import os
@@ -38,7 +40,8 @@ def run(*args: str, capture: bool = False) -> str:
 
 
 class Deployment:
-    def __init__(self, temporary: Path) -> None:
+    def __init__(self, temporary: Path, *, apparmor: bool = False) -> None:
+        self.apparmor = apparmor
         self.project = f"reven-ci-self-host-{secrets.token_hex(6)}"
         self.temporary = temporary
         self.password = secrets.token_hex(24)
@@ -75,6 +78,8 @@ class Deployment:
             ROOT / "infra/self-host/compose.local.yml",
             self.fixture,
         ]
+        if apparmor:
+            self.files.append(ROOT / "infra/self-host/compose.apparmor.yml")
         self.base = ["docker", "compose", "-p", self.project, "--env-file", str(environment)]
 
     def compose(self, *args: str, capture: bool = False) -> str:
@@ -92,6 +97,11 @@ class Deployment:
         assert config["CapDrop"] == ["ALL"] and not config["CapAdd"]
         assert config["Memory"] == 2 * 1024**3 and config["PidsLimit"] == 128
         assert not any("unconfined" in option for option in config["SecurityOpt"])
+        if self.apparmor:
+            assert (
+                run("docker", "inspect", "--format", "{{.AppArmorProfile}}", container, capture=True)
+                == "reven-self-host"
+            )
         self.compose(
             "exec",
             "-T",
@@ -188,6 +198,30 @@ class Deployment:
             "-c",
             "\n".join(
                 [
+                    "import subprocess, sys",
+                    "from pathlib import Path",
+                    "from reven.publishing.sandbox import bubblewrap_command",
+                    "profile = Path('/proc/self/attr/current')",
+                    "try: active_profile = profile.read_text().strip()",
+                    "except OSError: active_profile = 'not enabled'",
+                    "print('Sandbox profile:', active_profile)",
+                    f"assert not {self.apparmor!r} or active_profile == 'reven-self-host (enforce)'",
+                    "probe = subprocess.run(bubblewrap_command(Path('/usr/bin/bwrap'), ['/bin/true']),",
+                    "    env={'PATH': '/usr/local/bin:/usr/bin:/bin'}, capture_output=True, text=True)",
+                    "if probe.returncode:",
+                    "    print('Fixed sandbox probe failed:', probe.stderr[:4096], file=sys.stderr)",
+                    "    raise SystemExit(probe.returncode)",
+                ]
+            ),
+        )
+        self.compose(
+            "exec",
+            "-T",
+            "reven",
+            "python",
+            "-c",
+            "\n".join(
+                [
                     "import asyncio",
                     "from pathlib import Path",
                     "from reven.publishing.wechat.renderer import WechatRenderer",
@@ -208,7 +242,7 @@ def exercise(deployment: Deployment) -> None:
         deployment.assert_https()
         print("Self-host HTTPS passed with an explicitly trusted test CA and Secure session cookies.", flush=True)
         deployment.assert_sandboxes()
-        print("Self-host renderer/blog sandboxes passed with unchanged Compose security options.", flush=True)
+        print("Self-host renderer/blog sandboxes passed with the documented Compose security options.", flush=True)
     finally:
         try:
             deployment.compose("ps", "--all")
@@ -217,6 +251,9 @@ def exercise(deployment: Deployment) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apparmor", action="store_true", help="Use the installed reven-self-host AppArmor profile")
+    args = parser.parse_args()
     architecture = run("docker", "info", "--format", "{{.OSType}}/{{.Architecture}}", capture=True)
     if architecture not in {"linux/x86_64", "linux/amd64"}:
         raise SystemExit(f"Native Linux AMD64 host required; found {architecture}")
@@ -229,7 +266,7 @@ def main() -> None:
     print(f"Host unprivileged-userns restriction: {restriction}")
     signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(143))
     with tempfile.TemporaryDirectory(prefix="reven-self-host-smoke-") as directory:
-        exercise(Deployment(Path(directory)))
+        exercise(Deployment(Path(directory), apparmor=args.apparmor))
 
 
 if __name__ == "__main__":

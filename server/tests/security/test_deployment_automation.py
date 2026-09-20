@@ -120,10 +120,13 @@ def test_self_host_smoke_precedes_legacy_host_relaxation() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     steps = workflow["jobs"]["container"]["steps"]
     runs = [step.get("run", "") for step in steps]
-    smoke_index = runs.index("python3 scripts/self_host_smoke.py")
+    smoke_index = runs.index("python3 scripts/self_host_smoke.py --apparmor")
     relaxation_index = next(i for i, run in enumerate(runs) if "sudo sysctl" in run)
     build_index = next(i for i, run in enumerate(runs) if "docker build --pull" in run)
     assert build_index < smoke_index < relaxation_index
+    profile_index = runs.index("sudo apparmor_parser -r infra/self-host/apparmor/reven-self-host")
+    assert profile_index < smoke_index
+    assert "sudo journalctl --dmesg --no-pager -n 100" in "\n".join(runs)
     assert steps[smoke_index].get("continue-on-error", False) is False
 
 
