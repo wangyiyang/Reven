@@ -121,7 +121,17 @@ write_upstream_metadata() {
 
 仅同步渲染所需的 \`packages/core\`、\`shared\`、\`config\`、Juice 补丁和许可证。
 不引入 Doocs Web/Vue 应用；Reven 的适配代码独立位于 \`renderer\`。
+2026-09-21：排除渲染不使用的 \`shared/src/configs/api.ts\` 托管服务配置，
+并移除 \`shared/src/configs/index.ts\` 对该文件的导出，避免同步上游凭据。
 EOF
+}
+
+remove_unused_service_config() {
+  local destination="$1"
+  local exports="$destination/shared/src/configs/index.ts"
+  rm -f -- "$destination/shared/src/configs/api.ts"
+  sed "/^export \* from '\.\/api'$/d" "$exports" >"$exports.tmp"
+  mv "$exports.tmp" "$exports"
 }
 
 validate_staging() {
@@ -133,6 +143,10 @@ validate_staging() {
   [[ -f "$destination/LICENSE" && -f "$destination/UPSTREAM.md" ]] || fail "missing vendor metadata"
   grep -Fq "$COMMIT" "$destination/UPSTREAM.md" || fail "incorrect vendor commit"
   [[ ! -e "$destination/web" && ! -e "$destination/packages/web" ]] || fail "unexpected Doocs web application"
+  [[ ! -e "$destination/shared/src/configs/api.ts" ]] || fail "unexpected service credential configuration"
+  if grep -Eq "['\"]\./api['\"]" "$destination/shared/src/configs/index.ts"; then
+    fail "unexpected service credential export"
+  fi
 }
 
 validate_environment
@@ -159,6 +173,7 @@ cp -R "$temporary_directory/upstream/packages/shared" "$staging_path/shared"
 cp -R "$temporary_directory/upstream/packages/config" "$staging_path/config"
 cp "$temporary_directory/upstream/patches/juice@11.1.1.patch" "$staging_path/patches/"
 cp "$temporary_directory/upstream/LICENSE" "$staging_path/"
+remove_unused_service_config "$staging_path"
 write_upstream_metadata "$staging_path" "$commit_date"
 validate_staging "$staging_path"
 trigger_fault after_copy

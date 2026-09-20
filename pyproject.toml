@@ -1,6 +1,8 @@
 [project]
 name = "reven"
 version = "0.1.0"
+license = "Apache-2.0"
+authors = [{ name = "Wang Yiyang" }]
 requires-python = ">=3.12"
 
 [tool.uv.workspace]

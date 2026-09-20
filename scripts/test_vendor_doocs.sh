@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly SOURCE_ROOT="$(git rev-parse --show-toplevel)"
+SOURCE_ROOT="$(git rev-parse --show-toplevel)"
+readonly SOURCE_ROOT
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -13,6 +14,10 @@ cp -R "$SOURCE_ROOT/vendor/doocs-md/shared" "$upstream/packages/shared"
 cp -R "$SOURCE_ROOT/vendor/doocs-md/config" "$upstream/packages/config"
 cp "$SOURCE_ROOT/vendor/doocs-md/patches/juice@11.1.1.patch" "$upstream/patches/"
 cp "$SOURCE_ROOT/vendor/doocs-md/LICENSE" "$upstream/"
+# Deliberately reintroduce the upstream configuration to exercise sanitization.
+printf '%s\n' 'export const githubConfig = { tokenList: ["invalid-vendor-test-value"] }' \
+  >"$upstream/packages/shared/src/configs/api.ts"
+printf "%s\n" "export * from './api'" >>"$upstream/packages/shared/src/configs/index.ts"
 
 git -C "$upstream" init -q
 git -C "$upstream" config user.name "Vendor Test"
@@ -91,6 +96,11 @@ grep -Fq "injected vendor failure: after_install" "$test_root/fault.err"
 [[ ! -e "$project/vendor/doocs-md" ]]
 
 (cd -P "$project" && ./scripts/vendor_doocs.sh >/dev/null)
+[[ ! -e "$project/vendor/doocs-md/shared/src/configs/api.ts" ]]
+if grep -Fq "./api" "$project/vendor/doocs-md/shared/src/configs/index.ts"; then
+  echo "unexpected service credential export after vendoring" >&2
+  exit 1
+fi
 first_hash="$(find "$project/vendor/doocs-md" -type f -print | LC_ALL=C sort | xargs shasum | shasum)"
 (cd -P "$project" && ./scripts/vendor_doocs.sh >/dev/null)
 second_hash="$(find "$project/vendor/doocs-md" -type f -print | LC_ALL=C sort | xargs shasum | shasum)"

@@ -1,0 +1,229 @@
+{
+  "packages": [
+    {
+      "name": "minitest",
+      "version": "5.27.0",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://rubygems.org/gems/minitest/versions/5.27.0",
+      "evidence": [
+        {
+          "path": "minitest@5.27.0/README.rdoc",
+          "sha256": "d9706a8e7f0720d6868605c165fec052fa9a09b3ecd5173bb1664ff91dad0a0e"
+        }
+      ]
+    },
+    {
+      "name": "coffee-script-source",
+      "version": "1.12.2",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jashkenas/coffeescript/1.12.2/LICENSE",
+      "evidence": [
+        {
+          "path": "coffee-script-source@1.12.2/LICENSE",
+          "sha256": "5fc49347113b5f450ac211e6ea946a21129f477161427226effa3cc185bcdc42"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-sass-converter",
+      "version": "1.5.2",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/jekyll-sass-converter/v1.5.2/LICENSE.txt",
+      "evidence": [
+        {
+          "path": "jekyll-sass-converter@1.5.2/LICENSE.txt",
+          "sha256": "7d6f89efd9183d7486a387fedd74f0a53155e50718c3f5636abb8e95528cc69d"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-watch",
+      "version": "2.2.1",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/jekyll-watch/v2.2.1/LICENSE.txt",
+      "evidence": [
+        {
+          "path": "jekyll-watch@2.2.1/LICENSE.txt",
+          "sha256": "261362076cc43749c3bdf9bc956189206c0bef1bde0a36896415372d480e8148"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-coffeescript",
+      "version": "1.2.2",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/jekyll-coffeescript/v1.2.2/LICENSE.txt",
+      "evidence": [
+        {
+          "path": "jekyll-coffeescript@1.2.2/LICENSE.txt",
+          "sha256": "03aa795a69db4ad36a920cfbbd4afa29cf765b8395f43901f69f7705fa724a97"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-default-layout",
+      "version": "0.1.5",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-default-layout/v0.1.5/LICENSE",
+      "evidence": [
+        {
+          "path": "jekyll-default-layout@0.1.5/LICENSE",
+          "sha256": "d74448284531a2110ff3033223fc6b5827a7b10276eeb28d0d4c12ae22fa5afc"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-github-metadata",
+      "version": "2.16.1",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/github-metadata/v2.16.1/LICENSE",
+      "evidence": [
+        {
+          "path": "jekyll-github-metadata@2.16.1/LICENSE",
+          "sha256": "0c718c1b3614b58dbb813a0a0502e00bb1db159420b1655cad42336c4d57e143"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-include-cache",
+      "version": "0.2.1",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-include-cache/v0.2.1/LICENSE.md",
+      "evidence": [
+        {
+          "path": "jekyll-include-cache@0.2.1/LICENSE.md",
+          "sha256": "abb5c27df270e4bb12ce4570dd6c84e8ec64318184da1cac01ddfd47ce443bb9"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-mentions",
+      "version": "1.6.0",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/jekyll-mentions/v1.6.0/LICENSE",
+      "evidence": [
+        {
+          "path": "jekyll-mentions@1.6.0/LICENSE",
+          "sha256": "7ab71b4e0002f19326aa40085deffdec48623aac29e7ac25bf44586355e62ed5"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-optional-front-matter",
+      "version": "0.3.2",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-optional-front-matter/v0.3.2/LICENSE.md",
+      "evidence": [
+        {
+          "path": "jekyll-optional-front-matter@0.3.2/LICENSE.md",
+          "sha256": "abb5c27df270e4bb12ce4570dd6c84e8ec64318184da1cac01ddfd47ce443bb9"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-readme-index",
+      "version": "0.3.0",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-readme-index/v0.3.0/LICENSE.md",
+      "evidence": [
+        {
+          "path": "jekyll-readme-index@0.3.0/LICENSE.md",
+          "sha256": "abb5c27df270e4bb12ce4570dd6c84e8ec64318184da1cac01ddfd47ce443bb9"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-relative-links",
+      "version": "0.6.1",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-relative-links/v0.6.1/LICENSE.md",
+      "evidence": [
+        {
+          "path": "jekyll-relative-links@0.6.1/LICENSE.md",
+          "sha256": "abb5c27df270e4bb12ce4570dd6c84e8ec64318184da1cac01ddfd47ce443bb9"
+        }
+      ]
+    },
+    {
+      "name": "jekyll-remote-theme",
+      "version": "0.4.3",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/benbalter/jekyll-remote-theme/v0.4.3/LICENSE",
+      "evidence": [
+        {
+          "path": "jekyll-remote-theme@0.4.3/LICENSE",
+          "sha256": "24819b1bf60e55b0fba2f7ac4bf199fabe4a50cd0f2c16653b2eefde558ca1ab"
+        }
+      ]
+    },
+    {
+      "name": "jemoji",
+      "version": "0.13.0",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/jekyll/jemoji/v0.13.0/LICENSE",
+      "evidence": [
+        {
+          "path": "jemoji@0.13.0/LICENSE",
+          "sha256": "b035d5fbb44370e640602899bffb50bbbdeb9000056a9d30d16b9b96e3e20ecb"
+        }
+      ]
+    },
+    {
+      "name": "github-pages",
+      "version": "231",
+      "license": [
+        "MIT"
+      ],
+      "source": "https://raw.githubusercontent.com/github/pages-gem/v231/LICENSE",
+      "evidence": [
+        {
+          "path": "github-pages@231/LICENSE",
+          "sha256": "e0426f9099a0cb8c1bb5a382157801f12343eb57e6d381663290f54250046b6f"
+        }
+      ]
+    },
+    {
+      "name": "rubyzip",
+      "version": "2.4.1",
+      "license": [
+        "BSD 2-Clause"
+      ],
+      "source": "https://raw.githubusercontent.com/rubyzip/rubyzip/v2.4.1/README.md",
+      "review": "LICENSE CONFLICT: gemspec declares BSD 2-Clause; README and source declare Ruby license; exact terms need review",
+      "evidence": [
+        {
+          "path": "rubyzip@2.4.1/README.md",
+          "sha256": "8c3432a3eb52d7b07255877a3d023f787dc069ba0bf1802f6ab34dbd35fcd122"
+        }
+      ]
+    }
+  ]
+}

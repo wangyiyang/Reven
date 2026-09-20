@@ -15,12 +15,19 @@ COPY web/ web/
 COPY vendor/doocs-md/config/ vendor/doocs-md/config/
 COPY vendor/doocs-md/packages/core/ vendor/doocs-md/packages/core/
 COPY vendor/doocs-md/shared/ vendor/doocs-md/shared/
+COPY scripts/licenses/collect-js.mjs /tmp/collect-js.mjs
+COPY licenses/supplemental/javascript/ licenses/supplemental/javascript/
 RUN pnpm --filter @reven/renderer build \
-    && pnpm --filter @reven/web build
+    && pnpm --filter @reven/web build \
+    && node /tmp/collect-js.mjs /app /app/third-party-js \
+    && mkdir -p /app/web/dist/licenses/javascript \
+    && cp -R /app/third-party-js/. /app/web/dist/licenses/javascript/
+COPY LICENSE THIRD_PARTY_NOTICES.md /app/web/dist/licenses/
+COPY vendor/doocs-md/LICENSE vendor/doocs-md/UPSTREAM.md /app/web/dist/licenses/doocs/
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS python-build
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock LICENSE ./
 COPY server/pyproject.toml server/pyproject.toml
 COPY server/src/ server/src/
 RUN uv sync --frozen --no-dev --all-packages
@@ -49,6 +56,17 @@ WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
 # The renderer only needs the Node executable; excluding npm/corepack shrinks the runtime attack surface.
 COPY --from=node-build /usr/local/bin/node /usr/local/bin/node
+COPY LICENSE THIRD_PARTY_NOTICES.md /opt/reven-licenses/
+COPY licenses/node/ /opt/reven-licenses/node/
+COPY licenses/supplemental/ /opt/reven-licenses/supplemental/
+COPY vendor/doocs-md/LICENSE vendor/doocs-md/UPSTREAM.md /opt/reven-licenses/doocs/
+COPY vendor/doocs-md/patches/ /opt/reven-licenses/doocs/patches/
+COPY --from=node-build /app/third-party-js/ /opt/reven-licenses/javascript/
+COPY scripts/licenses/collect-runtime.py /tmp/collect-runtime.py
+RUN /app/.venv/bin/python /tmp/collect-runtime.py python /opt/reven-licenses/python /opt/reven-licenses/supplemental/python \
+    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile /app/.venv/bin/python /tmp/collect-runtime.py ruby /opt/reven-licenses/ruby /opt/reven-licenses/supplemental/ruby \
+    && /app/.venv/bin/python /tmp/collect-runtime.py system /opt/reven-licenses/system \
+    && rm /tmp/collect-runtime.py
 COPY --from=node-build --chown=reven:reven /app/renderer/dist /app/renderer/dist
 COPY --from=node-build --chown=reven:reven /app/web/dist /app/web-dist
 RUN find /app/web-dist -type f -print0 \
