@@ -38,3 +38,9 @@
 为保持原文与证据 SHA-256 不变，在 `.gitattributes` 仅为这三个精确路径设置 `-whitespace`，并说明保留上游字节的原因；未扩展到其他许可或脚本。
 再次运行 `git diff --check 7761675` 通过；三份原文与已提交版本逐字节一致，校验和未变。
 许可采集器的最终结果由主会话与许可代理复核：4 项回归通过，Ruby 99 项中 98 项已有原文，rubyzip 的许可冲突仍明确保留。
+
+## AppArmor 最终审查与原生复测
+
+随附 profile 基于固定 Moby v28.0.4 默认模板，保留其原始 LICENSE/NOTICE；仅为 bubblewrap 0.8.0 临时布局增加受限 mount/pivot 规则。独立审查发现并修正 `MS_SILENT` 和 bind-remount 标志集合，补齐 ALG/VSOCK 网络限制。Compose overlay 保留其他安全与资源选项，smoke 校验实际 Docker profile 和内核 `enforce` 标签。
+
+26 项定向配置/烟测回归、profile 解析、Ruff、mypy 和 actionlint 通过。最终原生完整 CI 35525396700 在提交 `3046697` 上验证实际渲染与博客沙箱通过；完整运行结果见 `validation.md`。Ubuntu 22.04 以外的宿主安全策略仍需单独验证。

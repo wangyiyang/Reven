@@ -4,7 +4,9 @@
 
 ## 私密报告
 
-计划使用 GitHub 的 [私密漏洞报告入口](https://github.com/wangyiyang/Reven/security/advisories/new)。**目前尚未验证该入口已启用；仓库公开前，维护者必须完成下方检查。**
+计划使用 GitHub 的 [私密漏洞报告入口](https://github.com/wangyiyang/Reven/security/advisories/new)。**目前仓库为私有，该入口尚不可用；正式公开发布时，维护者必须启用并验证它。**
+
+GitHub 的此项功能面向公开仓库，见 [官方配置说明](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository)。私有阶段先确定启用负责人和时序；若采用新公开仓库，可先建立不含敏感历史的空仓库，启用并验证报告入口后再导入已审阅源码。
 
 入口可用时，请私密提交：受影响版本或提交、部署方式、问题影响、最小复现步骤与已脱敏的证据。复现只使用自己控制的测试环境与数据，不需要提供真实密钥。
 
@@ -20,7 +22,7 @@
 
 ## 维护者公开前检查
 
-- 在仓库 Security 设置启用 Private vulnerability reporting，并实际验证报告入口可用，再移除本文的“尚未验证”状态。
+- 在正式公开仓库的 Security 设置启用 Private vulnerability reporting，并实际验证报告入口可用，再移除本文的不可用状态；不能把私有阶段的 404 当作已启用。
 - 确认拟公开分支、标签、历史与附属资料完成凭据扫描和人工复核；当前树没有密钥不等于历史无泄露。
 - 对真实凭据完成撤销或轮换；未处理的敏感信息与私密报告通道缺口均作为发布阻塞项保留。
 - 发布修复说明时先脱敏，和报告者协调披露范围，不把私密报告直接复制到公共 Issue。

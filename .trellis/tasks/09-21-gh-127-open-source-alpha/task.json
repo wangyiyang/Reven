@@ -16,7 +16,7 @@
   "base_branch": "main",
   "worktree_path": "/Users/wangyiyang/Documents/Github/worktrees/Reven/codex/gh-127-open-source-alpha",
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/wangyiyang/Reven/pull/129",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -33,7 +33,7 @@
     "scripts/vendor_doocs.sh",
     "scripts/test_vendor_doocs.sh"
   ],
-  "notes": "",
+  "notes": "实现已提交并创建草稿 PR #129；发布验收仍进行中，真实 Notion、历史处置、私密报告及二进制许可门槛保持未完成。",
   "meta": {
     "github_issue": "127",
     "github_url": "https://github.com/wangyiyang/Reven/issues/127"

@@ -1,6 +1,6 @@
 # 自托管备份、恢复与升级
 
-适用于 [自托管指南](self-hosting.md) 的 `infra/self-host/` 部署。以下 Bash 命令从仓库根目录执行，并沿用指南中选定的 `dc` 函数；本机 HTTP 模式必须保留 local override。
+适用于 [自托管指南](self-hosting.md) 的 `infra/self-host/` 部署。以下 Bash 命令从仓库根目录执行，并沿用指南中选定的 `reven_compose_files` 数组与 `dc` 函数；AppArmor 主机必须保留 `compose.apparmor.yml`，本机 HTTP 模式还须保留 `compose.local.yml`。
 
 ## 备份范围
 
@@ -57,7 +57,7 @@ printf '备份目录：%s\n' "$backup_dir"
 只在**空的独立 project 和卷**上执行。不要向现有生产数据库导入，不要用 `down -v` 清理运行环境。旧实例必须停止，避免两个实例同时调度和写入 Notion。
 
 1. 在新的源码目录取出备份记录的提交。把备份中的 `reven.env` 复制为 `infra/self-host/.env`，设置权限 `600`；保留原主密钥与数据库密码。
-2. 定义恢复专用的 `dc`：把指南中的 project 改为 `reven-restore`。初次演练使用 local override，并在防火墙层限制外部服务访问，先核对本地数据；不要让演练实例写真实集成目标。
+2. 按指南在新宿主检查 AppArmor，启用时先安装对应版本的 profile。恢复所选文件列表，定义恢复专用的 `dc`，将 project 改为 `reven-restore`。初次演练使用 local override，并在防火墙层限制外部服务访问，先核对本地数据；不要让演练实例写真实集成目标。
 3. 在当前会话将 `backup_dir` 指向已解密的、受信任的备份目录。载入保存的应用镜像，并将它标记为该 Compose project 的本地构建名：
 
 ```bash
@@ -90,7 +90,7 @@ dc up -d --no-build --wait
 自托管更新采用源码构建，不使用维护者的 `scripts/deploy_reven.sh`。先阅读目标版本的迁移说明，确认上一版本能读取升级后的数据库，再安排升级。
 
 1. 按上文创建并验证备份，记录当前源码提交与镜像 ID。保留该镜像，升级完成前不要执行镜像清理。
-2. 获取并检出审阅过的目标提交，保持 `infra/self-host/.env`、project 名与卷不变；如配置示例有新增必填项，先补齐。
+2. 获取并检出审阅过的目标提交，保持 `infra/self-host/.env`、project 名与卷不变；如配置示例有新增必填项，先补齐。AppArmor 主机在 profile 有变更时按安装指南重新安装并加载目标版本。
 3. 在当前 Bash 会话保存旧镜像的引用，然后构建新版本：
 
 ```bash
@@ -105,7 +105,7 @@ dc ps
 
 4. 验证健康、登录、静态页面和已保存的集成；观察下一次调度。备份及旧镜像保留到验证结束。
 
-若升级失败，先停止 Reven，检查迁移是否已执行。**回滚应用不会降级数据库。** 只有确认 schema 与旧应用兼容时，才恢复备份所记录的源码提交及配套 Compose/Caddy 配置，将旧镜像标回原 project 的构建名，并启动：
+若升级失败，先停止 Reven，检查迁移是否已执行。**回滚应用不会降级数据库。** 只有确认 schema 与旧应用兼容时，才恢复备份所记录的源码提交及配套 Compose/Caddy 配置，AppArmor 主机同时恢复并重新加载对应 profile，将旧镜像标回原 project 的构建名，并启动：
 
 ```bash
 dc stop reven

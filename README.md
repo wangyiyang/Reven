@@ -24,6 +24,7 @@ Notion 是稿件正文的权威来源。公众号公开发布仍由你在微信�
 
 - 正式支持目标为 **Linux AMD64**；ARM64 和 Docker Desktop 尚未正式验证。
 - 公网入口使用自己的域名和 Caddy 自动 HTTPS；本机体验提供仅绑定 loopback 的 HTTP 配置。
+- 启用 AppArmor 的 Docker 主机需按指南安装[随附的命名 profile](infra/self-host/apparmor/README.md)；验证基线为 Ubuntu 22.04 原生 AMD64。
 - 启动基础服务只需数据库密码、管理员密码与加密主密钥；推送 Inbox 需要你自己的 Notion 集成。
 - 首次 RSS 流程不需要腾讯云 COS；完整稿件同步及发布需要额外集成，见 [后续集成](docs/integrations.md)。
 

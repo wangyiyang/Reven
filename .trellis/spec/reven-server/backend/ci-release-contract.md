@@ -44,7 +44,7 @@ GitHub 对 job-level `if` 跳过的检查按成功处理，即使它仍列为 re
 - 默认：仅修改 `web/**` 的 PR 运行 frontend 检查，container 跳过。
 - 错误：给 container 条件追加任意路径匹配分支，导致日常代码改动再次构建镜像。
 
-仅发版构建会将容器打包、运行环境和漏洞问题延后至发版发现；这是本契约的取舍。
+普通 PR 不构建容器，相关变更应在合并前手动运行 full 检查；发版仍强制运行完整质量门禁。
 
 ## 6. 必须覆盖的测试
 
@@ -64,7 +64,7 @@ GitHub 对 job-level `if` 跳过的检查按成功处理，即使它仍列为 re
 # 错误：任何匹配路径都会在普通 CI 构建镜像
 if: inputs.full || needs.changes.outputs.container == 'true'
 
-# 正确：由发版调用显式启用完整验证
+# 正确：由发版调用或手动输入显式启用完整验证
 if: inputs.full
 ```
 
@@ -72,14 +72,16 @@ if: inputs.full
 ## 8. 自托管完整检查（#127）
 
 - 仅完整 container job 固定使用 `ubuntu-22.04` 原生 AMD64 runner，其他 job 保持原 runner。该选择不代表所有 Ubuntu/Docker AppArmor 策略均已验证。
-- 完整 container job 在构建 `reven:test` 并拉取固定 PostgreSQL/Caddy 依赖后，执行 `python3 scripts/self_host_smoke.py`。
-- 自托管 smoke 必须位于现有宿主 AppArmor sysctl 调整之前；旧调整仅在对应 `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` 存在时执行。旧 smoke 使用 `apparmor=unconfined`，其成功不能替代默认 self-host 安全设置的通过证据。
+- 完整 container job 在构建 `reven:test` 并拉取固定 PostgreSQL/Caddy 依赖后，加载仓库内 `reven-self-host` 命名 AppArmor profile，再执行 `python3 scripts/self_host_smoke.py --apparmor`。
+- 自托管 smoke 必须位于现有宿主 AppArmor sysctl 调整之前；旧调整仅在对应 `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` 存在时执行。旧 smoke 使用 `apparmor=unconfined`，其成功不能替代文档所载 self-host 安全设置的通过证据。
 - 入口只接受原生 Linux AMD64 Docker 宿主与 AMD64 应用镜像；不将本机 ARM 仿真结果算作正式支持证据。
 - 使用随机 `reven-ci-self-host-*` Compose project、空 named volumes、临时随机凭据；测试只复用本地 `reven:test`，`up --no-build --pull never`，不运行生产脚本。
 - 临时 override 仅添加测试镜像身份和只读 fixture 挂载；容器仍采用 self-host Compose 的 readonly、cap_drop、seccomp、资源限制，不得以 privileged、额外 capabilities 或 unconfined 绕过沙箱失败。
-- 验证顺序：HTTP 首页/健康/认证/CSRF/MCP拒绝 → 非 root 与许可文件 → 重建全部容器后会话、数据库与三个应用卷持久化 → HTTPS → renderer 与既有博客恶意 fixture/资源探针。
+- AppArmor overlay 仅为 Reven 追加命名 profile；实际容器必须为 `reven-self-host (enforce)`，保留 Compose 全部其他安全选项。不得全局关闭 AppArmor 或 user namespace 限制。
+- 验证顺序：HTTP 首页/健康/认证/CSRF/MCP拒绝 → 非 root 与许可文件 → 重建全部容器后会话、数据库与三个应用卷持久化 → HTTPS → 固定无秘密 `/bin/true` 沙箱探针 → renderer 与既有博客恶意 fixture/资源探针。
 - HTTPS 只在临时测试 Caddyfile 添加 `tls internal`，导出根证书并明确传入客户端的 SSL trust store；不得使用 `curl -k`、CERT_NONE 或关闭 hostname 校验。正式 self-host 配置仍使用自动 ACME。
 - 无论启动、断言或诊断在哪一阶段失败，先打印当前 project 状态，再清理该 project 的容器与卷。任何清理失败也必须显式失败；不能清理共享或生产卷。
+- 固定沙箱探针失败时输出受限长度 stderr；CI 失败时保留 `aa-status` 和内核日志供核对 AppArmor DENIED，不输出应用秘密。
 - 宿主 user namespace/AppArmor 不满足要求时，测试明确失败。应提供可复现的宿主支持证据或定向策略，不能默认关闭全局安全能力。
 
 相关回归：`server/tests/security/test_deployment_automation.py` 与 `test_self_host_smoke.py`。前者覆盖入口和默认设置验证的执行顺序，后者覆盖失败清理、项目隔离、集成环境隔离及原生架构门禁。

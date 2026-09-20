@@ -9,7 +9,7 @@
 - Linux AMD64、Docker Engine、Docker Compose **2.24.4 或更新版本**、Git、OpenSSL、curl。
 - 容器构建需要访问上游镜像与依赖下载源。应用运行上限为 2 CPU / 2 GiB；还需为 PostgreSQL、Caddy、构建和数据预留资源。
 - 公网部署准备一个域名，将 DNS 指向该主机，并放行 TCP 80、443；两个端口须未被其他服务占用。若配置了 AAAA 记录，IPv6 也应可达。
-- 博客与渲染需要宿主允许非特权用户命名空间及 bubblewrap 沙箱。不要用 `privileged`、删除 seccomp 或关闭沙箱来绕过失败。
+- 博客与渲染需要宿主允许非特权用户命名空间及 bubblewrap 沙箱。启用 AppArmor 的 Docker 主机还需下文的命名 profile；验证基线为 Ubuntu 22.04 原生 AMD64，其他发行版的安全策略需单独验证。不要用 `privileged`、`apparmor=unconfined`、删除 seccomp 或关闭全局安全策略来绕过失败。
 
 ```bash
 docker info --format '{{.OSType}}/{{.Architecture}}'
@@ -38,7 +38,7 @@ chmod 600 infra/self-host/.env
 | `POSTGRES_PASSWORD` | `openssl rand -hex 32` | 数据库密码；使用十六进制避免连接串转义问题 |
 | `REVEN_ADMIN_PASSWORD` | `openssl rand -hex 24` | 首次及后续登录使用的管理员密码 |
 | `REVEN_MASTER_KEY` | `openssl rand -base64 32` | 加密集成凭据，必须长期保留 |
-| `REVEN_PUBLIC_BASE_URL` | `https://你的域名` | 浏览器实际访问的 origin，无路径、查询或片段 |
+| `REVEN_PUBLIC_BASE_URL` | 如 `https://reven.example.com`，替换为自己的域名 | 浏览器实际访问的 origin，无路径、查询或片段 |
 
 公网指南使用标准 HTTPS 443 端口。域名填写 ASCII 形式；国际化域名使用其 Punycode 地址（例如 `https://xn--fa-hia.de`），不要直接填写 Unicode 域名。示例域名不能用于申请真实证书。数据库用户名与数据库名均为 `reven`，应用只通过容器网络连接 PostgreSQL。
 
@@ -46,15 +46,52 @@ chmod 600 infra/self-host/.env
 
 ## 3. 选择入口并启动
 
+先在当前 Bash 会话初始化 Compose 文件列表，并检查 Docker 是否启用 AppArmor：
+
+```bash
+reven_compose_files=(-f infra/self-host/docker-compose.yml)
+docker info --format '{{json .SecurityOptions}}'
+```
+
+如果输出含 `apparmor`，必须先安装随附的命名 profile，再加入覆盖文件。默认 `docker-default` 禁止沙箱所需的 mount；此 profile 只作用于 Reven，保留 `/proc`、`/sys` 等限制。详细来源与范围见 [AppArmor 配置](../infra/self-host/apparmor/README.md)。未启用 AppArmor 的宿主跳过以下代码块。
+
+```bash
+sudo install -m 0644 infra/self-host/apparmor/reven-self-host /etc/apparmor.d/reven-self-host
+sudo apparmor_parser -r /etc/apparmor.d/reven-self-host
+reven_compose_files+=(-f infra/self-host/compose.apparmor.yml)
+```
+
+接着从以下两种入口中选择一种，再执行本节最后的启动命令。
+
 ### 公网 HTTPS
 
-在当前 Bash 会话定义简写，后续命令都通过它使用同一份配置和 project：
+保留刚才的文件列表，确认 `.env` 的 `REVEN_PUBLIC_BASE_URL` 为自己的 HTTPS 域名。Caddy 会自动申请、续签域名证书。
+
+### 仅本机 HTTP 体验
+
+没有公网域名时，在文件列表追加本机配置：
+
+```bash
+reven_compose_files+=(-f infra/self-host/compose.local.yml)
+```
+
+该覆盖文件将应用与 Caddy 的 origin 固定为 `http://localhost:8080`，端口仅绑定 `127.0.0.1`。它依赖 Compose 2.24.4 的 `!override` 支持。浏览器必须使用 `http://localhost:8080`，不要改用 `http://127.0.0.1:8080`，两者 origin 不同。远程主机可通过 SSH 转发到本机访问：
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_HOST
+```
+
+此路径的 HTTP 只用于本机或安全隧道；公网部署使用 HTTPS 入口。
+
+### 构建与启动
+
+完成上面的文件选择后定义 `dc`；两种入口均执行这些命令：
 
 ```bash
 dc() {
   docker compose -p reven-self-host \
     --env-file infra/self-host/.env \
-    -f infra/self-host/docker-compose.yml "$@"
+    "${reven_compose_files[@]}" "$@"
 }
 dc config --quiet
 dc build reven
@@ -62,31 +99,9 @@ dc up -d --wait
 dc ps
 ```
 
-Reven 等待数据库健康后自动执行迁移；迁移失败会停止启动。Caddy 在应用健康后提供静态页面与 `/api/*`，并自动申请、续签域名证书。数据库 5432、应用 8000 和内部 MCP 端点不向宿主发布。
+Reven 等待数据库健康后自动执行迁移；迁移失败会停止启动。Caddy 在应用健康后提供静态页面与 `/api/*`。数据库 5432、应用 8000 和内部 MCP 端点不向宿主发布。
 
-### 仅本机 HTTP 体验
-
-没有公网域名时，改用下面的定义，然后执行同样的构建和启动命令。override 将应用与 Caddy 的 origin 固定为 `http://localhost:8080`，端口仅绑定 `127.0.0.1`。它依赖 Compose 2.24.4 的 `!override` 支持。
-
-```bash
-dc() {
-  docker compose -p reven-self-host \
-    --env-file infra/self-host/.env \
-    -f infra/self-host/docker-compose.yml \
-    -f infra/self-host/compose.local.yml "$@"
-}
-dc config --quiet
-dc build reven
-dc up -d --wait
-```
-
-浏览器必须使用 `http://localhost:8080`，不要改用 `http://127.0.0.1:8080`，两者 origin 不同。远程主机可通过 SSH 转发到本机访问：
-
-```bash
-ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_HOST
-```
-
-此路径的 HTTP 只用于本机或安全隧道；公网部署使用上面的 HTTPS 入口。后续升级、备份也必须保留所选的 `dc` 定义，不要交替遗漏 override。
+后续升级、备份、恢复和新终端会话都必须恢复所选的文件列表及 `dc` 定义，保留 AppArmor 和入口覆盖文件。
 
 ## 4. 验证健康与登录
 
