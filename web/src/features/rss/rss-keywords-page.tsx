@@ -119,6 +119,8 @@ function KeywordForm(props: {
   )
 }
 
+const COLLAPSE_LIMIT = 30
+
 function KeywordPanel(props: {
   busy: boolean
   kind: RssKeywordKind
@@ -127,18 +129,37 @@ function KeywordPanel(props: {
   onEdit: (keyword: RssKeyword) => void
   onUpdate: (keyword: RssKeyword, input: RssKeywordInput) => Promise<boolean>
 }) {
+  const [query, setQuery] = useState("")
+  const [expanded, setExpanded] = useState(false)
   const filtered = props.keywords.filter((keyword) => keyword.kind === props.kind)
   const title = props.kind === "positive" ? "正向关键词" : "反向关键词"
+  const term = query.trim().toLowerCase()
+  const matched = term ? filtered.filter((keyword) => keyword.term.toLowerCase().includes(term)) : filtered
+  const visible = term || expanded ? matched : matched.slice(0, COLLAPSE_LIMIT)
+  const collapsible = !term && matched.length > COLLAPSE_LIMIT
   return (
     <Card aria-label={title} role="region">
       <CardHeader>
         <h2 className="text-base font-semibold">{title}</h2>
-        <p className="text-sm text-[var(--muted)]">{filtered.length} 个关键词</p>
+        <p className="text-sm text-[var(--muted)]">
+          {term ? `${matched.length} / ${filtered.length} 个关键词` : `${filtered.length} 个关键词`}
+        </p>
       </CardHeader>
       <CardContent>
-        {filtered.length === 0 && <p className="text-sm text-[var(--muted)]">尚未配置{title}。</p>}
+        <Input
+          aria-label={`搜索${title}`}
+          className="mb-4"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={`搜索${title}…`}
+          value={query}
+        />
+        {matched.length === 0 && (
+          <p className="text-sm text-[var(--muted)]">
+            {term ? `没有匹配「${query.trim()}」的${title}。` : `尚未配置${title}。`}
+          </p>
+        )}
         <ul className="flex flex-wrap gap-2">
-          {filtered.map((keyword) => (
+          {visible.map((keyword) => (
             <li className="flex items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2 text-sm" key={keyword.id}>
               <span>{keyword.term}</span><StatusBadge enabled={keyword.enabled} />
               <Button
@@ -157,6 +178,11 @@ function KeywordPanel(props: {
             </li>
           ))}
         </ul>
+        {collapsible && (
+          <Button className="mt-3" onClick={() => setExpanded((value) => !value)} size="sm" variant="ghost">
+            {expanded ? "收起" : `展开全部 ${matched.length} 条`}
+          </Button>
+        )}
       </CardContent>
     </Card>
   )
