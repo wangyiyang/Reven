@@ -25,7 +25,11 @@
 - 15 段 Shell 文档语法、Trellis implement/check 各 9 条 context 校验、`git diff --check origin/main` 通过。
 - 当前树 Gitleaks 8.30.1 仍仅命中 2 条已有人工确认的测试假值/变量示例；原始报告在仓库外脱敏保存。
 - GitHub 当前 required checks 已为 backend、frontend、migration、container（strict=true，GitHub Actions app 15368）；renderer 随 #128 退役，其门槛已由其他操作移除，本会话未改动分支保护。
-- 合并后的原生完整容器 CI：待合并提交推送后执行。
+- 合并提交 `2dc1018e2d864bd03c0470e8afecb43491af4e6a` 的[完整原生 CI 35599615336](https://github.com/wangyiyang/Reven/actions/runs/35599615336) 全部通过；Ubuntu 22.04 原生 AMD64 镜像 `sha256:a7b8210fd85f3c27ecc6f7fe45f1331e32b40d3e20272bc931d53cf72936e33d`。
+- 原生后端 560 passed / 86.96%；Web、迁移、镜像构建、HTTP/可信 HTTPS、素材采纳幂等、会话/素材/卷重建持久化、许可目录及嵌入式 dsh 检查通过。
+- CycloneDX SBOM 已上传至该运行，artifact ID `10637894142`，压缩包 SHA-256 `5ae75d67857748bb1e1b2a1af2992b9b7566d9b28604d5527b19288c21126d62`。Trivy 既有 `--ignore-unfixed --severity CRITICAL` 门槛通过，不表示其他级别或未修复漏洞为零。
+- 同一合并提交的普通 PR CI 通过，container 按设计跳过；GitHub 返回 `CLEAN / MERGEABLE`。后续仅补充本次记录，不改变已验收运行代码。
+- 本任务专属测试数据库及其匿名卷已清理，未清理其他任务资源。
 
 ## 仍需完成的发布验收
 

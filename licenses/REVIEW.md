@@ -54,6 +54,6 @@
 ## 当前最终镜像的验收边界
 
 Dockerfile 仅保留 `javascript`、`python`、`system` 三类许可采集；Debian 新增安装集为 ca-certificates、tini、util-linux。
-合并后的 Linux AMD64 原生构建需重新产出并核对实际运行依赖清单、平台、证据哈希和最终镜像 digest。旧镜像的 683 JS / 96 Python / 99 Ruby / 188 Debian 数量、rubyzip 冲突及沙箱组件结论均不适用于当前镜像。
+合并提交 `2dc1018` 的[Linux AMD64 原生完整 CI](https://github.com/wangyiyang/Reven/actions/runs/35599615336) 已通过，镜像 ID 为 `sha256:a7b8210fd85f3c27ecc6f7fe45f1331e32b40d3e20272bc931d53cf72936e33d`；构建时生成当前清单，并验证三类许可目录存在。仍需对拟重新分发产物逐项核对平台、证据哈希及许可义务。旧镜像的 683 JS / 96 Python / 99 Ruby / 188 Debian 数量、rubyzip 冲突及沙箱组件结论均不适用于当前镜像。
 DeepSeek 内嵌组件原文、当前 JS 缺原文项、GPL/LGPL 等对应源码交付和新镜像许可扫描继续按实际产物验收。
 源代码 checkout 不包含 node_modules、.venv 或这些预编译第三方可执行文件；源码公开与二进制镜像重新分发分别验收。
