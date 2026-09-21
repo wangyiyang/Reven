@@ -5,7 +5,6 @@
 发送失败的批次不标记，次日随下次 run 重推。本类不依赖 lark SDK 具体类型，可独立测试。
 """
 
-import asyncio
 import logging
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
@@ -31,9 +30,9 @@ class ReviewBoard(Protocol):
 
 
 class ReviewCardSender(Protocol):
-    """卡片发送口：同步阻塞（SDK 风格），失败抛异常；调用方以 asyncio.to_thread 包裹。"""
+    """卡片发送口：异步应用消息发送，失败抛异常。"""
 
-    def send_review_card(self, open_id: str, card: dict[str, Any]) -> None: ...
+    async def send_review_card(self, open_id: str, card: dict[str, Any]) -> None: ...
 
 
 SenderFactory = Callable[[str, str], ReviewCardSender]
@@ -85,7 +84,7 @@ class ReviewCardPusher:
         for batch in build_review_card_batches(items):
             try:
                 for open_id in recipients:
-                    await asyncio.to_thread(sender.send_review_card, open_id, batch.card)
+                    await sender.send_review_card(open_id, batch.card)
             except Exception as exc:
                 logger.warning(
                     "飞书机器人审核卡片批次发送失败（provider=%s, items=%d, error_type=%s）",

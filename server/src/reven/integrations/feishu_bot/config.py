@@ -49,11 +49,11 @@ async def load_feishu_bot_config(
     return FeishuBotConfig(
         app_id=app_id,
         app_secret=app_secret,
-        whitelist_open_ids=_parse_whitelist(integration.public_config.get("whitelist_open_ids")),
+        whitelist_open_ids=parse_whitelist(integration.public_config.get("whitelist_open_ids")),
     )
 
 
-def _parse_whitelist(raw: object) -> tuple[str, ...]:
+def parse_whitelist(raw: object) -> tuple[str, ...]:
     if not isinstance(raw, list):
         return ()
-    return tuple(value for value in raw if isinstance(value, str) and value)
+    return tuple(dict.fromkeys(value.strip() for value in raw if isinstance(value, str) and value.strip()))

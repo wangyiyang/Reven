@@ -223,9 +223,9 @@ function StatusNotices({ definition, integration }: { definition: ProviderDefini
           {integration.last_error}
         </p>
       )}
-      {definition.provider === "feishu" && (
+      {definition.provider === "feishu_bot" && (
         <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
-          <Send aria-hidden size={14} />测试飞书会主动发送一条消息。
+          <Send aria-hidden size={14} />将向已保存的接收人发送一条测试消息，请先保存接收人配置。
         </p>
       )}
     </>
@@ -271,7 +271,7 @@ function CardActions(props: CardActionsProps) {
   return (
     <footer className="mt-7">
       {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--danger)]">{`请填写 ${formatFieldLabels(definition.publicFields.filter((field) => !field.optional))}后保存配置。`}</p>}
-      {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${formatFieldLabels(definition.secretFields)} 后测试连接。`}</p>}
+      {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${formatFieldLabels(definition.secretFields)} 后${definition.provider === "feishu_bot" ? "发送测试消息" : "测试连接"}。`}</p>}
       <div className="flex flex-wrap items-center gap-3">
       <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, publicConfig)} ref={props.saveButtonRef}>
         <Save aria-hidden size={15} />保存配置
@@ -321,7 +321,7 @@ function formatFieldLabels(fields: FieldDefinition[]) {
 }
 
 function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definition" | "integration" | "onTest">) {
-  const feishu = props.definition.provider === "feishu"
+  const feishu = props.definition.provider === "feishu_bot"
   return (
     <Button
       aria-label={feishu ? "发送飞书测试消息" : `测试${props.definition.title}连接`}

@@ -109,7 +109,13 @@ Ruby/Jekyll、微信渲染器或发布沙箱。容器使用 Docker 默认 seccom
 - `REVEN_DEPLOY_SSH_HOST`：生产服务器主机名，不包含用户或端口；
 - `REVEN_DEPLOY_SSH_PRIVATE_KEY`：仅允许 `kk` 用户部署 Reven 的私钥；
 - `REVEN_DEPLOY_KNOWN_HOSTS`：服务器的完整 SSH host key，使用 `ssh-keyscan` 后经人工核对指纹写入；
-- `FEISHU_DEPLOY_WEBHOOK`：部署状态通知机器人 Webhook；未配置时跳过通知。
+- `FEISHU_APP_ID`：部署通知使用的企业自建应用 App ID；
+- `FEISHU_APP_SECRET`：该应用的 App Secret；
+- `FEISHU_NOTIFY_OPEN_IDS`：该应用下的接收人 Open ID，多个用户用逗号或空白分隔。
+
+部署通知只使用应用机器人。以上三项全部未配置时跳过通知，部分配置缺失或发送失败时步骤明确报错。
+应用需已启用机器人能力、发布，并开通 `im:message:send_as_bot` 权限；接收人须在应用可用范围内。
+这些 Secrets 只供 GitHub Actions 使用；Reven 运行时通过集成设置中的「飞书应用」读取加密凭证。
 
 `REVEN_DEPLOY_SSH_PRIVATE_KEY` 只应允许 `kk` 在 `/opt/reven` 下执行部署所需的
 Docker 操作。不要关闭 SSH host key 校验，也不要用 `StrictHostKeyChecking=no` 代替
@@ -312,6 +318,21 @@ rm -f /tmp/reven-cookie.jar
 
 /api/system/status 返回数据库与 RSS 后台运行状态，不再显示稿件同步或发布调度。
 生产飞书发送会触达实际用户，测试使用专用应用和会话，避免写入生产聊天。
+
+### 飞书应用机器人配置与 Webhook 退役
+
+在集成设置的“飞书应用”中填写 App ID、App Secret 和当前应用下的通知接收人 Open ID，
+并启用机器人。接收人白名单同时用于 RSS 汇总、候选审核卡片和审核按钮授权；不能填写
+其他应用下的用户 Open ID 或机器人的 Open ID。
+
+飞书开放平台需启用机器人能力、开通 `im:message:send_as_bot`，并确认配置已生效且接收人
+在应用可用范围内。审核按钮还需配置事件与回调的长连接。“发送测试消息”会实际发送通知，
+权限不足或接收人无效时明确显示失败，获取 token 成功不代表发送成功。
+
+每日汇总失败或已经发送，不阻止实际 RSS 运行尝试待审核卡片。保留同日完成缓存，汇总
+成功后的审核失败按次日运行重试，不会每次调度都重发。迁移 0022 精确删除旧 `feishu`
+配置及加密凭据，降级不会恢复；旧 API 返回 404。GitHub Actions 改用第 6 节的应用
+凭证和接收人 Secrets，旧 `FEISHU_DEPLOY_WEBHOOK` 不再使用。
 
 ## 受控依赖更新与已知供应链风险
 

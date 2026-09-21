@@ -32,13 +32,13 @@ def _digest(value: str) -> str:
 
 
 class FakeSender:
-    """同步假发送器：记录 (open_id, card)，可设定第 N 次调用抛错。"""
+    """异步假发送器：记录 (open_id, card)，可设定第 N 次调用抛错。"""
 
     def __init__(self, *, fail_at_calls: set[int] | None = None) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._fail_at = fail_at_calls or set()
 
-    def send_review_card(self, open_id: str, card: dict[str, Any]) -> None:
+    async def send_review_card(self, open_id: str, card: dict[str, Any]) -> None:
         self.calls.append((open_id, card))
         if len(self.calls) in self._fail_at:
             raise FeishuBotApiError("飞书审核卡片发送失败（code=999）")

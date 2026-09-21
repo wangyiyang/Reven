@@ -10,7 +10,6 @@ TRANSLATION_PROVIDERS: tuple[TranslationProvider, ...] = (
 )
 
 SUPPORTED_INTEGRATION_PROVIDERS = (
-    "feishu",
     "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",

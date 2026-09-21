@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, within } from "@testing-library/react"
 
 import { IntegrationsPage } from "./integrations-page"
+import type { Integration } from "./types"
 
 export const configuredRuntime = {
   provider: "embedding",
@@ -36,7 +37,7 @@ export const configuredEmbedding = {
   last_latency_ms: null,
 }
 
-export const configuredFeishuBot = {
+export const configuredFeishuBot: Integration = {
   provider: "feishu_bot",
   public_config: { whitelist_open_ids: ["ou_boss", "ou_ops"], enabled: true },
   secret_configured: true,

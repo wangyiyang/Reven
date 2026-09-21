@@ -219,3 +219,42 @@ async def test_review_card_pusher_failure_does_not_affect_run_or_notification(
         assert run is not None
         assert run.notification_sent_at is not None  # 推送失败不影响汇总通知标记
         assert run.notification_error is None
+
+
+class FailingNotifier:
+    async def send(self, notification: object) -> None:
+        raise RuntimeError("notification unavailable")
+
+
+@pytest.mark.anyio
+async def test_summary_failure_does_not_skip_review_cards(db_session: AsyncSession) -> None:
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    review_pusher = RecordingReviewPusher()
+    service = RssDiscoveryService(
+        factory, StubFeedReader(), StubLocalizer(), FailingNotifier(), review_pusher=review_pusher
+    )
+
+    result = await service.run(date(2026, 8, 17))
+
+    assert review_pusher.calls == 1
+    assert result.status == "completed"
+    async with factory() as session:
+        run = await session.get(RssDiscoveryRun, result.run_id)
+        assert run is not None
+        assert run.notification_sent_at is None
+        assert run.notification_error == "RuntimeError"
+
+
+@pytest.mark.anyio
+async def test_already_sent_summary_still_attempts_pending_review_cards(db_session: AsyncSession) -> None:
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    review_pusher = RecordingReviewPusher(fail=True)
+    notifier = RecordingNotifier()
+    service = RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier, review_pusher=review_pusher)
+
+    await service.run(date(2026, 8, 18))
+    review_pusher._fail = False
+    await service.run(date(2026, 8, 18))
+
+    assert len(notifier.notifications) == 1
+    assert review_pusher.calls == 2

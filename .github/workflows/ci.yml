@@ -54,6 +54,8 @@ jobs:
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/release.yml'
+              - 'scripts/notify_feishu_deploy.py'
             migration:
               - 'server/migrations/**'
               - 'server/tests/migrations/**'

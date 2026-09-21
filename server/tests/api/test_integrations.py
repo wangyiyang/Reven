@@ -168,17 +168,17 @@ def test_delete_secret_without_secret_returns_404(client: TestClient) -> None:
 def test_get_list_and_detail_shapes(client: TestClient) -> None:
     client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
     client.put(
-        "/api/integrations/feishu",
+        "/api/integrations/feishu_bot",
         json={
-            "public_config": {"name": "RSS 通知"},
-            "secret": {"webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/test-1234"},
+            "public_config": {"whitelist_open_ids": ["ou_owner"], "enabled": False},
+            "secret": {"app_id": "cli_test", "app_secret": "test-secret-1234"},
         },
     )
 
     list_response = client.get("/api/integrations")
     assert list_response.status_code == 200
     items = {item["provider"]: item for item in list_response.json()}
-    assert set(items) == {"embedding", "feishu"}
+    assert set(items) == {"embedding", "feishu_bot"}
     embedding = items["embedding"]
     assert set(embedding) == {
         "provider",
@@ -190,16 +190,16 @@ def test_get_list_and_detail_shapes(client: TestClient) -> None:
         "last_error",
         "last_latency_ms",
     }
-    assert items["feishu"]["secret_hint"] == "已配置 · ****1234"
+    assert items["feishu_bot"]["secret_hint"] == "已配置 · ****1234"
 
     detail_response = client.get("/api/integrations/embedding")
     assert detail_response.status_code == 200
     assert detail_response.json() == embedding
     assert "embed_0000aaaa" not in list_response.text
-    assert "https://open.feishu.cn/open-apis/bot/v2/hook/test-1234" not in list_response.text
+    assert "test-secret-1234" not in list_response.text
 
 
-@pytest.mark.parametrize("provider", ["translate_tencent", "notion", "github", "wechat"])
+@pytest.mark.parametrize("provider", ["translate_tencent", "notion", "github", "wechat", "feishu"])
 def test_list_filters_unsupported_legacy_provider(client: TestClient, provider: str) -> None:
     configured = client.put("/api/integrations/embedding", json=_embedding_payload("embedding-secret"))
     assert configured.status_code == 200
@@ -246,42 +246,6 @@ def test_invalid_public_config_is_rejected(client: TestClient) -> None:
         json={"public_config": {"base_url": "http://remote.example.com"}},
     )
     assert invalid_origin.status_code == 422
-
-    bad_webhook = client.put(
-        "/api/integrations/feishu",
-        json={
-            "public_config": {"name": "发布通知"},
-            "secret": {"webhook_url": "https://evil.example.com/hook/abc"},
-        },
-    )
-    assert bad_webhook.status_code == 422
-
-    good_webhook = client.put(
-        "/api/integrations/feishu",
-        json={
-            "public_config": {"name": "发布通知"},
-            "secret": {"webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/abc-123"},
-        },
-    )
-    assert good_webhook.status_code == 200
-    assert good_webhook.json()["secret_hint"] == "已配置 · ****-123"
-
-
-def test_feishu_accepts_signing_secret_without_exposing_it(client: TestClient) -> None:
-    response = client.put(
-        "/api/integrations/feishu",
-        json={
-            "public_config": {"name": "发布通知"},
-            "secret": {
-                "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/abc-123",
-                "signing_secret": "feishu-signing-secret",
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["secret_hint"] == "已配置 · ****-123"
-    assert "feishu-signing-secret" not in response.text
 
 
 def test_connection_test_without_adapter_returns_503(client: TestClient) -> None:

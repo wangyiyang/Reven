@@ -17,8 +17,6 @@ from reven.integrations.service import public_config_without_hint, secret_hint_o
 
 PROVIDERS = SUPPORTED_INTEGRATION_PROVIDERS
 
-_FEISHU_WEBHOOK_PATTERN = r"^https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]+$"
-
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -41,20 +39,13 @@ def _validate_https_origin(value: str, *, field: str) -> str:
     return value.rstrip("/")
 
 
-class FeishuPublicConfig(_Strict):
-    name: str = Field(min_length=1, max_length=64)
-
-
 class FeishuBotPublicConfig(_Strict):
-    """飞书应用（机器人）公开配置：白名单限定可执行审核按钮的成员，enabled 控制入站长连接。"""
+    """飞书应用（机器人）公开配置：白名单指定通知接收人与审核成员，enabled 控制通知和入站事件。"""
 
-    whitelist_open_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list)
+    whitelist_open_ids: list[Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\S+$")]] = Field(
+        default_factory=list
+    )
     enabled: bool = False
-
-
-class FeishuSecret(_Strict):
-    webhook_url: str = Field(pattern=_FEISHU_WEBHOOK_PATTERN, max_length=512)
-    signing_secret: str | None = Field(default=None, min_length=1, max_length=256)
 
 
 class FeishuBotSecret(_Strict):
@@ -112,11 +103,6 @@ class AgentLlmSecret(_Strict):
     api_key: str = Field(min_length=1, max_length=256)
 
 
-class FeishuIntegrationPut(_Strict):
-    public_config: FeishuPublicConfig
-    secret: FeishuSecret | None = None
-
-
 class FeishuBotIntegrationPut(_Strict):
     public_config: FeishuBotPublicConfig
     secret: FeishuBotSecret | None = None
@@ -143,8 +129,7 @@ class AgentLlmIntegrationPut(_Strict):
 
 
 IntegrationPut = (
-    FeishuIntegrationPut
-    | FeishuBotIntegrationPut
+    FeishuBotIntegrationPut
     | BaiduTranslateIntegrationPut
     | AliyunTranslateIntegrationPut
     | EmbeddingIntegrationPut
@@ -152,7 +137,6 @@ IntegrationPut = (
 )
 
 PUT_MODELS: dict[str, type[IntegrationPut]] = {
-    "feishu": FeishuIntegrationPut,
     "feishu_bot": FeishuBotIntegrationPut,
     "translate_baidu": BaiduTranslateIntegrationPut,
     "translate_aliyun": AliyunTranslateIntegrationPut,

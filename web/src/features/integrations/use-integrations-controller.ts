@@ -26,7 +26,10 @@ export function useIntegrationsController() {
       await queryClient.invalidateQueries({ queryKey: ["integrations"] })
       toast.success(result.message)
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: async (error: Error) => {
+      await queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      toast.error(error.message)
+    },
   })
   const execute = useCallback(async (action: IntegrationAction): Promise<boolean> => {
     if (actionLocked.current) return false

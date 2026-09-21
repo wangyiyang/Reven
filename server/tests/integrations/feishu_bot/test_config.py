@@ -101,7 +101,7 @@ async def test_enabled_config_returns_credentials_and_whitelist(db_session: Asyn
 
 @pytest.mark.anyio
 async def test_malformed_whitelist_is_filtered(db_session: AsyncSession) -> None:
-    await _write_config(db_session, whitelist=["ou_boss", "", 42, None])
+    await _write_config(db_session, whitelist=["ou_boss", "", "   ", "ou_boss", 42, None])
 
     config = await load_feishu_bot_config(_factory(db_session), _secret_box())
 
