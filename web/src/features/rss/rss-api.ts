@@ -1,5 +1,5 @@
 import { apiRequest, ApiError } from "@/lib/api"
-import type { RssCandidate, RssInboxPushResult, RssKeyword, RssSource } from "./types"
+import type { RssCandidate, RssCandidateView, RssKeyword, RssSource } from "./types"
 
 export const CANDIDATE_PAGE_SIZE = 30
 
@@ -47,8 +47,8 @@ export async function fetchRssKeywords(): Promise<RssKeyword[]> {
   return value
 }
 
-export async function fetchRssCandidatesPage(page: number): Promise<RssCandidatePage> {
-  const value = await apiRequest<unknown>(`/rss/candidates?page=${page}&page_size=${CANDIDATE_PAGE_SIZE}`)
+export async function fetchRssCandidatesPage(page: number, status: RssCandidateView): Promise<RssCandidatePage> {
+  const value = await apiRequest<unknown>(`/rss/candidates?page=${page}&page_size=${CANDIDATE_PAGE_SIZE}&status=${status}`)
   if (!isRssCandidatePage(value)) throw candidateInvalidResponse()
   return value
 }
@@ -58,9 +58,9 @@ export async function ignoreRssCandidate(id: string): Promise<void> {
   if (!isRssCandidate(value) || value.status !== "ignored") throw candidateInvalidResponse()
 }
 
-export async function confirmRssCandidate(id: string): Promise<RssInboxPushResult> {
+export async function confirmRssCandidate(id: string): Promise<RssCandidate> {
   const value = await apiRequest<unknown>(`/rss/candidates/${id}/confirm`, { method: "POST" })
-  if (!isRssInboxPushResult(value)) throw candidateInvalidResponse()
+  if (!isRssCandidate(value) || value.status !== "saved" || value.id !== id) throw candidateInvalidResponse()
   return value
 }
 
@@ -142,15 +142,11 @@ function isRssCandidate(value: unknown): value is RssCandidate {
     && nullableString(value.reason)
     && nullableString(value.rules_version)
     && nullableString(value.screening_error)
-    && nullableString(value.push_error)
-    && nullableHttpUrl(value.notion_url)
+    && nullableDateTime(value.saved_at)
 }
 
-function isRssInboxPushResult(value: unknown): value is RssInboxPushResult {
-  return isRecord(value)
-    && typeof value.item_id === "string"
-    && typeof value.notion_page_id === "string"
-    && isHttpUrl(value.notion_url)
+function nullableDateTime(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && !Number.isNaN(Date.parse(value)))
 }
 
 function nullableString(value: unknown): value is string | null {

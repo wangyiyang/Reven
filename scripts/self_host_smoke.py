@@ -1,11 +1,9 @@
 """Validate a local reven:test image with the documented Compose security settings.
 
-Run on a native Linux AMD64 Docker host, optionally with the documented named
-AppArmor profile. This never builds, pulls, publishes or changes global host
-policy; dependency images and any profile must be installed beforehand.
+Run on a native Linux AMD64 Docker host. This never builds, pulls, publishes or
+changes host security policy; dependency images must be pulled beforehand.
 """
 
-import argparse
 import base64
 import json
 import os
@@ -19,7 +17,7 @@ from pathlib import Path
 from self_host_http_smoke import Browser
 
 ROOT = Path(__file__).resolve().parents[1]
-SENTINELS = ("/data/jobs/self-host-smoke", "/data/dsh/self-host-smoke", "/srv/reven/.self-host-smoke")
+SENTINELS = ("/data/self-host-smoke", "/data/dsh/self-host-smoke", "/srv/reven/.self-host-smoke")
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -40,8 +38,7 @@ def run(*args: str, capture: bool = False) -> str:
 
 
 class Deployment:
-    def __init__(self, temporary: Path, *, apparmor: bool = False) -> None:
-        self.apparmor = apparmor
+    def __init__(self, temporary: Path) -> None:
         self.project = f"reven-ci-self-host-{secrets.token_hex(6)}"
         self.temporary = temporary
         self.password = secrets.token_hex(24)
@@ -55,10 +52,6 @@ class Deployment:
         )
         environment.chmod(0o600)
         self.fixture = temporary / "fixture.yml"
-        fixture_mounts = [
-            f"{ROOT / 'server/tests/fixtures/blog'}:/fixture:ro",
-            f"{ROOT / 'scripts/container_security_smoke.py'}:/smoke.py:ro",
-        ]
         self.fixture.write_text(
             json.dumps(
                 {
@@ -66,7 +59,6 @@ class Deployment:
                         "reven": {
                             "image": "reven:test",
                             "pull_policy": "never",
-                            "volumes": fixture_mounts,
                         }
                     }
                 }
@@ -78,8 +70,6 @@ class Deployment:
             ROOT / "infra/self-host/compose.local.yml",
             self.fixture,
         ]
-        if apparmor:
-            self.files.append(ROOT / "infra/self-host/compose.apparmor.yml")
         self.base = ["docker", "compose", "-p", self.project, "--env-file", str(environment)]
 
     def compose(self, *args: str, capture: bool = False) -> str:
@@ -97,11 +87,7 @@ class Deployment:
         assert config["CapDrop"] == ["ALL"] and not config["CapAdd"]
         assert config["Memory"] == 2 * 1024**3 and config["PidsLimit"] == 128
         assert not any("unconfined" in option for option in config["SecurityOpt"])
-        if self.apparmor:
-            assert (
-                run("docker", "inspect", "--format", "{{.AppArmorProfile}}", container, capture=True)
-                == "reven-self-host"
-            )
+        assert config["SecurityOpt"] == ["no-new-privileges:true"]
         self.compose(
             "exec",
             "-T",
@@ -114,16 +100,54 @@ class Deployment:
                     "root = Path('/opt/reven-licenses')",
                     "assert (root / 'LICENSE').read_text()",
                     "assert (root / 'THIRD_PARTY_NOTICES.md').read_text()",
-                    "for name in ('node', 'doocs', 'javascript', 'python', 'ruby', 'system'):",
+                    "for name in ('javascript', 'python', 'system'):",
                     "    assert any(path.is_file() and path.stat().st_size for path in (root / name).rglob('*')), name",
                     "assert not Path('/opt/reven-release/infra/self-host/.env').exists()",
                 ]
             ),
         )
 
+    def seed_candidate(self, source_id: str) -> str:
+        """Seed only the isolated database; the disabled source is never fetched."""
+        return self.compose(
+            "exec",
+            "-T",
+            "reven",
+            "python",
+            "-c",
+            "\n".join(
+                [
+                    "import asyncio, hashlib",
+                    "from datetime import date",
+                    "from uuid import UUID",
+                    "from reven.config import Settings",
+                    "from reven.db import create_session_factory",
+                    "from reven.rss.models import RssDiscoveryRun, RssItem",
+                    "async def seed():",
+                    "    async with create_session_factory(Settings()).begin() as session:",
+                    "        run = RssDiscoveryRun(run_date=date(2000, 1, 1), status='completed')",
+                    "        session.add(run)",
+                    "        await session.flush()",
+                    "        item = RssItem(",
+                    f"            source_id=UUID({source_id!r}), first_seen_run_id=run.id,",
+                    "            source_name='self-host smoke', title='Local smoke candidate',",
+                    "            title_zh='本地验收候选', summary='Deterministic local fixture',",
+                    "            summary_zh='本地确定性测试素材', status='candidate',",
+                    "            title_key=hashlib.sha256(b'self-host-smoke-candidate').hexdigest(),",
+                    "            embedding_status='skipped', model_status='skipped')",
+                    "        session.add(item)",
+                    "        await session.flush()",
+                    "        print(item.id)",
+                    "asyncio.run(seed())",
+                ]
+            ),
+            capture=True,
+        )
+
     def assert_persistence(self, browser: Browser) -> None:
         token = browser.login(self.password)
         source_id = browser.create_disabled_source()
+        saved = browser.save_candidate(self.seed_candidate(source_id))
         self.compose(
             "exec",
             "-T",
@@ -141,6 +165,7 @@ class Deployment:
         self.compose("down", "--timeout", "30")
         self.up()
         browser.assert_persisted_source(source_id)
+        browser.assert_saved_candidate(saved)
         self.compose(
             "exec",
             "-T",
@@ -189,60 +214,15 @@ class Deployment:
         token = browser.login(self.password)
         browser.logout(token)
 
-    def assert_sandboxes(self) -> None:
-        self.compose(
-            "exec",
-            "-T",
-            "reven",
-            "python",
-            "-c",
-            "\n".join(
-                [
-                    "import subprocess, sys",
-                    "from pathlib import Path",
-                    "from reven.publishing.sandbox import bubblewrap_command",
-                    "profile = Path('/proc/self/attr/current')",
-                    "try: active_profile = profile.read_text().strip()",
-                    "except OSError: active_profile = 'not enabled'",
-                    "print('Sandbox profile:', active_profile)",
-                    f"assert not {self.apparmor!r} or active_profile == 'reven-self-host (enforce)'",
-                    "probe = subprocess.run(bubblewrap_command(Path('/usr/bin/bwrap'), ['/bin/true']),",
-                    "    env={'PATH': '/usr/local/bin:/usr/bin:/bin'}, capture_output=True, text=True)",
-                    "if probe.returncode:",
-                    "    print('Fixed sandbox probe failed:', probe.stderr[:4096], file=sys.stderr)",
-                    "    raise SystemExit(probe.returncode)",
-                ]
-            ),
-        )
-        self.compose(
-            "exec",
-            "-T",
-            "reven",
-            "python",
-            "-c",
-            "\n".join(
-                [
-                    "import asyncio",
-                    "from pathlib import Path",
-                    "from reven.publishing.wechat.renderer import WechatRenderer",
-                    "asyncio.run(WechatRenderer('node', Path('/app/renderer/dist/cli.mjs'),",
-                    "    sandbox_executable=Path('/usr/bin/bwrap')).render('# self-host sandbox'))",
-                ]
-            ),
-        )
-        self.compose("exec", "-T", "reven", "python", "/smoke.py")
-
 
 def exercise(deployment: Deployment) -> None:
     try:
         deployment.up()
         deployment.assert_runtime()
         deployment.assert_persistence(Browser("http://localhost:8080"))
-        print("Self-host HTTP, authentication, named-volume persistence and licenses passed.", flush=True)
+        print("Self-host HTTP, authentication, saved RSS materials, volumes and licenses passed.", flush=True)
         deployment.assert_https()
         print("Self-host HTTPS passed with an explicitly trusted test CA and Secure session cookies.", flush=True)
-        deployment.assert_sandboxes()
-        print("Self-host renderer/blog sandboxes passed with the documented Compose security options.", flush=True)
     finally:
         try:
             deployment.compose("ps", "--all")
@@ -251,9 +231,6 @@ def exercise(deployment: Deployment) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apparmor", action="store_true", help="Use the installed reven-self-host AppArmor profile")
-    args = parser.parse_args()
     architecture = run("docker", "info", "--format", "{{.OSType}}/{{.Architecture}}", capture=True)
     if architecture not in {"linux/x86_64", "linux/amd64"}:
         raise SystemExit(f"Native Linux AMD64 host required; found {architecture}")
@@ -261,12 +238,9 @@ def main() -> None:
         run("docker", "image", "inspect", "reven:test", "--format", "{{.Os}}/{{.Architecture}}", capture=True)
         == "linux/amd64"
     )
-    restrictions = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
-    restriction = restrictions.read_text().strip() if restrictions.exists() else "absent"
-    print(f"Host unprivileged-userns restriction: {restriction}")
     signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(143))
     with tempfile.TemporaryDirectory(prefix="reven-self-host-smoke-") as directory:
-        exercise(Deployment(Path(directory), apparmor=args.apparmor))
+        exercise(Deployment(Path(directory)))
 
 
 if __name__ == "__main__":

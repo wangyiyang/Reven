@@ -1,6 +1,0 @@
-# Load infra/self-host/apparmor/reven-self-host on the Docker host first.
-# Only the Reven service changes profile; all base security options remain active.
-services:
-  reven:
-    security_opt:
-      - apparmor=reven-self-host

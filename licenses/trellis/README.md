@@ -17,7 +17,7 @@ Trellis 工具及其模板沿用上游 AGPL 授权，**不适用 Reven 根目录
 
 - 172 个文件与固定上游版本中的模板逐字节相同（`verbatim`）。表中链接到内容相同的上游模板，可能被多个平台共用。
 - 40 个文件包含平台生成适配（`generated-adaptation`），与已安装模板的 hash 相同。表中记录对应公共命令、技能或平台配置的来源路径；生成差异尚未逐行人工复核。
-- `.trellis/config.yaml` 与上游及已安装模板均不同（`locally-modified`）：Reven 配置了自动检测的 monorepo 包路径及 `default_package: @reven/web`。修改日期见该行的 `last_commit_date`；本地适配继续按上游 AGPL 许可提供。
+- `.trellis/config.yaml` 与上游及已安装模板均不同（`locally-modified`）：Reven 的 monorepo 配置仅保留 web/server 的包路径，并设置 `default_package: web`。修改日期见该行的 `last_commit_date`；本地适配继续按上游 AGPL 许可提供。
 - 本表保存上游原文、安装基线、当前文件三个 SHA-256 以及最后提交日期。后续修改这些工具时，应同步修改声明、日期和清单；不得以根许可证覆盖工具改动。
 
 对应修改后的完整工具源码就在表中的仓库路径内。应用运行镜像不复制这些开发工具，

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
+import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { toast } from "sonner"
 
@@ -32,19 +33,18 @@ const candidate = {
   reason: "正向信号达到阈值",
   rules_version: "rss-v1",
   screening_error: null,
-  push_error: null,
-  notion_url: null,
+  saved_at: null,
 }
 
 function pageOf(items: unknown[], total = items.length, page = 1, pageSize = 30) {
   return { items, total, page, page_size: pageSize }
 }
 
-function renderPage() {
+function renderPage(path = "/rss/candidates") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <RssCandidatesPage />
+      <MemoryRouter initialEntries={[path]}><RssCandidatesPage /></MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -57,7 +57,7 @@ describe("RssCandidatesPage", () => {
 
     renderPage()
 
-    expect(await screen.findByRole("heading", { name: "RSS 候选工作台" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "RSS 内容发现" })).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
     expect(screen.getByText("正向信号达到阈值")).toBeInTheDocument()
     expect(screen.getByText("agent")).toBeInTheDocument()
@@ -111,28 +111,90 @@ describe("RssCandidatesPage", () => {
     expect(toast.success).toHaveBeenCalledWith("已忽略候选")
   })
 
-  it("confirms a candidate and reports the Notion destination", async () => {
-    let items: unknown[] = [candidate]
+  it("saves an approved candidate locally and makes it available in saved materials", async () => {
+    let saved = false
+    const savedItem = { ...candidate, status: "saved", saved_at: "2026-09-21T01:00:00Z" }
+    const requestedStatuses: string[] = []
     server.use(
-      http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(items, items.length))),
+      http.get("/api/rss/candidates", ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status") ?? ""
+        requestedStatuses.push(status)
+        const items = status === "saved" ? (saved ? [savedItem] : []) : (saved ? [] : [candidate])
+        return HttpResponse.json(pageOf(items))
+      }),
       http.post("/api/rss/candidates/:id/confirm", () => {
-        items = []
-        return HttpResponse.json({
-          item_id: candidate.id,
-          notion_page_id: "22222222-2222-2222-2222-222222222222",
-          notion_url: "https://www.notion.so/material",
-        })
+        saved = true
+        return HttpResponse.json(savedItem)
       }),
     )
     renderPage()
 
-    await userEvent.click(await screen.findByRole("button", { name: "推送到 Notion 智能体系统" }))
+    await userEvent.click(await screen.findByRole("button", { name: "采纳并保存 智能体系统" }))
 
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
-      "已推送到 Notion Inbox",
-      { action: { label: "打开页面", onClick: expect.any(Function) } },
-    ))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已保存到素材库"))
     expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("tab", { name: "已保存素材" }))
+    expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
+    expect(screen.getByText(/已保存 ·/)).toHaveTextContent("2026")
+    expect(screen.getByRole("link", { name: "查看原文" })).toHaveAttribute("href", candidate.url)
+    expect(screen.queryByRole("button", { name: /采纳并保存|忽略/ })).not.toBeInTheDocument()
+    expect(requestedStatuses).toContain("saved")
+    await userEvent.click(screen.getByRole("tab", { name: "待审核" }))
+    expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
+  })
+
+  it("opens saved materials directly from the URL", async () => {
+    let status: string | null = null
+    server.use(http.get("/api/rss/candidates", ({ request }) => {
+      status = new URL(request.url).searchParams.get("status")
+      return HttpResponse.json(pageOf([]))
+    }))
+    renderPage("/rss/candidates?status=saved")
+    expect(await screen.findByText("暂无已保存素材")).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "已保存素材" })).toHaveAttribute("aria-selected", "true")
+    expect(status).toBe("saved")
+  })
+
+  it.each(["saved", "ignored"])("hides review actions for %s items", async (status) => {
+    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([{ ...candidate, status }]))))
+    renderPage()
+    expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /采纳并保存|忽略/ })).not.toBeInTheDocument()
+  })
+
+  it.each(["confirm", "ignore"])("allows retry after a failed %s action", async (action) => {
+    let calls = 0
+    let resolved = false
+    server.use(
+      http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(resolved ? [] : [candidate]))),
+      http.post(`/api/rss/candidates/:id/${action}`, () => {
+        calls += 1
+        if (calls === 1) return HttpResponse.json({ code: "failed", message: "操作失败，请重试" }, { status: 503 })
+        resolved = true
+        return HttpResponse.json({ ...candidate, status: action === "confirm" ? "saved" : "ignored" })
+      }),
+    )
+    renderPage()
+    const button = await screen.findByRole("button", { name: `${action === "confirm" ? "采纳并保存" : "忽略"} 智能体系统` })
+    await userEvent.click(button)
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("操作失败，请重试"))
+    expect(button).toBeEnabled()
+    expect(toast.success).not.toHaveBeenCalled()
+    await userEvent.click(button)
+    expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
+    expect(calls).toBe(2)
+  })
+
+  it("does not report success when confirmation returns an unsaved record", async () => {
+    server.use(
+      http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))),
+      http.post("/api/rss/candidates/:id/confirm", () => HttpResponse.json(candidate)),
+    )
+    renderPage()
+    await userEvent.click(await screen.findByRole("button", { name: "采纳并保存 智能体系统" }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("RSS 候选响应格式无效"))
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "采纳并保存 智能体系统" })).toBeEnabled()
   })
 
   it("loads the next server page via the load-more control", async () => {
@@ -176,7 +238,7 @@ describe("RssCandidatesPage", () => {
     server.use(http.get("/api/rss/candidates", () => HttpResponse.json([candidate])))
     renderPage()
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("RSS 候选读取失败")
+    expect(await screen.findByRole("alert")).toHaveTextContent("RSS 内容读取失败")
   })
 
   it("surfaces a degraded embedding badge with the screening error code", async () => {

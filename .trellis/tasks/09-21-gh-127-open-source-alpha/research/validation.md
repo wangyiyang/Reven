@@ -1,5 +1,7 @@
 # #127 实施验收记录
 
+> 以下是合并 #128 前的历史验证，运行代码含现已退役的 Notion/发布/沙箱功能。合并后当前结果以 [merge-main-validation.md](merge-main-validation.md) 为准。
+
 ## 当前结论
 
 源码授权材料、自托管入口、HTTPS 认证支持及对外指南已实施。Ubuntu 22.04 原生 Linux AMD64 完整 CI 通过：975 项后端测试、覆盖率 87.07%，HTTP/可信 HTTPS、持久化、AppArmor 强制模式下的渲染与博客沙箱均通过。备份恢复辅助演练也已通过。

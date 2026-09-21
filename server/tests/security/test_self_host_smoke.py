@@ -15,9 +15,7 @@ def smoke(monkeypatch: pytest.MonkeyPatch):
     return importlib.import_module("self_host_smoke")
 
 
-@pytest.mark.parametrize(
-    "failure", ["up", "assert_runtime", "assert_persistence", "assert_https", "assert_sandboxes", "ps"]
-)
+@pytest.mark.parametrize("failure", ["up", "assert_runtime", "assert_persistence", "assert_https", "ps"])
 def test_every_failure_still_cleans_only_its_project(smoke, failure: str) -> None:
     calls = []
 
@@ -35,10 +33,7 @@ def test_every_failure_still_cleans_only_its_project(smoke, failure: str) -> Non
             raise RuntimeError(failure)
 
     deployment = SimpleNamespace(
-        **{
-            name: stage(name)
-            for name in ("up", "assert_runtime", "assert_persistence", "assert_https", "assert_sandboxes")
-        },
+        **{name: stage(name) for name in ("up", "assert_runtime", "assert_persistence", "assert_https")},
         compose=compose,
     )
     with pytest.raises(RuntimeError, match=failure):
@@ -48,7 +43,6 @@ def test_every_failure_still_cleans_only_its_project(smoke, failure: str) -> Non
 
 
 def test_smoke_refuses_emulation_as_native_linux_evidence(smoke, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(smoke.sys, "argv", ["self_host_smoke.py"])
     monkeypatch.setattr(smoke, "run", lambda *args, **kwargs: "linux/aarch64")
     with pytest.raises(SystemExit, match="Native Linux AMD64 host required"):
         smoke.main()
@@ -62,10 +56,9 @@ def test_fixture_uses_unique_project_without_relaxing_container_security(smoke, 
     assert "--env-file" in deployment.base
     assert len(deployment.project.removeprefix("reven-ci-self-host-")) == 12
     fixture = json.loads(deployment.fixture.read_text())
-    assert set(fixture["services"]["reven"]) == {"image", "pull_policy", "volumes"}
+    assert set(fixture["services"]["reven"]) == {"image", "pull_policy"}
     assert fixture["services"]["reven"]["image"] == "reven:test"
     assert fixture["services"]["reven"]["pull_policy"] == "never"
-    assert all(mount.endswith(":ro") for mount in fixture["services"]["reven"]["volumes"])
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
 
 
@@ -86,11 +79,3 @@ def test_compose_subprocess_does_not_inherit_live_integration_credentials(
     assert "SILICONFLOW_API_KEY" not in observed
     assert "COS_SECRET_KEY" not in observed
     assert "COMPOSE_FILE" not in observed
-
-
-def test_apparmor_override_is_an_explicit_host_choice(smoke, tmp_path: Path) -> None:
-    deployment = smoke.Deployment(tmp_path)
-    profile_compose = ROOT / "infra/self-host/compose.apparmor.yml"
-    assert profile_compose not in deployment.files
-    deployment = smoke.Deployment(tmp_path, apparmor=True)
-    assert profile_compose in deployment.files

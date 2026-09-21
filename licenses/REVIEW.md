@@ -1,52 +1,37 @@
-# 许可核验记录（2026-09-21）
+# 当前许可核验记录（合并 #128 后）
 
-源码许可与构建时原文采集已落地；以下记录区分已核实事实和具体未闭合的分发问题。
+本记录对应合入 `7edafd7` 后的 RSS 本地素材工作台。旧稿件发布、Doocs/renderer、Ruby 与独立 Node 运行依赖已经退役；[旧核验记录](history/before-local-rss.md) 保留为历史证据，不用于当前发布验收。
 
-## 已核实
+## 当前已核实范围
 
-- Reven wheel 已验证 `License-Expression: Apache-2.0`、Wang Yiyang 署名及 `reven/LICENSE`。
-- Trellis 固定 0.6.15 的 213 条模板路径、原始 AGPL/COPYRIGHT 和本地适配记录已保存于 `trellis/`。
-- Doocs 固定提交原文保留；不参与渲染的服务配置删除后，防回灌/失败恢复测试与 renderer 39 个测试均通过。
-- Linux AMD64 测试镜像实际采集：683 个已安装 JS 名称/版本（构建依赖超集）、96 个 Python runtime 分发包、99 个 Ruby bundle/Bundler 包、188 个 Debian 包。Python 和 Debian 均有许可原文证据；JS 剩余 14 项见下表。
-- 本机 macOS ARM64 的早期采集仅用于辅助核对，未代替 Linux 镜像证据。
-- 三个 Fontsource 5.3.0 的原始 LICENSE 已逐份核对：Inter、JetBrains Mono、Noto Sans SC 均保留字体版权及 OFL-1.1 全文。
-- khroma 2.1.0 缺少 manifest 的 license 字段，但其包内/LICENSE 原文明确 MIT，已记录证据；Python exceptiongroup、jaraco.classes、markdown-it-py、mdurl 的旧分类器明确 MIT，pathspec 明确 MPL-2.0。
-- 发布包中遗漏的 FastMCP-slim 4.0.5 原文、7 个 JS 包的上游原文/README 许可和 3 个 Linux 平台包的同版本共享许可已补充，见 `supplemental/`。
+- 原创代码继续采用 Apache-2.0，服务端 wheel 打包原文的配置保留。
+- Trellis 0.6.15 原始 AGPL/COPYRIGHT 及 213 个模板路径记录保留；配置清单已按仅有 web/server 的当前包布局更新。
+- 三个 Fontsource 5.3.0 原文仍随 Web 产物交付：Inter、JetBrains Mono、Noto Sans SC 均保留字体版权及 OFL-1.1 全文。
+- 对合并后的锁文件执行 frozen 安装后，在 macOS ARM64 按当前 workspace 已安装依赖树采集了 **383 个 JS 名称/版本**，全部能与当前 pnpm-lock.yaml 对应。旧虚拟 store 中的 298 个退役包未被采入。
+- 本机 Python `--all-packages` 环境采集了 **105 个分发包**，使用 FastMCP 补充原文后无缺原文项；该数量含开发依赖，不是最终镜像 `--no-dev` runtime 数量。
+- Python/JS 补充证据按名称、版本匹配并核对 SHA-256。已从当前材料移除 Ruby、khroma 和 https-proxy-agent 5.0.1 的退役补充原文。
 
-## 缺失完整原文的 JS 发布包
+本轮采集对应的锁文件 SHA-256：
 
-以下包仍有明确的 license 元数据；“缺失”指本次未找到可按该版本核对的完整授权原文，不能伪造版权行。
-已检查安装包；对有 gitHead 的包进一步查询了该提交的完整源码树，对无 gitHead 的包检查了可定位的版本 tag。
-部分上游树本身只包含 README 的简短声明；部分历史 tag/commit 已不可获取。它们来自安装包超集，实际 bundle 是否分发对应代码仍需按产物核对。
+| 文件 | SHA-256 |
+| --- | --- |
+| `pnpm-lock.yaml` | `5a95f1e41576fc671742f221deb0c771aa10864fc73c1b44ce2842f4f8df6e7f` |
+| `uv.lock` | `11c39748dfa2076f5b15ba40bcc3f01f868c782e357ba95b39e032d043b53f1a` |
 
-| 名称 | 版本 | 发布者声明 | 当前状态 |
-| --- | --- | --- | --- |
-| `@antv/event-emitter` | `0.1.3` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `@humanfs/types` | `0.15.0` | Apache-2.0 | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `@open-draft/deferred-promise` | `2.2.0` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `agent-base` | `6.0.2` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `boolbase` | `1.0.0` | ISC | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `is-node-process` | `1.2.0` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `keyv` | `4.5.4` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `launder` | `1.7.1` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `measury` | `0.1.5` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `natural-compare` | `1.4.0` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `react-remove-scroll-bar` | `2.3.8` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `slick` | `1.12.2` | MIT (http://mootools.net/license.txt) | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `stackback` | `0.0.2` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
-| `strict-event-emitter` | `0.5.1` | MIT | 完整原文未核实；保留 manifest 与具体版本，发布相关二进制/JS 产物前解决 |
+## 当前 JS 完整原文待核实项
 
+以下 8 项属于当前 workspace 安装依赖超集；实际 Web bundle 是否含其代码仍需按产物核对。已检查安装包及能定位的精确版本上游源码；缺原文不等于可以忽略版权条件。
 
-## Ruby bundle 原文与许可冲突
-
-对 Linux AMD64 镜像初始标记的 21 项逐项核对后，20 项已解决：
-
-- i18n 1.15.2、activesupport 7.2.3.2、execjs 2.10.1、sass 3.7.4、unicode-display_width 1.8.0 自带 `MIT-LICENSE` 或 `MIT-LICENSE.txt`；采集器现已识别该文件名，并有回归测试。
-- minitest 5.27.0 的完整 MIT 授权与版权在包内 `README.rdoc`，已按原文保留。
-- 其余 14 个包从与锁定版本对应的上游 tag 补齐原文：coffee-script-source、jekyll-sass-converter、jekyll-watch、jekyll-coffeescript、jekyll-default-layout、jekyll-github-metadata、jekyll-include-cache、jekyll-mentions、jekyll-optional-front-matter、jekyll-readme-index、jekyll-relative-links、jekyll-remote-theme、jemoji、github-pages。精确版本、来源和 SHA-256 见 `supplemental/ruby/inventory.json`。
-
-**rubyzip 2.4.1 存在具体许可表述冲突**：gemspec 声明 `BSD 2-Clause`，但同版本 [README](https://github.com/rubyzip/rubyzip/blob/v2.4.1/README.md) 和 [源文件版权注释](https://github.com/rubyzip/rubyzip/blob/v2.4.1/lib/zip.rb) 声明按 Ruby license 授权；该 tag 没有独立 LICENSE。
-已原样保留 README，并将 inventory 的 review 标为 `LICENSE CONFLICT`，没有自动认定只适用 BSD 或将短声明冒充完整原文。分发该 gem 前仍需核对适用许可的准确文本及上游表述。
+| 名称 | 版本 | 发布者声明 |
+| --- | --- | --- |
+| `@humanfs/types` | `0.15.0` | Apache-2.0 |
+| `@open-draft/deferred-promise` | `2.2.0` | MIT |
+| `is-node-process` | `1.2.0` | MIT |
+| `keyv` | `4.5.4` | MIT |
+| `natural-compare` | `1.4.0` | MIT |
+| `react-remove-scroll-bar` | `2.3.8` | MIT |
+| `stackback` | `0.0.2` | MIT |
+| `strict-event-emitter` | `0.5.1` | MIT |
 
 ## DeepSeek Harness 0.1.5rc1 的具体边界
 
@@ -57,7 +42,7 @@
 
 - 从 `python/sdk-runtime/package.json` 对应的 lockfile importer 沿生产/可选依赖遍历，共 246 个 workspace importer、322 个外部 snapshot，全部边均能解析。
 - 这个闭包含 `@anthropic-ai/sdk@0.123.0`，不含 `@anthropic-ai/claude-agent-sdk` 或其官方 CLI 平台包。因此没有依据把 Reven wheel 判定为携带 Claude Code 专有载荷。
-- 构建脚本使用 Node 24 SEA、`@yao-pkg/pkg`、原生插件与 ripgrep，Web frontend 的预构建资源也加入可执行文件。Reven 单独复制的 Node 22.22.2 许可证不能代替此嵌入 Node 24 的版本声明。
+- 构建脚本使用 Node 24 SEA、`@yao-pkg/pkg`、原生插件与 ripgrep，Web frontend 的预构建资源也加入可执行文件。当前 Web 构建使用的外部 Node 不进入最终镜像；此内嵌 Node 24 的版本和声明仍需单独核验。
 - 尚未从最终 Linux wheel 中导出并逐项核对上述 322 项、嵌入 Node 的精确 patch 版本、原生插件与前端资源许可原文；wheel 自带 NOTICE 的依赖表不等于这些组件的完整原文集合。这是重新分发该二进制时的具体未完成项。
 
 复查来源（均为固定 tag，不使用 master 推断已锁定 wheel）：
@@ -66,10 +51,9 @@
 - [锁定依赖](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.5-rc.1/pnpm-lock.yaml)
 - [可执行文件打包规则](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.5-rc.1/scripts/build-exe-for-python-sdk.ts)
 
-## 最终镜像核验
+## 当前最终镜像的验收边界
 
-测试基线为 Linux AMD64 本地镜像 `sha256:6366dea0c175911e6374ffb1985e9379704d80f92b5e0a90b067b6de6cdbef95`。
-在该镜像中只读挂载最新采集器和 Ruby 补充原文重新执行，已验证 99 项中 98 项有原文证据，另 1 项准确标为上述许可冲突；新构建会通过 Dockerfile 自动执行同一采集步骤。
-最终镜像在各生态 inventory.json 中记录实际平台、版本与证据哈希；重新发布的 digest 仍需单独验收。
-GPL/LGPL 等对应源码交付以及最终 digest 的许可扫描继续按该镜像的发布验收核对。
-源代码 checkout 不包含 node_modules、.venv 或这些预编译第三方可执行文件；源码公开与二进制镜像重新分发应分别验收。
+Dockerfile 仅保留 `javascript`、`python`、`system` 三类许可采集；Debian 新增安装集为 ca-certificates、tini、util-linux。
+合并后的 Linux AMD64 原生构建需重新产出并核对实际运行依赖清单、平台、证据哈希和最终镜像 digest。旧镜像的 683 JS / 96 Python / 99 Ruby / 188 Debian 数量、rubyzip 冲突及沙箱组件结论均不适用于当前镜像。
+DeepSeek 内嵌组件原文、当前 JS 缺原文项、GPL/LGPL 等对应源码交付和新镜像许可扫描继续按实际产物验收。
+源代码 checkout 不包含 node_modules、.venv 或这些预编译第三方可执行文件；源码公开与二进制镜像重新分发分别验收。

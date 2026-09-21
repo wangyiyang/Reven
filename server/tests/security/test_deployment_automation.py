@@ -22,7 +22,7 @@ def test_container_ci_only_runs_when_full_checks_are_requested() -> None:
 def test_regular_ci_checks_keep_path_filters_and_full_override() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    for job in ("backend", "migration", "frontend", "renderer"):
+    for job in ("backend", "migration", "frontend"):
         assert f"\n  {job}:\n    if: inputs.full || needs.changes.outputs.{job} == 'true'\n" in workflow
         assert f"      {job}: ${{{{ steps.filter.outputs.{job} }}}}\n" in workflow
         assert f"\n            {job}:\n" in workflow
@@ -70,7 +70,7 @@ def test_deploy_script_only_accepts_digests_and_runs_the_required_health_gate() 
     assert "/opt/reven-release/infra" in script
     assert "compose/docker-compose.yml" in script
     assert "caddy/Caddyfile" in script
-    assert "docker/seccomp-bwrap.json" in script
+    assert "docker/seccomp-bwrap.json" not in script
     assert "caddy reload" in script
     assert 'sync_infra "$restore_source"' in script
     assert ".last-healthy-image" in script
@@ -90,8 +90,11 @@ def test_container_ci_verifies_embedded_infra_and_fake_docker_deployments() -> N
     assert 'docker cp "$export_container:/opt/reven-release/infra/."' in container
     assert 'diff -ru infra "$exported_infra"' in container
     assert "sh scripts/test_deploy_reven.sh" in container
-    assert "Verify non-root runtime and renderer sandbox" in container
-    assert "Verify production blog sandbox and resource limits" in container
+    assert "Verify non-root runtime and embedded agent" in container
+    assert "dsh --version" in container
+    assert "renderer/dist" not in dockerfile
+    assert "ruby-full" not in dockerfile
+    assert "bubblewrap" not in dockerfile
     assert "--format cyclonedx --output /work/reven-sbom.cdx.json reven:test" in container
     assert "--exit-code 1 --ignore-unfixed --severity CRITICAL reven:test" in container
     assert "name: reven-container-sbom" in container
@@ -114,19 +117,19 @@ def test_full_ci_can_be_requested_manually_without_a_release() -> None:
     assert "environment: production" not in str(workflow)
 
 
-def test_self_host_smoke_precedes_legacy_host_relaxation() -> None:
+def test_self_host_smoke_uses_default_host_security_without_retired_runtime() -> None:
     import yaml
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     steps = workflow["jobs"]["container"]["steps"]
     runs = [step.get("run", "") for step in steps]
-    smoke_index = runs.index("python3 scripts/self_host_smoke.py --apparmor")
-    relaxation_index = next(i for i, run in enumerate(runs) if "sudo sysctl" in run)
+    smoke_index = runs.index("python3 scripts/self_host_smoke.py")
     build_index = next(i for i, run in enumerate(runs) if "docker build --pull" in run)
-    assert build_index < smoke_index < relaxation_index
-    profile_index = runs.index("sudo apparmor_parser -r infra/self-host/apparmor/reven-self-host")
-    assert profile_index < smoke_index
-    assert "sudo journalctl --dmesg --no-pager -n 100" in "\n".join(runs)
+    assert build_index < smoke_index
+    commands = "\n".join(runs)
+    for retired_dependency in ("apparmor_parser", "sudo sysctl", "seccomp-bwrap", "container_security_smoke"):
+        assert retired_dependency not in commands
+    assert "renderer" not in workflow["jobs"]
     assert steps[smoke_index].get("continue-on-error", False) is False
 
 

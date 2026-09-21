@@ -75,28 +75,6 @@ def collect_python(output: Path) -> list[dict]:
     return records
 
 
-def collect_ruby(output: Path) -> list[dict]:
-    command = [
-        "ruby",
-        "-rbundler/setup",
-        "-rjson",
-        "-e",
-        """
-specs = (Bundler.load.specs.to_a + [Gem::Specification.find_by_name('bundler')]).uniq
-puts JSON.generate(specs.map { |s| { name: s.name, version: s.version.to_s,
-  platform: s.platform.to_s, license: s.licenses, source: s.homepage, root: s.full_gem_path } })
-""",
-    ]
-    records = json.loads(subprocess.check_output(command, text=True))
-    for record in records:
-        root = Path(record.pop("root"))
-        prefix = f"{record['name']}@{record['version']}"
-        paths = [(p, f"{prefix}/{p.relative_to(root)}") for p in root.rglob("*") if NOTICE_NAME.match(p.name)]
-        record["evidence"] = copy_evidence(paths, output)
-        record["review"] = "human review required" if paths else "MISSING LICENSE TEXT; review required"
-    return records
-
-
 def collect_system(output: Path) -> list[dict]:
     fmt = "${binary:Package}\t${Version}\t${source:Package}\t${source:Version}\\n"
     packages = subprocess.check_output(["dpkg-query", "-W", f"-f={fmt}"], text=True)
@@ -141,11 +119,11 @@ def apply_supplemental(records: list[dict], directory: Path, output: Path) -> No
 
 
 def main() -> None:
-    if len(sys.argv) not in {3, 4} or sys.argv[1] not in {"python", "ruby", "system"}:
-        raise SystemExit("usage: collect-runtime.py {python|ruby|system} OUTPUT [SUPPLEMENTAL]")
+    if len(sys.argv) not in {3, 4} or sys.argv[1] not in {"python", "system"}:
+        raise SystemExit("usage: collect-runtime.py {python|system} OUTPUT [SUPPLEMENTAL]")
     scope, output = sys.argv[1], Path(sys.argv[2])
     output.mkdir(parents=True, exist_ok=True)
-    collectors = {"python": collect_python, "ruby": collect_ruby, "system": collect_system}
+    collectors = {"python": collect_python, "system": collect_system}
     records = collectors[scope](output)
     if len(sys.argv) == 4:
         apply_supplemental(records, Path(sys.argv[3]), output)

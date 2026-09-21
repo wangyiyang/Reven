@@ -19,7 +19,6 @@ from reven.integrations.feishu_bot.review_callback import (
     run_review_action,
 )
 from reven.integrations.models import Integration
-from reven.rss.inbox import InboxPushError
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.review_service import CandidateReviewError, CandidateReviewService
 from reven.security.secrets import SecretBox
@@ -55,11 +54,6 @@ class FakeExecutor:
         self.calls.append(("ignore", item_id))
         if self._error is not None:
             raise self._error
-
-
-class _NoopInbox:
-    async def push(self, item_id: UUID) -> None:
-        raise AssertionError("忽略流程不应触发 Notion 推送")
 
 
 async def _write_bot_config(
@@ -119,7 +113,7 @@ async def test_approve_success_maps_to_approved_toast() -> None:
 
     assert outcome is TOAST_APPROVED
     assert outcome.toast_type == "success"
-    assert outcome.text == "已采纳，推入 Notion Inbox"
+    assert outcome.text == "已保存素材"
     assert executor.calls == [("approve", ITEM_ID)]
 
 
@@ -169,9 +163,7 @@ async def test_empty_whitelist_rejects_everyone() -> None:
     [
         CandidateReviewError("RSS_CANDIDATE_NOT_FOUND", "候选不存在", status_code=404),
         CandidateReviewError("RSS_CANDIDATE_NOT_IGNORABLE", "状态不允许忽略"),
-        InboxPushError("RSS_CANDIDATE_NOT_FOUND", "候选不存在", status_code=404),
-        InboxPushError("RSS_CANDIDATE_NOT_PUSHABLE", "状态不允许推送"),
-        InboxPushError("RSS_CANDIDATE_PUSH_IN_PROGRESS", "正在推送"),
+        CandidateReviewError("RSS_CANDIDATE_NOT_SAVABLE", "状态不允许保存"),
     ],
 )
 async def test_domain_404_409_maps_to_already_handled_toast(action: str, error: Exception) -> None:
@@ -187,7 +179,7 @@ async def test_domain_404_409_maps_to_already_handled_toast(action: str, error: 
 
 @pytest.mark.anyio
 async def test_domain_503_maps_to_failed_toast() -> None:
-    executor = FakeExecutor(InboxPushError("NOTION_INBOX_UNAVAILABLE", "Notion 不可用", status_code=503))
+    executor = FakeExecutor(CandidateReviewError("RSS_REVIEW_UNAVAILABLE", "审核暂不可用", status_code=503))
 
     outcome = await run_review_action(
         executor, WHITELIST, action="approve", item_id=ITEM_ID, operator_open_id="ou_boss"
@@ -202,7 +194,7 @@ async def test_domain_503_maps_to_failed_toast() -> None:
 async def test_unexpected_error_maps_to_failed_toast_and_log_is_sanitized(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    executor = FakeExecutor(RuntimeError("notion-secret-token-value"))
+    executor = FakeExecutor(RuntimeError("database-credential-value"))
 
     with caplog.at_level(logging.WARNING):
         outcome = await run_review_action(
@@ -211,7 +203,7 @@ async def test_unexpected_error_maps_to_failed_toast_and_log_is_sanitized(
 
     assert outcome is TOAST_FAILED
     assert "RuntimeError" in caplog.text
-    assert "notion-secret-token-value" not in caplog.text  # 日志脱敏：只记异常类型
+    assert "database-credential-value" not in caplog.text  # 日志脱敏：只记异常类型
 
 
 @pytest.mark.anyio
@@ -304,7 +296,7 @@ async def test_repeated_ignore_clicks_are_idempotent(db_session: AsyncSession) -
     """真实核心层走通重复点击：第一次忽略成功，第二次幂等返回成功 toast。"""
     await _write_bot_config(db_session)
     item_id = await _seed_candidate(db_session)
-    service = CandidateReviewService(_factory(db_session), _NoopInbox())  # type: ignore[arg-type]
+    service = CandidateReviewService(_factory(db_session))
     dispatcher = _dispatcher(db_session, service)
     dispatcher.bind_loop(asyncio.get_running_loop())
 
@@ -315,3 +307,27 @@ async def test_repeated_ignore_clicks_are_idempotent(db_session: AsyncSession) -
     assert second is TOAST_IGNORED
     status = await db_session.scalar(select(RssItem.status).where(RssItem.id == item_id))
     assert status == "ignored"
+
+
+@pytest.mark.anyio
+async def test_approve_clicks_save_material_without_notion_and_preserve_timestamp(db_session: AsyncSession) -> None:
+    await _write_bot_config(db_session)
+    item_id = await _seed_candidate(db_session)
+    dispatcher = _dispatcher(db_session, CandidateReviewService(_factory(db_session)))
+    dispatcher.bind_loop(asyncio.get_running_loop())
+
+    forbidden = await asyncio.to_thread(dispatcher, "approve", item_id, "ou_stranger")
+    assert forbidden is TOAST_FORBIDDEN
+    assert await db_session.scalar(select(RssItem.status).where(RssItem.id == item_id)) == "candidate"
+    first = await asyncio.to_thread(dispatcher, "approve", item_id, "ou_boss")
+    saved_at = await db_session.scalar(select(RssItem.saved_at).where(RssItem.id == item_id))
+    second = await asyncio.to_thread(dispatcher, "approve", item_id, "ou_boss")
+    ignored = await asyncio.to_thread(dispatcher, "ignore", item_id, "ou_boss")
+
+    assert first is second is TOAST_APPROVED
+    assert first.text == "已保存素材"
+    assert ignored is TOAST_ALREADY_HANDLED
+    assert saved_at is not None
+    assert await db_session.scalar(select(RssItem.saved_at).where(RssItem.id == item_id)) == saved_at
+    assert await db_session.scalar(select(RssItem.status).where(RssItem.id == item_id)) == "saved"
+    assert list(await db_session.scalars(select(Integration.provider))) == ["feishu_bot"]

@@ -1,5 +1,7 @@
 # #127 实施与验证清单
 
+> 合并范围更新：`main` 的 `7edafd7`（#128）已移除 Notion、稿件发布、renderer、Doocs 与 Ruby/bubblewrap 运行依赖。用户要求本分支解决与 main 的冲突，因此当前实施保留该产品决策，首次流程改为 RSS → 人工审核 → Reven 本地素材库；以下早期设计与验收记录中涉及退役能力的内容仅保留为历史依据。当前合并验证见 `research/merge-main-validation.md`。
+
 ## 前置状态
 
 - [x] 创建 `codex/gh-127-open-source-alpha` worktree，基于 `origin/main` 的 `7761675`。

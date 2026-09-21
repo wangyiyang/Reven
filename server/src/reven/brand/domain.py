@@ -19,15 +19,7 @@ class BrandAssetPurpose(StrEnum):
 
 class BrandAssetSource(StrEnum):
     UPLOAD = "上传"
-    NOTION_IMPORT = "Notion 导入"
 
 
 class BrandVersionSource(StrEnum):
     MANUAL = "手动"
-    NOTION_IMPORT = "Notion 导入"
-
-
-class ImportRunStatus(StrEnum):
-    RUNNING = "进行中"
-    COMPLETED = "已完成"
-    FAILED = "失败"

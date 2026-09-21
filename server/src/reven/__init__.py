@@ -1,1 +1,1 @@
-"""Reven editorial publishing workbench."""
+"""Reven operations workbench."""

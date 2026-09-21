@@ -30,14 +30,12 @@ def compose_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return env
 
 
-def render_compose(env: Path, *, local: bool = False, apparmor: bool = False) -> dict[str, Any]:
+def render_compose(env: Path, *, local: bool = False) -> dict[str, Any]:
     docker = shutil.which("docker")
     if docker is None:
         pytest.skip("Docker Compose CLI required for config validation; no daemon needed")
     args = [docker, "compose", "-p", "reven-self-host-test", "--env-file", str(env)]
     args.extend(["-f", str(SELF_HOST / "docker-compose.yml")])
-    if apparmor:
-        args.extend(["-f", str(SELF_HOST / "compose.apparmor.yml")])
     if local:
         args.extend(["-f", str(SELF_HOST / "compose.local.yml")])
     result = subprocess.run(args + ["config", "--format", "json"], check=True, capture_output=True, text=True)
@@ -58,8 +56,7 @@ def test_source_build_keeps_application_and_database_private(compose_env: Path) 
     assert set(caddy["environment"]) == {"REVEN_PUBLIC_BASE_URL"}
     assert all(service["platform"] == "linux/amd64" for service in services.values())
     assert reven["read_only"] and reven["cap_drop"] == ["ALL"]
-    assert "no-new-privileges:true" in reven["security_opt"]
-    assert any("seccomp-bwrap.json" in option for option in reven["security_opt"])
+    assert reven["security_opt"] == ["no-new-privileges:true"]
     assert "privileged" not in reven and "cap_add" not in reven
     assert reven["mem_limit"] and reven["pids_limit"]
     assert caddy["cap_add"] == ["NET_BIND_SERVICE"]
@@ -114,11 +111,6 @@ def test_sensitive_configuration_is_required_and_volumes_remain_persistent() -> 
     }
 
 
-@pytest.mark.parametrize("local", [False, True])
-def test_apparmor_overlay_only_changes_the_application_profile(compose_env: Path, local: bool) -> None:
-    standard = render_compose(compose_env, local=local)
-    adapted = render_compose(compose_env, local=local, apparmor=True)
-    options = adapted["services"]["reven"]["security_opt"]
-    assert "apparmor=reven-self-host" in options
-    options.remove("apparmor=reven-self-host")
-    assert adapted == standard
+def test_retired_publishing_host_profiles_are_not_distributed() -> None:
+    assert not (SELF_HOST / "compose.apparmor.yml").exists()
+    assert not (SELF_HOST / "apparmor").exists()

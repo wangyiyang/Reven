@@ -1,5 +1,7 @@
 # #127 实施审查（2026-09-21）
 
+> 以下是合并 #128 前的历史验证，运行代码含现已退役的 Notion/发布/沙箱功能。合并后当前结果以 [merge-main-validation.md](merge-main-validation.md) 为准。
+
 ## 结论
 
 已审查应用 Origin/CSRF/会话、自托管 Compose/Caddy、原生产兼容、构建上下文保护、许可采集与文档。

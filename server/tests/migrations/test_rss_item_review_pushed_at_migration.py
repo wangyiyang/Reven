@@ -38,13 +38,13 @@ def test_migration_0020_adds_nullable_review_pushed_at() -> None:
     config = _alembic_config(database_url)
 
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         assert "review_pushed_at" in asyncio.run(_column_names(database_url))
 
         command.downgrade(config, "0019_brand_import_run_outcome")
         assert "review_pushed_at" not in asyncio.run(_column_names(database_url))
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         assert "review_pushed_at" in asyncio.run(_column_names(database_url))
     finally:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")

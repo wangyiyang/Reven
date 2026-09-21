@@ -10,7 +10,7 @@ from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword
 from reven.rss.screening import KeywordSignal, RssScreeningEngine, ScreeningDecision, ScreeningDocument
 from reven.scheduling import utc_now
 
-# 只允许回填仍处于机器决策状态的条目，人工已忽略/已推送的不动
+# 只允许回填仍处于机器决策状态的条目，人工已忽略/已保存的不动
 _RESCREENABLE_STATUSES = ("candidate", "filtered")
 
 
@@ -71,7 +71,7 @@ class RssScreeningService:
         async with self._factory.begin() as session:
             for decision, code in zip(decisions, outcome.error_codes, strict=True):
                 item = await session.get(RssItem, decision.item_id, with_for_update=True)
-                if item is None or item.status not in _RESCREENABLE_STATUSES or item.notion_page_id is not None:
+                if item is None or item.status not in _RESCREENABLE_STATUSES:
                     continue
                 _apply_decision(item, decision, code=code, model=self._embeddings.model)
                 updated += 1
@@ -83,7 +83,10 @@ class RssScreeningService:
                 (
                     await session.scalars(
                         select(RssItem)
-                        .where(RssItem.embedding_status == "degraded")
+                        .where(
+                            RssItem.embedding_status == "degraded",
+                            RssItem.status.in_(_RESCREENABLE_STATUSES),
+                        )
                         .order_by(RssItem.first_seen_at)
                         .limit(limit)
                     )

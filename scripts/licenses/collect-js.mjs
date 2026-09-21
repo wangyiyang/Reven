@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 
@@ -15,20 +16,20 @@ function noticeFiles(root) {
   return files.sort();
 }
 
-function packageRoots(store) {
+function packageRoots(project, store) {
+  const tree = JSON.parse(execFileSync("pnpm", ["list", "--recursive", "--depth", "Infinity", "--json"], {
+    cwd: project, encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
+  }));
   const roots = new Set();
-  for (const entry of readdirSync(store)) {
-    const modules = join(store, entry, "node_modules");
-    if (!existsSync(modules)) continue;
-    for (const name of readdirSync(modules)) {
-      const paths = name.startsWith("@")
-        ? readdirSync(join(modules, name)).map((child) => join(modules, name, child))
-        : [join(modules, name)];
-      for (const path of paths) {
-        if (!existsSync(join(path, "package.json"))) continue;
-        const actual = realpathSync(path);
-        if (actual.startsWith(`${store}/`)) roots.add(actual);
-      }
+  const pending = [...tree];
+  while (pending.length) {
+    const entry = pending.pop();
+    if (entry.path && existsSync(join(entry.path, "package.json"))) {
+      const actual = realpathSync(entry.path);
+      if (actual.startsWith(`${store}/`)) roots.add(actual);
+    }
+    for (const kind of ["dependencies", "devDependencies", "optionalDependencies"]) {
+      pending.push(...Object.values(entry[kind] ?? {}));
     }
   }
   return [...roots].sort();
@@ -87,7 +88,7 @@ const output = resolve(outputArg);
 const store = realpathSync(join(project, "node_modules/.pnpm"));
 mkdirSync(output, { recursive: true });
 const packages = new Map();
-for (const root of packageRoots(store)) {
+for (const root of packageRoots(project, store)) {
   const record = collectPackage(root, output);
   packages.set(`${record.name}@${record.version}`, record);
 }
@@ -95,7 +96,7 @@ if (!packages.size) throw new Error("no installed pnpm packages found");
 applySupplemental(packages, project, output);
 const lock = readFileSync(join(project, "pnpm-lock.yaml"));
 writeFileSync(join(output, "inventory.json"), JSON.stringify({
-  scope: "Installed pnpm workspace dependency superset, including development tools; not bundle reachability",
+  scope: "Current installed pnpm workspace dependency graph, including development tools; not bundle reachability",
   platform: `${process.platform}/${process.arch}`,
   lockfile: { path: "pnpm-lock.yaml", sha256: createHash("sha256").update(lock).digest("hex") },
   excluded: "Uninstalled optional/platform dependencies require separate review before redistributing those platforms",

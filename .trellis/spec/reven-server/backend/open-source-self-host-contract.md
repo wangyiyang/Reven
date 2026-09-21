@@ -3,7 +3,7 @@
 ## 1. 范围与触发
 
 修改应用 origin、会话/CSRF、`infra/self-host/`、镜像构建上下文或安装文档时遵守本契约。
-来源：Issue #127；部署定位为单管理员、Linux AMD64 自托管 Alpha。
+来源：Issue #127；部署定位为单管理员、Linux AMD64 自托管 Alpha。#128 已将首次流程收敛为 RSS → 人工采纳 → 本地素材，不恢复已移除的外部稿件发布。
 
 两条部署路径共用应用镜像，入口独立：
 
@@ -18,13 +18,13 @@
 - `Settings.validate_public_base_url(value: str) -> str`：将无效配置转成明确的 Pydantic 配置错误。
 - `POST /api/auth/login`，JSON `{"password": "..."}`：成功返回会话 Cookie。
 - `POST /api/auth/logout`：删除数据库会话，返回 `204` 和过期 Cookie；旧 Cookie 再访问受保护接口必须为 `401`。
-- `GET /api/health`：`{"service":"reven","status":"ok"}`；只证明进程可响应，不证明外部集成或沙箱可用。
+- `GET /api/health`：`{"service":"reven","status":"ok"}`；只证明进程可响应，不证明 RSS 抓取或外部集成可用。
 
 从源码根目录运行（真实配置不进命令输出）：
 
 ```bash
 reven_compose_files=(-f infra/self-host/docker-compose.yml)
-# 按宿主与入口追加覆盖文件，见安装指南。
+# 按入口追加覆盖文件，见安装指南。
 dc() {
   docker compose -p reven-self-host \
     --env-file infra/self-host/.env \
@@ -35,7 +35,7 @@ dc build reven
 dc up -d --wait
 ```
 
-AppArmor 宿主先安装 `infra/self-host/apparmor/reven-self-host`，数组追加 `-f infra/self-host/compose.apparmor.yml`；未启用 AppArmor 时不使用该覆盖文件。本机模式另追加 `-f infra/self-host/compose.local.yml`。后续升级、备份和恢复均保持同一组配置。
+本机模式追加 `-f infra/self-host/compose.local.yml`。后续升级、备份和恢复均保持同一组配置。
 `!override` 要求 Compose >= 2.24.4。
 
 ## 3. 行为、请求与环境契约
@@ -65,8 +65,7 @@ AppArmor 宿主先安装 `infra/self-host/apparmor/reven-self-host`，数组追�
 - 三个服务均声明 `platform: linux/amd64`；PostgreSQL/Caddy 从官方镜像按固定 digest 获取，Reven 使用源码 build。
 - Reven 等待 PostgreSQL healthy，Caddy 等待 Reven healthy；entrypoint 自动迁移失败必须停止启动，不切换新版静态资源。
 - 数据库和应用端口不发布到宿主。公网只发布 Caddy 80/443；local override **替换**端口列表，只留下 `127.0.0.1:8080:8080`。
-- 保留 Reven UID 10001、只读根文件系统、tmpfs、资源上限、`cap_drop: ALL`、`no-new-privileges` 和 bubblewrap seccomp。Caddy 保留镜像二进制所需的 `NET_BIND_SERVICE`。
-- Ubuntu 22.04 原生 AMD64 为 AppArmor 验证基线。命名 profile 基于固定 Moby 默认模板，保留 proc/sys、signal、ptrace 和网络限制，仅按 bubblewrap 临时布局放行 mount/pivot；不修改 daemon 默认 profile 或全局 user namespace 开关。新发行版/ABI 需单独验收。
+- 保留 Reven UID 10001、只读根文件系统、tmpfs、资源上限、`cap_drop: ALL`、`no-new-privileges` 和 Docker 默认安全策略。Caddy 保留镜像二进制所需的 `NET_BIND_SERVICE`。
 - 六个 named volumes：`postgres-data`、`reven-data`、`dsh-data`、`reven-static`、`caddy-data`、`caddy-config`。新卷复制镜像目录属主；恢复归档必须保留 UID/GID，不将应用改成 root。
 - Dockerfile 专属 ignore 覆盖任意层级 `.env`/`.env.*`（仅放行 `.env.example`）、密钥及运行数据；`.gitignore` 不能代替构建上下文保护。
 - 镜像继续携带旧部署所需 `/opt/reven-release/infra/`，运行许可材料位于 `/opt/reven-licenses/`。不得引入整个开发工具树；许可采集不等同于已完成公开分发审查。
@@ -83,28 +82,26 @@ AppArmor 宿主先安装 `infra/self-host/apparmor/reven-self-host`，数组追�
 | local 模式以 `127.0.0.1` 地址访问并写入 | 与配置的 `localhost` 不同源；应按指南使用 localhost |
 | 必填 Compose 环境变量缺失/空值 | `config` / 启动插值失败，不使用共享默认秘密 |
 | 数据库迁移或卷权限失败 | 应用不健康，入口依赖不能当成启动成功；保留故障证据 |
-| AppArmor 启用但遗漏命名 profile | Docker 默认 mount 禁令导致沙箱失败；按指南安装 profile 并使用 overlay |
-| 宿主不允许 bubblewrap user namespace | 沙箱调用显式失败；禁止以 privileged、SYS_ADMIN、删除 seccomp 或关闭沙箱作为默认修复 |
 | 更改 `.env` 仅执行 restart | 旧容器环境仍保留；使用 `up -d --force-recreate --wait` 重建相关服务 |
 
 ## 5. 正常、默认与错误场景
 
-- 正常：独立 Linux AMD64 主机，空卷、生成自己的秘密、公网 DNS/80/443 可达，通过可信 HTTPS 登录，再验收指定 Notion 测试空间。
-- 默认：没有 AI/COS 配置仍可启动；RSS 翻译/语义筛选可能降级。RSS Inbox 只需 Notion，完整稿件同步另需 COS。
+- 正常：独立 Linux AMD64 主机，空卷、生成自己的秘密、公网 DNS/80/443 可达，通过可信 HTTPS 登录，再验收 RSS 候选的本地采纳与素材保存。
+- 默认：没有 AI/COS 配置仍可启动；RSS 翻译/语义筛选可能降级。RSS 本地采纳不需要外部集成，品牌素材可选 COS。
 - 调度：RSS 在上海时间每日 06:00 后执行，当日已完成的空跑也会阻止新增来源立即重抓；无手动重跑契约。
-- 错误：将 `compose config`、`/api/health`、ARM64/QEMU、Fake Notion 或关闭全局宿主安全策略的 CI 烟测当成完整 Linux AMD64 默认部署验收。
-- 回滚：退回应用镜像不会降级数据库；迁移不兼容时须恢复兼容备份，并核对备份后已发生的外部写入。数据库备份不能替代主密钥或文件卷。
+- 错误：将 `compose config`、`/api/health`、ARM64/QEMU、本地确定性 RSS fixture 或关闭全局宿主安全策略的 CI 烟测当成完整 Linux AMD64 默认部署验收。
+- 回滚：退回应用镜像不会降级数据库；迁移不兼容时须恢复兼容备份，并核对备份后的素材及集成配置变化。数据库备份不能替代主密钥或文件卷。
 
 ## 6. 必须覆盖的测试与证据
 
 - `server/tests/test_config.py`：HTTP/HTTPS、别名优先级、大小写/默认端口规范化、Punycode/IPv6、非法输入与 Unicode 拒绝。
 - `server/tests/security/test_csrf.py`：同源成功、默认端口等价、不同协议/端口/无效输入/缺头为 403、转发头无法绕过。
 - `server/tests/security/test_auth.py`：HTTP/HTTPS Cookie 属性、内部代理 HTTP 的配置决定行为、注销及旧 Cookie 重放为 401。使用隔离数据库。
-- `server/tests/e2e/test_self_host_deployment.py`：实际 Compose 渲染后无数据库/应用公开端口，local 无遗留 80/443，必填环境/可选透传、卷及安全选项保留；AppArmor overlay 只追加 Reven 命名 profile，不改变其他 Compose 配置。
+- `server/tests/e2e/test_self_host_deployment.py`：实际 Compose 渲染后无数据库/应用公开端口，local 无遗留 80/443，必填环境/可选透传、卷及安全选项保留；不分发已退役的沙箱 profile。
 - `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：旧 ACR/HTTP/回滚约束、镜像 infra 不回退，自托管文件单独变化会选择 backend 回归；脚本另跑 `scripts/test_deploy_reven.sh`。
 - 修改 ignore 规则时用无敏感内容的嵌套假配置/密钥/运行数据验证真实 BuildKit 上下文，再检查最终镜像；仅文本模式检查不足以证明未打包秘密。#127 本地已执行八类假文件排除探针，不能据此省略将来的规则变更验证。
-- 独立容器验收：记录真实 Linux AMD64、镜像 ID、源码提交和宿主安全策略；空卷启动、可信 TLS、Secure Cookie、CSRF、UID/可写卷、持久化、实际沙箱与恢复均需运行证据。
-- 外部验收：指定 RSS 与 Notion 测试空间，字段初始化、真实候选、人工推送及重复确认幂等；未指定目标则保持待验收。不得使用生产凭据或模拟结果冒充。
+- 独立容器验收：记录真实 Linux AMD64、镜像 ID、源码提交和宿主安全策略；空卷启动、可信 TLS、Secure Cookie、CSRF、UID/可写卷、素材采纳、持久化与恢复均需运行证据。
+- 首次流程验收：真实 RSS 调度发现候选、人工采纳及重复采纳幂等、本地 saved 素材持久化。独立容器烟测可直接写入确定性候选验证采纳 API，但不替代真实源抓取与调度证据。
 
 普通 PR/main 不构建容器；完整容器验证的入口和无生产部署边界见 [CI 契约](ci-release-contract.md)。
 

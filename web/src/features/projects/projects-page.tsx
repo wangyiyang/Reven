@@ -20,7 +20,6 @@ type Project = {
   status: string
   department: string | null
   due_on: string | null
-  notion_url: string | null
   github_repo: string | null
   notes: string | null
   created_at: string
@@ -33,7 +32,6 @@ type ProjectForm = {
   status: string
   department: string
   due_on: string
-  notion_url: string
   github_repo: string
   notes: string
 }
@@ -44,7 +42,6 @@ const initialForm: ProjectForm = {
   status: "进行中",
   department: "",
   due_on: "",
-  notion_url: "",
   github_repo: "",
   notes: "",
 }
@@ -57,9 +54,7 @@ const githubRepoPattern = /^(?:https:\/\/github\.com\/)?[A-Za-z0-9_.-]+\/[A-Za-z
 
 function hasValidProjectLinks(form: ProjectForm) {
   const githubRepo = form.github_repo.trim()
-  const notionUrl = form.notion_url.trim()
   if (githubRepo && !githubRepoPattern.test(githubRepo)) return false
-  if (notionUrl && (!notionUrl.startsWith("https://") || !notionUrl.includes("notion"))) return false
   return true
 }
 
@@ -70,7 +65,6 @@ function toPayload(input: ProjectForm) {
     status: input.status,
     department: emptyToNull(input.department),
     due_on: emptyToNull(input.due_on),
-    notion_url: emptyToNull(input.notion_url),
     github_repo: emptyToNull(input.github_repo),
     notes: emptyToNull(input.notes),
   }
@@ -152,7 +146,6 @@ export function ProjectsPage() {
       status: project.status,
       department: project.department ?? "",
       due_on: project.due_on ?? "",
-      notion_url: project.notion_url ?? "",
       github_repo: project.github_repo ?? "",
       notes: project.notes ?? "",
     })
@@ -166,7 +159,7 @@ export function ProjectsPage() {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!hasValidProjectLinks(form)) {
-      toast.error("GitHub 仓库或 Notion URL 格式不正确")
+      toast.error("GitHub 仓库格式不正确")
       return
     }
     if (editingId) {
@@ -180,7 +173,7 @@ export function ProjectsPage() {
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">项目库</h1>
-        <p className="text-sm text-[var(--muted)]">一人公司项目台账：目标、状态、截止日、GitHub 与 Notion 链接。</p>
+        <p className="text-sm text-[var(--muted)]">一人公司项目台账：目标、状态、截止日、GitHub 仓库链接。</p>
       </div>
 
       <Card>
@@ -222,10 +215,6 @@ export function ProjectsPage() {
             <div className="space-y-2">
               <Label htmlFor="project-github">GitHub 仓库</Label>
               <Input id="project-github" onChange={(event) => updateField("github_repo", event.target.value)} value={form.github_repo} />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="project-notion">Notion URL</Label>
-              <Input id="project-notion" onChange={(event) => updateField("notion_url", event.target.value)} value={form.notion_url} />
             </div>
             <div className="flex items-end gap-2">
               <Button disabled={createMutation.isPending || updateMutation.isPending} type="submit">
@@ -297,11 +286,6 @@ export function ProjectsPage() {
                       {githubUrl ? (
                         <a className="text-[var(--signal)] underline underline-offset-2" href={githubUrl} rel="noreferrer" target="_blank">
                           GitHub
-                        </a>
-                      ) : null}
-                      {project.notion_url ? (
-                        <a className="text-[var(--signal)] underline underline-offset-2" href={project.notion_url} rel="noreferrer" target="_blank">
-                          Notion
                         </a>
                       ) : null}
                     </div>

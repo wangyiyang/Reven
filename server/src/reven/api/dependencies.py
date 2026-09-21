@@ -2,12 +2,10 @@
 
 from collections.abc import AsyncIterator
 from typing import Annotated, Protocol, cast
-from uuid import UUID
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.rss.inbox import InboxPushResult
 from reven.rss.review_service import CandidateReviewService
 
 
@@ -45,39 +43,8 @@ SessionFactoryDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_sess
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-class WechatPreviewService(Protocol):
-    async def render_current(self, article_id: UUID) -> str: ...
-
-
-def get_preview_service(request: Request) -> WechatPreviewService:
-    service = getattr(request.app.state, "wechat_preview_service", None)
-    if service is None:
-        from reven.config import get_settings
-        from reven.publishing.wechat.preview import ConfiguredWechatPreview
-
-        service = ConfiguredWechatPreview(get_session_factory(request), get_settings().renderer_command)
-    return cast(WechatPreviewService, service)
-
-
-PreviewServiceDep = Annotated[WechatPreviewService, Depends(get_preview_service)]
-
-
-class RssInboxPusher(Protocol):
-    async def push(self, item_id: UUID) -> InboxPushResult: ...
-
-
-def get_rss_inbox_service(request: Request) -> RssInboxPusher:
-    service = getattr(request.app.state, "rss_inbox_service", None)
-    if service is None:
-        raise RuntimeError("RSS Notion Inbox 服务未初始化")
-    return cast(RssInboxPusher, service)
-
-
-RssInboxServiceDep = Annotated[RssInboxPusher, Depends(get_rss_inbox_service)]
-
-
 def get_candidate_review_service(request: Request) -> CandidateReviewService:
-    return CandidateReviewService(get_session_factory(request), get_rss_inbox_service(request))
+    return CandidateReviewService(get_session_factory(request))
 
 
 CandidateReviewServiceDep = Annotated[CandidateReviewService, Depends(get_candidate_review_service)]

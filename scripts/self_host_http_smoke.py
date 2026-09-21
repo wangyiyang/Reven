@@ -85,6 +85,25 @@ class Browser:
         body, _ = self.request("/api/rss/sources")
         assert any(source["id"] == source_id and not source["enabled"] for source in json.loads(body))
 
+    def save_candidate(self, item_id: str) -> dict[str, Any]:
+        body, _ = self.request("/api/rss/candidates")
+        candidate = next(item for item in json.loads(body)["items"] if item["id"] == item_id)
+        body, _ = self.request(f"/api/rss/candidates/{item_id}/confirm", body={}, headers=self.write_headers)
+        saved = json.loads(body)
+        assert isinstance(saved, dict) and saved["saved_at"] is not None
+        assert saved == {**candidate, "status": "saved", "saved_at": saved["saved_at"]}
+        self.assert_saved_candidate(saved)
+        return saved
+
+    def assert_saved_candidate(self, saved: dict[str, Any]) -> None:
+        body, _ = self.request(f"/api/rss/candidates/{saved['id']}/confirm", body={}, headers=self.write_headers)
+        assert json.loads(body) == saved
+        body, _ = self.request("/api/rss/candidates?status=saved")
+        materials = json.loads(body)
+        assert materials["total"] == 1 and materials["items"] == [saved]
+        body, _ = self.request("/api/rss/candidates")
+        assert all(item["id"] != saved["id"] for item in json.loads(body)["items"])
+
     def logout(self, old_token: str) -> None:
         _, headers = self.request("/api/auth/logout", body={}, headers=self.write_headers, expected=204)
         cookie = SimpleCookie(headers["Set-Cookie"])["reven_session"]

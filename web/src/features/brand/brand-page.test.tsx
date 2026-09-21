@@ -78,7 +78,6 @@ function mockBaseline() {
       }),
     ),
     http.get("/api/brand/templates/blog", () => HttpResponse.json({ published: null, draft: null })),
-    http.get("/api/brand/import/runs", () => HttpResponse.json([])),
   )
 }
 
@@ -99,6 +98,9 @@ describe("BrandPage", () => {
     renderPage()
 
     expect(await screen.findByDisplayValue("翊行代码")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "品牌管理" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: /Notion/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "执行迁移" })).not.toBeInTheDocument()
     expect(screen.getByDisplayValue("王一羊")).toBeInTheDocument()
     expect(screen.getByText(/当前已发布 v3/)).toBeInTheDocument()
 
@@ -113,10 +115,11 @@ describe("BrandPage", () => {
     expect((saved as { default_author?: string })?.default_author).toBe("翊行")
   })
 
-  it("无已发布档案时提示 legacy 回落", async () => {
+  it("无已发布档案时提示创建品牌版本", async () => {
+    mockBaseline()
     server.use(http.get("/api/brand/profile", () => HttpResponse.json({ published: null, draft: null })))
     renderPage()
-    expect(await screen.findByText(/legacy 回落/)).toBeInTheDocument()
+    expect(await screen.findByText(/尚未发布品牌档案/)).toBeInTheDocument()
   })
 
   it("素材库展示并可停用素材", async () => {
@@ -165,6 +168,6 @@ describe("BrandPage", () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole("tab", { name: "个人博客" }))
     expect(await screen.findByLabelText("博客署名")).toBeInTheDocument()
-    expect(screen.getByText(/尚未发布，该渠道使用默认样式与行为/)).toBeInTheDocument()
+    expect(screen.getByText(/尚未发布模板/)).toBeInTheDocument()
   })
 })

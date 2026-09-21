@@ -1,5 +1,7 @@
 # 备份恢复辅助验收
 
+> 以下是合并 #128 前的历史验证，运行代码含现已退役的 Notion/发布/沙箱功能。合并后当前结果以 [merge-main-validation.md](merge-main-validation.md) 为准。
+
 - 执行日期：2026-09-20T17:00:09+00:00。
 - 结论：按 `docs/self-hosting-operations.md` 的核心命令，在独立空项目中完整恢复成功。
 - 平台边界：Linux AMD64 应用/数据库/Caddy 镜像运行于 ARM64 Docker daemon，属于仿真辅助证据；不替代正式 Linux AMD64 支持验收。

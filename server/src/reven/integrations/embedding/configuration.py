@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import get_settings
-from reven.integrations.notion.configuration import IntegrationConfigurationError
+from reven.integrations.errors import IntegrationConfigurationError
 from reven.integrations.repository import IntegrationRepository
 from reven.integrations.service import public_config_without_hint
 from reven.rss.embedding import BGE_M3_MODEL

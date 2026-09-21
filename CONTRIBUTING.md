@@ -7,7 +7,7 @@
 - Python 3.12、uv（CI 使用 0.12.1）。
 - Node.js 22.22.2 或更新的兼容版本、pnpm 10.13.1。
 - PostgreSQL 17；建议用 Docker 创建独立开发数据库与测试数据库。
-- 完整博客、renderer 沙箱验收需要 Linux AMD64 与容器依赖；其他平台的语言层检查不能替代该验收。
+- 完整自托管验收需要 Linux AMD64 与容器依赖；其他平台的语言层检查不能替代该验收。
 
 在仓库根目录安装锁定依赖：
 
@@ -38,22 +38,18 @@ export TEST_DATABASE_URL="postgresql+asyncpg://reven:$REVEN_DEV_DB_PASSWORD@127.
 export REVEN_MASTER_KEY="$(openssl rand -base64 32)"
 export REVEN_ADMIN_PASSWORD="$(openssl rand -hex 24)"
 export REVEN_PUBLIC_BASE_URL=http://localhost:5173
-export JOB_DATA_DIR="$PWD/.data/jobs"
 export DSH_HOME="$PWD/.dsh-runtime"
-export RENDERER_COMMAND="node $PWD/renderer/dist/cli.mjs"
-mkdir -p "$JOB_DATA_DIR"
 uv run alembic -c server/migrations/alembic.ini upgrade head
-pnpm --filter @reven/renderer build
 uv run uvicorn reven.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 在另一终端从仓库根目录执行 `pnpm --filter @reven/web exec vite --host localhost --port 5173 --strictPort`，浏览器访问 `http://localhost:5173`；Vite 将 `/api` 代理到后端。登录密码为后端终端中生成的 `REVEN_ADMIN_PASSWORD`，只在自己的终端或密码管理器中查看和保存。
 
-本段随机配置适合一次性开发环境。要保留已保存的集成，需将同一主密钥和密码安全保存，后续启动继续使用；重新生成主密钥会使旧凭据无法解密。原生开发不包含容器内的全部发布运行环境。
+本段随机配置适合一次性开发环境。要保留已保存的集成，需将同一主密钥和密码安全保存，后续启动继续使用；重新生成主密钥会使旧凭据无法解密。容器运行环境另由完整 CI 验证。
 
 ## 验证变更
 
-先跑受影响功能的测试，再跑对应层的完整检查。后端测试会清空测试库多张表，**`TEST_DATABASE_URL` 必须指向可丢弃的独立测试库**；未配置导致跳过不算通过。
+先跑受影响功能的测试，再跑对应层的完整检查。后端测试会清空测试库多张表，**`TEST_DATABASE_URL` 必须指向可丢弃的独立测试库**；未配置导致跳过不算通过。迁移测试会创建临时数据库，测试角色需要 CREATEDB 权限。
 
 ```bash
 uv run ruff check server
@@ -63,16 +59,15 @@ DATABASE_URL="$TEST_DATABASE_URL" uv run alembic -c server/migrations/alembic.in
 DATABASE_URL="$TEST_DATABASE_URL" uv run pytest server/tests --cov=reven --cov-report=term-missing --cov-fail-under=80
 pnpm --filter @reven/web lint
 pnpm --filter @reven/web test --run
-pnpm --filter @reven/renderer test
 pnpm build
 git diff --check
 ```
 
-vendoring 或部署脚本变更还需分别运行 `sh scripts/test_vendor_doocs.sh`、`sh scripts/test_deploy_reven.sh`；shell 逻辑用 shellcheck，workflow 用 actionlint 检查。验证命令不能连接生产数据库、发送真实群消息或发布业务稿件。
+部署脚本变更还需运行 `sh scripts/test_deploy_reven.sh`；shell 逻辑用 shellcheck，workflow 用 actionlint 检查。验证命令不能连接生产数据库、发送真实群消息或修改真实业务资料。
 
-普通 PR / main CI 按路径运行语言层检查，**不构建容器**；版本 tag 发版执行完整容器、沙箱及供应链检查。维护者可以在 Actions 的 **CI** 工作流中选择待验证分支，手动设 `full=true` 运行完整检查；该入口不发布镜像或部署生产环境。
+普通 PR / main CI 按路径运行语言层检查，**不构建容器**；版本 tag 发版执行完整容器及供应链检查。维护者可以在 Actions 的 **CI** 工作流中选择待验证分支，手动设 `full=true` 运行完整检查；该入口不发布镜像或部署生产环境。
 
-自托管烟测使用独立 project、临时随机凭据、空卷及显式信任的测试 CA，并在任何旧宿主安全策略调整之前验证默认 Compose 沙箱参数。它不替代公网 ACME 签发或真实 Notion 验收。不要推送版本 tag 来试跑检查，它会进入生产发布流程。容器相关 PR 应附独立环境验证证据。
+自托管烟测使用独立 project、临时随机凭据、空卷及显式信任的测试 CA，验证 HTTPS、认证、数据持久化、素材采纳和默认 Compose 安全设置。它不替代公网 ACME 签发或真实 Feed 的完整发现验收。不要推送版本 tag 来试跑检查，它会进入生产发布流程。容器相关 PR 应附独立环境验证证据。
 
 ## 提交与评审
 

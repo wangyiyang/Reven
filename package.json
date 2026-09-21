@@ -7,12 +7,7 @@
     "node": ">=22.22.2"
   },
   "scripts": {
-    "build": "pnpm --filter @reven/renderer build && pnpm --filter @reven/web build",
-    "test": "pnpm --filter @reven/renderer test && pnpm --filter @reven/web test --run"
-  },
-  "pnpm": {
-    "patchedDependencies": {
-      "juice@11.1.1": "vendor/doocs-md/patches/juice@11.1.1.patch"
-    }
+    "build": "pnpm --filter @reven/web build",
+    "test": "pnpm --filter @reven/web test --run"
   }
 }

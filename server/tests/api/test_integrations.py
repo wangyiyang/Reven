@@ -1,6 +1,7 @@
 import asyncio
 import os
 
+import pytest
 from fastapi.testclient import TestClient
 from reven.integrations.models import Integration
 from reven.integrations.service import (
@@ -11,16 +12,15 @@ from reven.integrations.service import (
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-DATA_SOURCE_ID = "11111111-1111-1111-1111-111111111111"
-DATABASE_ID = "22222222-2222-2222-2222-222222222222"
+EMBEDDING_CONFIG = {"base_url": "https://api.siliconflow.cn", "model": "BAAI/bge-m3"}
 
 
-def _notion_payload(token: str | None = None) -> dict[str, object]:
+def _embedding_payload(token: str | None = None) -> dict[str, object]:
     payload: dict[str, object] = {
-        "public_config": {"data_source_id": DATA_SOURCE_ID, "database_id": DATABASE_ID},
+        "public_config": dict(EMBEDDING_CONFIG),
     }
     if token is not None:
-        payload["secret"] = {"token": token}
+        payload["secret"] = {"api_key": token}
     return payload
 
 
@@ -72,7 +72,7 @@ def _insert_legacy_integration(provider: str, encrypted_secret: str) -> None:
 
 
 def test_short_secret_hint_does_not_leak_plaintext(client: TestClient) -> None:
-    response = client.put("/api/integrations/notion", json=_notion_payload("ab"))
+    response = client.put("/api/integrations/embedding", json=_embedding_payload("ab"))
 
     assert response.status_code == 200
     body = response.json()
@@ -83,27 +83,27 @@ def test_short_secret_hint_does_not_leak_plaintext(client: TestClient) -> None:
 
 def test_integration_response_never_contains_secret(client: TestClient) -> None:
     response = client.put(
-        "/api/integrations/notion",
+        "/api/integrations/embedding",
         json={
-            "public_config": {"data_source_id": DATA_SOURCE_ID, "database_id": DATABASE_ID},
-            "secret": {"token": "notion-secret"},
+            "public_config": dict(EMBEDDING_CONFIG),
+            "secret": {"api_key": "embedding-secret"},
         },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["secret_configured"] is True
-    assert "notion-secret" not in response.text
+    assert "embedding-secret" not in response.text
     assert "encrypted_secret" not in body
 
 
 def test_put_creates_integration_with_hint(client: TestClient) -> None:
-    response = client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+    response = client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
 
     assert response.status_code == 200
     body = response.json()
-    assert body["provider"] == "notion"
-    assert body["public_config"] == {"data_source_id": DATA_SOURCE_ID, "database_id": DATABASE_ID}
+    assert body["provider"] == "embedding"
+    assert body["public_config"] == EMBEDDING_CONFIG
     assert body["secret_configured"] is True
     assert body["secret_hint"] == "已配置 · ****aaaa"
     assert body["connection_status"] == "未测试"
@@ -112,75 +112,75 @@ def test_put_creates_integration_with_hint(client: TestClient) -> None:
 
 
 def test_put_replaces_secret_and_updates_hint(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-    first = _fetch_integration("notion")
+    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+    first = _fetch_integration("embedding")
     assert first is not None
 
-    response = client.put("/api/integrations/notion", json=_notion_payload("ntn_0000bbbb"))
+    response = client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000bbbb"))
 
     assert response.status_code == 200
     assert response.json()["secret_hint"] == "已配置 · ****bbbb"
-    second = _fetch_integration("notion")
+    second = _fetch_integration("embedding")
     assert second is not None
     assert second.encrypted_secret != first.encrypted_secret
 
 
 def test_put_without_secret_preserves_ciphertext(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-    first = _fetch_integration("notion")
+    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+    first = _fetch_integration("embedding")
     assert first is not None
 
-    response = client.put("/api/integrations/notion", json=_notion_payload())
+    response = client.put("/api/integrations/embedding", json=_embedding_payload())
 
     assert response.status_code == 200
     body = response.json()
     assert body["secret_configured"] is True
     assert body["secret_hint"] == "已配置 · ****aaaa"
-    second = _fetch_integration("notion")
+    second = _fetch_integration("embedding")
     assert second is not None
     assert second.encrypted_secret == first.encrypted_secret
 
 
 def test_delete_secret_removes_ciphertext_and_hint(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
 
-    response = client.delete("/api/integrations/notion/secret")
+    response = client.delete("/api/integrations/embedding/secret")
 
     assert response.status_code == 200
     body = response.json()
     assert body["secret_configured"] is False
     assert body["secret_hint"] is None
-    stored = _fetch_integration("notion")
+    stored = _fetch_integration("embedding")
     assert stored is not None
     assert stored.encrypted_secret is None
-    assert "ntn_0000aaaa" not in response.text
+    assert "embed_0000aaaa" not in response.text
 
 
 def test_delete_secret_without_secret_returns_404(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload())
+    client.put("/api/integrations/embedding", json=_embedding_payload())
 
-    response = client.delete("/api/integrations/notion/secret")
+    response = client.delete("/api/integrations/embedding/secret")
 
     assert response.status_code == 404
     assert response.json()["code"] == "INTEGRATION_SECRET_NOT_CONFIGURED"
 
 
 def test_get_list_and_detail_shapes(client: TestClient) -> None:
-    client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
+    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
     client.put(
-        "/api/integrations/github",
+        "/api/integrations/feishu",
         json={
-            "public_config": {"owner": "octo-org", "repo": "octo_repo"},
-            "secret": {"token": "github-token-1234"},
+            "public_config": {"name": "RSS 通知"},
+            "secret": {"webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/test-1234"},
         },
     )
 
     list_response = client.get("/api/integrations")
     assert list_response.status_code == 200
     items = {item["provider"]: item for item in list_response.json()}
-    assert set(items) == {"notion", "github"}
-    notion = items["notion"]
-    assert set(notion) == {
+    assert set(items) == {"embedding", "feishu"}
+    embedding = items["embedding"]
+    assert set(embedding) == {
         "provider",
         "public_config",
         "secret_configured",
@@ -190,31 +190,32 @@ def test_get_list_and_detail_shapes(client: TestClient) -> None:
         "last_error",
         "last_latency_ms",
     }
-    assert items["github"]["secret_hint"] == "已配置 · ****1234"
+    assert items["feishu"]["secret_hint"] == "已配置 · ****1234"
 
-    detail_response = client.get("/api/integrations/notion")
+    detail_response = client.get("/api/integrations/embedding")
     assert detail_response.status_code == 200
-    assert detail_response.json() == notion
-    assert "ntn_0000aaaa" not in list_response.text
-    assert "github-token-1234" not in list_response.text
+    assert detail_response.json() == embedding
+    assert "embed_0000aaaa" not in list_response.text
+    assert "https://open.feishu.cn/open-apis/bot/v2/hook/test-1234" not in list_response.text
 
 
-def test_list_filters_unsupported_legacy_provider(client: TestClient) -> None:
-    configured = client.put("/api/integrations/notion", json=_notion_payload("notion-secret"))
+@pytest.mark.parametrize("provider", ["translate_tencent", "notion", "github", "wechat"])
+def test_list_filters_unsupported_legacy_provider(client: TestClient, provider: str) -> None:
+    configured = client.put("/api/integrations/embedding", json=_embedding_payload("embedding-secret"))
     assert configured.status_code == 200
-    _insert_legacy_integration("translate_tencent", "legacy-ciphertext-must-not-leak")
+    _insert_legacy_integration(provider, "legacy-ciphertext-must-not-leak")
 
     response = client.get("/api/integrations")
 
     assert response.status_code == 200
-    assert [item["provider"] for item in response.json()] == ["notion"]
-    assert "translate_tencent" not in response.text
+    assert [item["provider"] for item in response.json()] == ["embedding"]
+    assert provider not in response.text
     assert "legacy-ciphertext-must-not-leak" not in response.text
-    assert "notion-secret" not in response.text
+    assert "embedding-secret" not in response.text
 
 
 def test_get_missing_integration_returns_404(client: TestClient) -> None:
-    response = client.get("/api/integrations/notion")
+    response = client.get("/api/integrations/embedding")
 
     assert response.status_code == 404
     assert response.json()["code"] == "INTEGRATION_NOT_FOUND"
@@ -223,7 +224,7 @@ def test_get_missing_integration_returns_404(client: TestClient) -> None:
 def test_unknown_provider_is_rejected(client: TestClient) -> None:
     for method in ("get", "put", "delete"):
         url = "/api/integrations/gitlab" if method != "delete" else "/api/integrations/gitlab/secret"
-        kwargs = {"json": _notion_payload()} if method == "put" else {}
+        kwargs = {"json": _embedding_payload()} if method == "put" else {}
         response = getattr(client, method)(url, **kwargs)
 
         assert response.status_code == 404
@@ -231,26 +232,20 @@ def test_unknown_provider_is_rejected(client: TestClient) -> None:
 
 
 def test_extra_fields_are_rejected(client: TestClient) -> None:
-    payload = _notion_payload("ntn_0000aaaa")
+    payload = _embedding_payload("embed_0000aaaa")
     payload["public_config"]["unexpected"] = "x"  # type: ignore[index]
 
-    response = client.put("/api/integrations/notion", json=payload)
+    response = client.put("/api/integrations/embedding", json=payload)
 
     assert response.status_code == 422
 
 
 def test_invalid_public_config_is_rejected(client: TestClient) -> None:
-    bad_uuid = client.put(
-        "/api/integrations/notion",
-        json={"public_config": {"data_source_id": "not-a-uuid", "database_id": DATABASE_ID}},
+    invalid_origin = client.put(
+        "/api/integrations/embedding",
+        json={"public_config": {"base_url": "http://remote.example.com"}},
     )
-    assert bad_uuid.status_code == 422
-
-    bad_slug = client.put(
-        "/api/integrations/github",
-        json={"public_config": {"owner": "bad owner!", "repo": "ok-repo"}},
-    )
-    assert bad_slug.status_code == 422
+    assert invalid_origin.status_code == 422
 
     bad_webhook = client.put(
         "/api/integrations/feishu",
@@ -290,13 +285,10 @@ def test_feishu_accepts_signing_secret_without_exposing_it(client: TestClient) -
 
 
 def test_connection_test_without_adapter_returns_503(client: TestClient) -> None:
-    # notion 已接入真实适配器；wechat 尚未接入，用于验证无适配器时的行为
-    client.put(
-        "/api/integrations/wechat",
-        json={"public_config": {"app_id": "wx0000abcd"}, "secret": {"app_secret": "wechat-secret"}},
-    )
+    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+    unregister_connection_test_adapter("embedding")
 
-    response = client.post("/api/integrations/wechat/test")
+    response = client.post("/api/integrations/embedding/test")
 
     assert response.status_code == 503
     assert response.json()["code"] == "CONNECTION_TEST_UNAVAILABLE"
@@ -304,47 +296,47 @@ def test_connection_test_without_adapter_returns_503(client: TestClient) -> None
 
 def test_connection_test_with_adapter_updates_status(client: TestClient) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
-        assert secrets == {"token": "ntn_0000aaaa"}
+        assert secrets == {"api_key": "embed_0000aaaa"}
         return ConnectionTestResult(success=True)
 
-    register_connection_test_adapter("notion", ok_adapter)
+    register_connection_test_adapter("embedding", ok_adapter)
     try:
-        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-        response = client.post("/api/integrations/notion/test")
+        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+        response = client.post("/api/integrations/embedding/test")
 
         assert response.status_code == 200
         body = response.json()
         assert body["connection_status"] == "连接正常"
         assert body["last_tested_at"] is not None
 
-        updated = client.put("/api/integrations/notion", json=_notion_payload())
+        updated = client.put("/api/integrations/embedding", json=_embedding_payload())
         assert updated.json()["connection_status"] == "未测试"
         assert updated.json()["last_tested_at"] is None
     finally:
-        unregister_connection_test_adapter("notion")
+        unregister_connection_test_adapter("embedding")
 
 
 def test_connection_test_failure_is_redacted(client: TestClient) -> None:
     async def failing_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
-        raise RuntimeError("鉴权失败：token ntn_0000aaaa 无效")
+        raise RuntimeError("鉴权失败：token embed_0000aaaa 无效")
 
-    register_connection_test_adapter("notion", failing_adapter)
+    register_connection_test_adapter("embedding", failing_adapter)
     try:
-        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-        response = client.post("/api/integrations/notion/test")
+        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+        response = client.post("/api/integrations/embedding/test")
 
         assert response.status_code == 200
         body = response.json()
         assert body["connection_status"] == "连接失败"
         assert body["last_error"] is not None
-        assert "ntn_0000aaaa" not in body["last_error"]
-        assert "ntn_0000aaaa" not in response.text
+        assert "embed_0000aaaa" not in body["last_error"]
+        assert "embed_0000aaaa" not in response.text
     finally:
-        unregister_connection_test_adapter("notion")
+        unregister_connection_test_adapter("embedding")
 
 
 def test_connection_test_missing_integration_returns_404(client: TestClient) -> None:
-    response = client.post("/api/integrations/wechat/test")
+    response = client.post("/api/integrations/embedding/test")
 
     assert response.status_code == 404
     assert response.json()["code"] == "INTEGRATION_NOT_FOUND"
@@ -354,41 +346,41 @@ def test_connection_test_with_corrupted_secret_returns_domain_error(client: Test
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=True)
 
-    register_connection_test_adapter("notion", ok_adapter)
+    register_connection_test_adapter("embedding", ok_adapter)
     try:
-        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-        _corrupt_encrypted_secret("notion")
+        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+        _corrupt_encrypted_secret("embedding")
 
-        response = client.post("/api/integrations/notion/test")
+        response = client.post("/api/integrations/embedding/test")
 
         assert response.status_code == 500
         assert response.json()["code"] == "INTEGRATION_SECRET_INVALID"
-        assert "ntn_0000aaaa" not in response.text
+        assert "embed_0000aaaa" not in response.text
     finally:
-        unregister_connection_test_adapter("notion")
+        unregister_connection_test_adapter("embedding")
 
 
 def test_connection_test_persists_latency_and_response_exposes_it(client: TestClient) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=True, latency_ms=87)
 
-    register_connection_test_adapter("notion", ok_adapter)
+    register_connection_test_adapter("embedding", ok_adapter)
     try:
-        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-        assert client.get("/api/integrations/notion").json()["last_latency_ms"] is None
+        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+        assert client.get("/api/integrations/embedding").json()["last_latency_ms"] is None
 
-        response = client.post("/api/integrations/notion/test")
+        response = client.post("/api/integrations/embedding/test")
 
         assert response.status_code == 200
         assert response.json()["last_latency_ms"] == 87
-        stored = _fetch_integration("notion")
+        stored = _fetch_integration("embedding")
         assert stored is not None
         assert stored.last_latency_ms == 87
 
-        updated = client.put("/api/integrations/notion", json=_notion_payload())
+        updated = client.put("/api/integrations/embedding", json=_embedding_payload())
         assert updated.json()["last_latency_ms"] is None
     finally:
-        unregister_connection_test_adapter("notion")
+        unregister_connection_test_adapter("embedding")
 
 
 def test_connection_test_failure_clears_latency(client: TestClient) -> None:
@@ -398,17 +390,17 @@ def test_connection_test_failure_clears_latency(client: TestClient) -> None:
     async def failing_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=False, message="网络不可达")
 
-    register_connection_test_adapter("notion", ok_adapter)
+    register_connection_test_adapter("embedding", ok_adapter)
     try:
-        client.put("/api/integrations/notion", json=_notion_payload("ntn_0000aaaa"))
-        assert client.post("/api/integrations/notion/test").json()["last_latency_ms"] == 87
-        register_connection_test_adapter("notion", failing_adapter)
+        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
+        assert client.post("/api/integrations/embedding/test").json()["last_latency_ms"] == 87
+        register_connection_test_adapter("embedding", failing_adapter)
 
-        response = client.post("/api/integrations/notion/test")
+        response = client.post("/api/integrations/embedding/test")
 
         assert response.status_code == 200
         body = response.json()
         assert body["connection_status"] == "连接失败"
         assert body["last_latency_ms"] is None
     finally:
-        unregister_connection_test_adapter("notion")
+        unregister_connection_test_adapter("embedding")

@@ -59,12 +59,10 @@ async def system_status(session: SessionDep) -> dict[str, object]:
         await session.execute(text("SELECT 1"))
     except Exception:
         database = False
-    sync = await session.get(SystemState, "notion_sync") if database else None
-    scheduler = await session.get(SystemState, "scheduler") if database else None
+    rss = await session.get(SystemState, "rss_discovery") if database else None
     return {
         "database": {"available": database},
-        "notion_sync": _heartbeat(sync),
-        "scheduler": _heartbeat(scheduler),
+        "rss_discovery": _heartbeat(rss),
     }
 
 

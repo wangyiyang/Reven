@@ -6,9 +6,8 @@ from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
-from reven.api.dependencies import CandidateReviewServiceDep, RssEmbeddingRefresherDep, RssInboxServiceDep, SessionDep
+from reven.api.dependencies import CandidateReviewServiceDep, RssEmbeddingRefresherDep, SessionDep
 from reven.api.schemas.rss import (
-    InboxPushResponse,
     RssCandidatePage,
     RssCandidateResponse,
     RssEmbeddingRebuildResponse,
@@ -18,7 +17,6 @@ from reven.api.schemas.rss import (
     RssSourceCreate,
     RssSourceResponse,
 )
-from reven.rss.inbox import InboxPushError, InboxPushResult
 from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
 from reven.rss.review_service import CandidateReviewError
@@ -77,11 +75,11 @@ async def ignore_candidate(item_id: UUID, review: CandidateReviewServiceDep) -> 
         return _candidate_error(exc.status_code, exc.code, exc.message)
 
 
-@router.post("/candidates/{item_id}/confirm", response_model=InboxPushResponse)
-async def confirm_candidate(item_id: UUID, inbox: RssInboxServiceDep) -> InboxPushResult | JSONResponse:
+@router.post("/candidates/{item_id}/confirm", response_model=RssCandidateResponse)
+async def confirm_candidate(item_id: UUID, review: CandidateReviewServiceDep) -> RssItem | JSONResponse:
     try:
-        return await inbox.push(item_id)
-    except InboxPushError as exc:
+        return await review.approve(item_id)
+    except CandidateReviewError as exc:
         return _candidate_error(exc.status_code, exc.code, exc.message)
 
 

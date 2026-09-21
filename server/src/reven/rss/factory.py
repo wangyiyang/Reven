@@ -13,12 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from reven.config import Settings
 from reven.integrations.embedding.configuration import EmbeddingConfig, load_embedding_config
 from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
-from reven.integrations.notion.client import NotionClient
-from reven.integrations.notion.configuration import IntegrationConfigurationError, load_notion_inbox_config
-from reven.integrations.notion.models import NotionError
-from reven.integrations.notion.service import NOTION_BASE_URL, REQUEST_TIMEOUT
 from reven.integrations.translation.configuration import load_translation_configs
-from reven.publishing.notifications import DeliveryNotifier
+from reven.notifications import DeliveryNotifier
 from reven.rss.ai import SiliconFlowChatClient
 from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, ReviewCardPush, RssDiscoveryService
 from reven.rss.embedding import (
@@ -31,7 +27,6 @@ from reven.rss.embedding import (
     SiliconFlowEmbeddingClient,
 )
 from reven.rss.feed import SecureFeedReader
-from reven.rss.inbox import InboxPushError, InboxPushResult, RssInboxService
 from reven.rss.models import RssDiscoveryRun
 from reven.rss.review_service import CandidateReviewService
 from reven.rss.scheduler import RssScheduleTick
@@ -107,7 +102,7 @@ class ConfiguredRssDiscoveryTick:
         return ReviewCardPusher(
             self._factory,
             secret_box,
-            CandidateReviewService(self._factory, ConfiguredRssInboxPusher(self._factory)),
+            CandidateReviewService(self._factory),
         )
 
     async def __call__(self) -> None:
@@ -195,34 +190,6 @@ class ConfiguredRssDiscoveryTick:
             )
         if sent_at is not None:
             self._completed_date = run_date
-
-
-class ConfiguredRssInboxPusher:
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
-        self._factory = factory
-
-    async def push(self, item_id: UUID) -> InboxPushResult:
-        try:
-            token, inbox_data_source_id = await load_notion_inbox_config(self._factory)
-        except IntegrationConfigurationError as exc:
-            raise InboxPushError(exc.code, "Notion Inbox 尚未正确配置") from exc
-        try:
-            async with httpx.AsyncClient(
-                base_url=NOTION_BASE_URL,
-                timeout=REQUEST_TIMEOUT,
-                trust_env=False,
-            ) as http:
-                return await RssInboxService(
-                    self._factory,
-                    NotionClient(token, http),
-                    inbox_data_source_id,
-                ).push(item_id)
-        except InboxPushError:
-            raise
-        except NotionError as exc:
-            raise InboxPushError("NOTION_INBOX_UNAVAILABLE", "Notion Inbox 暂时不可用", status_code=503) from exc
-        except httpx.HTTPError as exc:
-            raise InboxPushError("NOTION_INBOX_UNAVAILABLE", "Notion Inbox 暂时不可用", status_code=503) from exc
 
 
 class ConfiguredKeywordEmbeddingRefresher:

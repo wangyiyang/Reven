@@ -5,8 +5,8 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from reven.brand.domain import BrandVersionStatus, ImportRunStatus
-from reven.brand.models import BrandAsset, BrandImportRun, BrandVersion, ChannelTemplateVersion
+from reven.brand.domain import BrandVersionStatus
+from reven.brand.models import BrandAsset, BrandVersion, ChannelTemplateVersion
 
 
 class BrandRepository:
@@ -87,32 +87,9 @@ class BrandRepository:
         stmt = select(BrandAsset).where(BrandAsset.id.in_(ids))
         return list(await self.session.scalars(stmt))
 
-    # ---- 迁移记录 ----
-
-    async def successful_import_run(self, notion_page_id: str) -> BrandImportRun | None:
-        stmt = (
-            select(BrandImportRun)
-            .where(
-                BrandImportRun.notion_page_id == notion_page_id,
-                BrandImportRun.dry_run.is_(False),
-                BrandImportRun.status == ImportRunStatus.COMPLETED,
-            )
-            .order_by(BrandImportRun.created_at.desc())
-            .limit(1)
-        )
-        row: BrandImportRun | None = await self.session.scalar(stmt)
-        return row
-
-    async def list_import_runs(self, notion_page_id: str | None = None) -> list[BrandImportRun]:
-        stmt = select(BrandImportRun)
-        if notion_page_id:
-            stmt = stmt.where(BrandImportRun.notion_page_id == notion_page_id)
-        stmt = stmt.order_by(BrandImportRun.created_at.desc())
-        return list(await self.session.scalars(stmt))
-
     # ---- 通用 ----
 
-    def add(self, row: BrandVersion | ChannelTemplateVersion | BrandAsset | BrandImportRun) -> None:
+    def add(self, row: BrandVersion | ChannelTemplateVersion | BrandAsset) -> None:
         self.session.add(row)
 
     async def flush(self) -> None:

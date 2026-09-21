@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 OptionalShortText = Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=200)]
-NotionURL = Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=500)]
 
 _GITHUB_REPO_RE = re.compile(r"^(?:https://github\.com/)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?/?$")
 
@@ -22,26 +21,16 @@ def _validate_github_repo(value: str | None) -> str | None:
     return value
 
 
-def _validate_notion_url(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if not value.startswith("https://") or "notion" not in value:
-        raise ValueError("Notion URL 需为 https Notion 链接")
-    return value
-
-
 class ProjectCreate(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     goal: str | None = None
     status: Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)] = "进行中"
     department: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=64)] = None
     due_on: date | None = None
-    notion_url: NotionURL = None
     github_repo: OptionalShortText = None
     notes: str | None = None
 
     _github_repo = field_validator("github_repo")(_validate_github_repo)
-    _notion_url = field_validator("notion_url")(_validate_notion_url)
 
 
 class ProjectUpdate(BaseModel):
@@ -50,12 +39,10 @@ class ProjectUpdate(BaseModel):
     status: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=32)] = None
     department: Annotated[str | None, StringConstraints(strip_whitespace=True, max_length=64)] = None
     due_on: date | None = None
-    notion_url: NotionURL = None
     github_repo: OptionalShortText = None
     notes: str | None = None
 
     _github_repo = field_validator("github_repo")(_validate_github_repo)
-    _notion_url = field_validator("notion_url")(_validate_notion_url)
 
 
 class ProjectResponse(BaseModel):
@@ -67,7 +54,6 @@ class ProjectResponse(BaseModel):
     status: str
     department: str | None
     due_on: date | None
-    notion_url: str | None
     github_repo: str | None
     notes: str | None
     created_at: datetime

@@ -4,6 +4,8 @@ import email.message
 import hashlib
 import importlib.util
 import json
+import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -18,17 +20,6 @@ SPEC.loader.exec_module(RUNTIME)
 
 
 class LicenseCollectionTest(unittest.TestCase):
-    def test_ruby_keeps_prefixed_license_filenames(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "MIT-LICENSE.txt").write_text("Original gem license and attribution")
-            package = {"name": "example", "version": "1.0.0", "root": str(root)}
-            with patch.object(RUNTIME.subprocess, "check_output", return_value=json.dumps([package])):
-                records = RUNTIME.collect_ruby(root / "output")
-            self.assertEqual(len(records[0]["evidence"]), 1)
-            copied = root / "output" / records[0]["evidence"][0]["path"]
-            self.assertEqual(copied.read_text(), "Original gem license and attribution")
-
     def test_supplemental_text_is_version_matched_and_checksum_verified(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -61,20 +52,44 @@ class LicenseCollectionTest(unittest.TestCase):
             project = Path(directory)
             (project / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
             store = project / "node_modules/.pnpm"
-            for name in ["has-notices", "no-notices"]:
+            for name in ["has-notices", "no-notices", "retired-package"]:
                 root = store / f"{name}@1.0.0/node_modules" / name
                 root.mkdir(parents=True)
                 (root / "package.json").write_text(json.dumps({"name": name, "version": "1.0.0"}))
             notice = store / "has-notices@1.0.0/node_modules/has-notices/embedded/NOTICE"
             notice.parent.mkdir()
             notice.write_text("Keep embedded component attribution\n")
+
+            def dependency(name):
+                return {"path": str(store / f"{name}@1.0.0/node_modules" / name)}
+
+            tree = [
+                {
+                    "dependencies": {
+                        "has-notices": {
+                            **dependency("has-notices"),
+                            "dependencies": {"no-notices": dependency("no-notices")},
+                        }
+                    }
+                }
+            ]
+            fixture = project / "dependency-tree.json"
+            fixture.write_text(json.dumps(tree))
+            executable = project / "pnpm"
+            executable.write_text(f"#!/bin/sh\ncat {shlex.quote(str(fixture))}\n")
+            executable.chmod(0o755)
             output = project / "output"
-            subprocess.run(["node", str(SCRIPTS / "collect-js.mjs"), str(project), str(output)], check=True)
+            subprocess.run(
+                ["node", str(SCRIPTS / "collect-js.mjs"), str(project), str(output)],
+                check=True,
+                env={**os.environ, "PATH": f"{project}{os.pathsep}{os.environ['PATH']}"},
+            )
             records = {p["name"]: p for p in json.loads((output / "inventory.json").read_text())["packages"]}
             self.assertEqual(records["has-notices"]["license"], "UNKNOWN")
             copied = output / records["has-notices"]["evidence"][0]["path"]
             self.assertEqual(copied.read_text(), notice.read_text())
             self.assertIn("MISSING LICENSE TEXT", records["no-notices"]["review"])
+            self.assertNotIn("retired-package", records)
 
     def test_python_retains_distinct_nested_license_files(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -81,8 +81,7 @@ class RssCandidateResponse(BaseModel):
     reason: str | None
     rules_version: str | None
     screening_error: str | None
-    push_error: str | None
-    notion_url: str | None
+    saved_at: datetime | None
 
 
 class RssCandidatePage(BaseModel):
@@ -92,12 +91,6 @@ class RssCandidatePage(BaseModel):
     total: int
     page: int
     page_size: int
-
-
-class InboxPushResponse(BaseModel):
-    item_id: UUID
-    notion_page_id: UUID
-    notion_url: str
 
 
 class RssEmbeddingRebuildResponse(BaseModel):

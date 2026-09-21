@@ -18,7 +18,6 @@ from reven.agent.mcp_server import (
     resolve_agent_mcp_context,
 )
 from reven.api.routes.agent import router as agent_router
-from reven.api.routes.articles import router as articles_router
 from reven.api.routes.auth import router as auth_router
 from reven.api.routes.brand import router as brand_router
 from reven.api.routes.crm import router as crm_router
@@ -27,15 +26,14 @@ from reven.api.routes.integrations import router as integrations_router
 from reven.api.routes.projects import router as projects_router
 from reven.api.routes.rss import router as rss_router
 from reven.api.routes.sops import router as sops_router
-from reven.api.routes.sync import router as sync_router
 from reven.api.routes.system import router as system_router
 from reven.api.routes.talents import router as talents_router
+from reven.background import build_background_runner
 from reven.config import Settings, get_settings
 from reven.db import create_session_factory
 from reven.integrations.feishu_bot.review_callback import ReviewCallbackDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
-from reven.jobs.runner import build_background_runner
-from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher, ConfiguredRssInboxPusher
+from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher
 from reven.rss.review_service import CandidateReviewService
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
@@ -112,7 +110,7 @@ def _build_feishu_bot_supervisor(
         review_callback = ReviewCallbackDispatcher(
             factory,
             secret_box,
-            CandidateReviewService(factory, ConfiguredRssInboxPusher(factory)),
+            CandidateReviewService(factory),
         )
         supervisor = FeishuBotSupervisor(factory, secret_box, review_callback=review_callback)
     except Exception as exc:
@@ -174,7 +172,6 @@ async def _lifespan(
     )
     if factory is not None:
         current_app.state.session_factory = factory
-        current_app.state.rss_inbox_service = ConfiguredRssInboxPusher(factory)
         current_app.state.rss_embedding_refresher = ConfiguredKeywordEmbeddingRefresher(factory)
     settings = _load_settings_or_none()
     mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings)
@@ -243,14 +240,12 @@ def create_app(
     app.include_router(agent_router)
     app.include_router(auth_router)
     app.include_router(brand_router)
-    app.include_router(articles_router)
     app.include_router(crm_router)
     app.include_router(finance_router)
     app.include_router(integrations_router)
     app.include_router(projects_router)
     app.include_router(sops_router)
     app.include_router(rss_router)
-    app.include_router(sync_router)
     app.include_router(system_router)
     app.include_router(talents_router)
 

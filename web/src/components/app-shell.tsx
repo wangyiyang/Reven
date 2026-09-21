@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FileText, FolderKanban, LogOut, Moon, Palette, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
+import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FolderKanban, LogOut, Moon, Palette, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -43,7 +43,6 @@ type NavLeaf = { to: string; label: string; icon: LucideIcon }
 type NavEntry = NavLeaf | { label: string; icon: LucideIcon; children: NavLeaf[] }
 
 const navigation: NavEntry[] = [
-  { to: "/articles", label: "稿件", icon: FileText },
   { to: "/crm", label: "CRM", icon: ContactRound },
   { to: "/talents", label: "人才库", icon: Users },
   { to: "/finance", label: "财务", icon: Wallet },
@@ -53,12 +52,12 @@ const navigation: NavEntry[] = [
     label: "RSS",
     icon: Rss,
     children: [
-      { to: "/rss/candidates", label: "RSS 候选", icon: Sparkles },
+      { to: "/rss/candidates", label: "内容发现", icon: Sparkles },
       { to: "/rss/sources", label: "RSS 源", icon: Rss },
       { to: "/rss/keywords", label: "RSS 关键词", icon: Tags },
     ],
   },
-  { to: "/brand", label: "品牌与发布", icon: Palette },
+  { to: "/brand", label: "品牌管理", icon: Palette },
   { to: "/integrations", label: "集成设置", icon: PlugZap },
   { to: "/system", label: "系统状态", icon: Activity },
 ]
@@ -104,7 +103,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
       <aside className="z-20 border-b border-[var(--line)] bg-[var(--panel)] lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0">
         <div className="flex h-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-4 lg:flex-col lg:flex-nowrap lg:items-stretch lg:px-6 lg:py-8">
-          <NavLink aria-label="Reven 首页" className="group flex items-center gap-2.5" to="/articles">
+          <NavLink aria-label="Reven 首页" className="group flex items-center gap-2.5" to="/rss/candidates">
             <img alt="" className="h-8 w-8 dark:hidden" src="/brand/yixing-logo-v2-master.svg" />
             <img alt="" className="hidden h-8 w-8 dark:block" src="/brand/yixing-logo-v2-mono-white.svg" />
             <span className="text-xl font-semibold tracking-[-0.02em]">Reven</span>

@@ -43,20 +43,6 @@
       ]
     },
     {
-      "name": "https-proxy-agent",
-      "version": "5.0.1",
-      "license": "MIT",
-      "source": "npm:https-proxy-agent@5.0.1",
-      "npm_integrity": "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==",
-      "git_head": "d0d80cc0482f20495aa8595f802e1a9f3b1b3409",
-      "evidence": [
-        {
-          "path": "https-proxy-agent@5.0.1/README.md",
-          "sha256": "32f0856d2c43df7d05cca960fdee84e1e38ab545bd7b2186433dfa41aa90a712"
-        }
-      ]
-    },
-    {
       "name": "imurmurhash",
       "version": "0.1.4",
       "license": "MIT",
@@ -69,21 +55,6 @@
           "sha256": "4491517f7deb68d0b2a3bb590e785e276a60f12448447a9650d0bd50161a101c"
         }
       ]
-    },
-    {
-      "name": "khroma",
-      "version": "2.1.0",
-      "license": "MIT",
-      "source": "https://raw.githubusercontent.com/fabiospampinato/khroma/4968165afb0d3d09be66497e7985a34f7bfe6d42/license",
-      "npm_integrity": "sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==",
-      "git_head": "4968165afb0d3d09be66497e7985a34f7bfe6d42",
-      "evidence": [
-        {
-          "path": "khroma@2.1.0/license",
-          "sha256": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49"
-        }
-      ],
-      "resolution": "Missing package.json license field; explicit MIT grant and copyright in collected original license"
     },
     {
       "name": "saxes",

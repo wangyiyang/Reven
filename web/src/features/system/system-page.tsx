@@ -3,33 +3,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { apiRequest } from "@/lib/api"
-
-type HealthResponse = {
-  service: string
-  status: string
-}
-
-type Heartbeat = {
-  available: boolean
-  last_heartbeat_at: string | null
-}
-
-type SystemStatusResponse = {
-  database: { available: boolean }
-  notion_sync: Heartbeat
-  scheduler: Heartbeat
-}
+import { fetchSystemHealth, fetchSystemStatus, type Heartbeat } from "./system-api"
 
 export function SystemPage() {
   const queryClient = useQueryClient()
   const healthQuery = useQuery({
     queryKey: ["system", "health"],
-    queryFn: () => apiRequest<HealthResponse>("/health"),
+    queryFn: fetchSystemHealth,
   })
   const statusQuery = useQuery({
     queryKey: ["system", "status"],
-    queryFn: () => apiRequest<SystemStatusResponse>("/system/status"),
+    queryFn: fetchSystemStatus,
   })
 
   const loading = healthQuery.isLoading || statusQuery.isLoading
@@ -84,8 +68,7 @@ export function SystemPage() {
             <CardContent className="text-sm text-[var(--muted)]">连接探测（SELECT 1）</CardContent>
           </Card>
 
-          <HeartbeatCard label="Notion 同步" state={statusQuery.data.notion_sync} testId="system-notion-sync" />
-          <HeartbeatCard label="调度器" state={statusQuery.data.scheduler} testId="system-scheduler" />
+          <HeartbeatCard label="RSS 内容发现" state={statusQuery.data.rss_discovery} testId="system-rss-discovery" />
         </div>
       )}
     </main>

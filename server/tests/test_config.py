@@ -20,6 +20,13 @@ def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type
     assert settings.public_base_url == "http://dev.wangyiyang.cc:3001"
     assert "notion" not in Settings.model_fields
     assert "wechat_app_secret" not in Settings.model_fields
+    assert {
+        "sync_interval_seconds",
+        "scheduler_interval_seconds",
+        "job_lease_seconds",
+        "job_data_dir",
+        "renderer_command",
+    }.isdisjoint(Settings.model_fields)
     assert settings.cos_secret_id is None
     assert settings.cos_secret_key is None
     assert settings.siliconflow_api_key is None
