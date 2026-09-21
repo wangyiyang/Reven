@@ -3,6 +3,7 @@ import base64
 import os
 from collections.abc import Iterator
 from datetime import timedelta
+from http.cookies import SimpleCookie
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,6 @@ from sqlalchemy.pool import NullPool
 
 ORIGIN = "http://dev.wangyiyang.cc:3001"
 TEST_ADMIN_PASSWORD = "test-admin-password"
-WRITE_HEADERS = {"Origin": ORIGIN, "X-Reven-CSRF": "1"}
 
 
 @pytest.fixture(autouse=True)
@@ -28,15 +28,17 @@ def _reset_throttle() -> Iterator[None]:
     reset_login_throttle()
 
 
-@pytest.fixture
-def auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, async_sessionmaker]]:
+@pytest.fixture(params=[ORIGIN, "HTTPS://REVEN.EXAMPLE:443/"], ids=["http", "https"])
+def auth_client(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Iterator[tuple[TestClient, async_sessionmaker]]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("TEST_DATABASE_URL is not set")
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("REVEN_MASTER_KEY", base64.urlsafe_b64encode(b"t" * 32).decode())
     monkeypatch.setenv("REVEN_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
-    monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", ORIGIN)
+    monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", request.param)
     get_settings.cache_clear()
     engine = create_async_engine(database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -46,12 +48,13 @@ def auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, a
             await connection.execute(text("TRUNCATE auth_sessions RESTART IDENTITY CASCADE"))
 
     asyncio.run(reset())
+    origin = get_settings().public_base_url
     app = create_app(
         start_background_tasks=False,
         session_factory=factory,
-        public_base_url=ORIGIN,
+        public_base_url=origin,
     )
-    with TestClient(app, base_url="http://testserver", headers=WRITE_HEADERS) as client:
+    with TestClient(app, base_url=origin, headers={"Origin": origin, "X-Reven-CSRF": "1"}) as client:
         yield client, factory
     asyncio.run(engine.dispose())
     get_settings.cache_clear()
@@ -81,7 +84,12 @@ def test_login_sets_session_cookie_and_unlocks_api(
     response = _login(client)
 
     assert response.status_code == 200
-    assert "secure" not in response.headers["set-cookie"].lower()
+    morsel = SimpleCookie(response.headers["set-cookie"])[SESSION_COOKIE]
+    assert bool(morsel["secure"]) is (client.base_url.scheme == "https")
+    assert morsel["httponly"]
+    assert morsel["samesite"] == "lax"
+    assert morsel["path"] == "/"
+    assert not morsel["domain"]
     cookie = client.cookies.get(SESSION_COOKIE)
     assert cookie
     assert client.get("/api/auth/me").status_code == 200
@@ -100,9 +108,16 @@ def test_logout_invalidates_session(auth_client: tuple[TestClient, async_session
     client, _ = auth_client
     assert _login(client).status_code == 200
 
-    assert client.post("/api/auth/logout").status_code == 204
-
+    token = client.cookies.get(SESSION_COOKIE)
+    response = client.post("/api/auth/logout")
+    assert response.status_code == 204
+    morsel = SimpleCookie(response.headers["set-cookie"])[SESSION_COOKIE]
+    assert morsel["max-age"] == "0"
+    assert bool(morsel["secure"]) is (client.base_url.scheme == "https")
+    assert morsel["httponly"]
+    assert morsel["samesite"] == "lax"
     assert client.get("/api/auth/me").status_code == 401
+    assert client.get("/api/auth/me", headers={"Cookie": f"{SESSION_COOKIE}={token}"}).status_code == 401
 
 
 def test_active_request_slides_session_expiry(
@@ -150,3 +165,17 @@ def test_settings_require_admin_password(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_cookie_security_uses_configured_origin_behind_proxy(
+    auth_client: tuple[TestClient, async_sessionmaker],
+) -> None:
+    client, _ = auth_client
+    expected_secure = client.base_url.scheme == "https"
+    response = client.post(
+        "http://reven:8000/api/auth/login",
+        json={"password": TEST_ADMIN_PASSWORD},
+        headers={"X-Forwarded-Proto": "https" if not expected_secure else "http"},
+    )
+    assert response.status_code == 200
+    assert bool(SimpleCookie(response.headers["set-cookie"])[SESSION_COOKIE]["secure"]) is expected_secure

@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: reven
+      POSTGRES_USER: reven
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate POSTGRES_PASSWORD before starting}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U reven -d reven]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  reven:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://reven:${POSTGRES_PASSWORD:?Generate POSTGRES_PASSWORD before starting}@postgres:5432/reven
+      REVEN_MASTER_KEY: ${REVEN_MASTER_KEY:?Generate REVEN_MASTER_KEY before starting}
+      REVEN_ADMIN_PASSWORD: ${REVEN_ADMIN_PASSWORD:?Generate REVEN_ADMIN_PASSWORD before starting}
+      REVEN_PUBLIC_BASE_URL: ${REVEN_PUBLIC_BASE_URL:?Set REVEN_PUBLIC_BASE_URL to your HTTPS origin}
+      DSH_HOME: /data/dsh
+      # Unset optional keys are omitted, preserving application defaults and explicit degradation.
+      SILICONFLOW_API_KEY:
+      SILICONFLOW_CHAT_MODEL:
+      RSS_MODEL_REVIEW_ENABLED:
+      COS_BUCKET:
+      COS_REGION:
+      COS_SECRET_ID:
+      COS_SECRET_KEY:
+      COS_PUBLIC_BASE_URL:
+      COS_ASSET_PREFIX:
+    volumes:
+      - reven-data:/data
+      - dsh-data:/data/dsh
+      - reven-static:/srv/reven
+    read_only: true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  caddy:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      reven:
+        condition: service_healthy
+    environment:
+      REVEN_PUBLIC_BASE_URL: ${REVEN_PUBLIC_BASE_URL:?Set REVEN_PUBLIC_BASE_URL to your HTTPS origin}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - reven-static:/srv/reven:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    # The image binary requires this capability in the bounding set even on high ports.
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:
+  reven-data:
+  dsh-data:
+  reven-static:
+  caddy-data:
+  caddy-config:

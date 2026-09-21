@@ -1,11 +1,10 @@
-from urllib.parse import urlsplit
-
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from reven.config import get_settings
+from reven.security.origin import normalize_origin
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -41,18 +40,6 @@ class CsrfOriginMiddleware(BaseHTTPMiddleware):
 
 def _same_origin(candidate: str, configured: str) -> bool:
     try:
-        return _origin(candidate) == _origin(configured)
+        return normalize_origin(candidate) == normalize_origin(configured)
     except ValueError:
         return False
-
-
-def _origin(value: str) -> tuple[str, str, int]:
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
-        raise ValueError("invalid origin")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("invalid origin")
-    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise ValueError("invalid origin")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    return parsed.scheme, parsed.hostname.lower(), port

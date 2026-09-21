@@ -6,11 +6,17 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY web/package.json web/package.json
 RUN pnpm install --frozen-lockfile
 COPY web/ web/
-RUN pnpm --filter @reven/web build
+COPY scripts/licenses/collect-js.mjs /tmp/collect-js.mjs
+COPY licenses/supplemental/javascript/ licenses/supplemental/javascript/
+RUN pnpm --filter @reven/web build \
+    && node /tmp/collect-js.mjs /app /app/third-party-js \
+    && mkdir -p /app/web/dist/licenses/javascript \
+    && cp -R /app/third-party-js/. /app/web/dist/licenses/javascript/
+COPY LICENSE THIRD_PARTY_NOTICES.md /app/web/dist/licenses/
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS python-build
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock LICENSE ./
 COPY server/pyproject.toml server/pyproject.toml
 COPY server/src/ server/src/
 RUN uv sync --frozen --no-dev --all-packages
@@ -26,6 +32,13 @@ RUN useradd --create-home --uid 10001 reven \
     && chown -R reven:reven /app /data /srv/reven
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
+COPY LICENSE THIRD_PARTY_NOTICES.md /opt/reven-licenses/
+COPY licenses/supplemental/ /opt/reven-licenses/supplemental/
+COPY --from=node-build /app/third-party-js/ /opt/reven-licenses/javascript/
+COPY scripts/licenses/collect-runtime.py /tmp/collect-runtime.py
+RUN /app/.venv/bin/python /tmp/collect-runtime.py python /opt/reven-licenses/python /opt/reven-licenses/supplemental/python \
+    && /app/.venv/bin/python /tmp/collect-runtime.py system /opt/reven-licenses/system \
+    && rm /tmp/collect-runtime.py
 COPY --from=node-build --chown=reven:reven /app/web/dist /app/web-dist
 RUN find /app/web-dist -type f -print0 \
     | sort -z \

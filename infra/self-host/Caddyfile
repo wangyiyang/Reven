@@ -1,0 +1,31 @@
+{$REVEN_PUBLIC_BASE_URL} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+	}
+
+	handle /api/* {
+		reverse_proxy reven:8000
+	}
+
+	# The machine-only endpoint stays inside the application container.
+	handle /agent/* {
+		respond 404
+	}
+
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv/reven/current
+		file_server
+	}
+
+	handle {
+		header Cache-Control "no-cache"
+		root * /srv/reven/current
+		try_files {path} /index.html
+		file_server
+	}
+}

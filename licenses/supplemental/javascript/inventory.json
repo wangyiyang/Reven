@@ -1,0 +1,116 @@
+{
+  "packages": [
+    {
+      "name": "@esbuild/darwin-arm64",
+      "version": "0.28.1",
+      "license": "MIT",
+      "source": "https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md",
+      "npm_integrity": "sha512-TZbWkQY7kvTAXbXUT7uVACR5cMHsDiSz9z7ZKAX/RTq/WJEk3QyRr0wZpNhBDX+/0CtdqUIJlOiodQcta6tY3Q==",
+      "git_head": "bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "evidence": [
+        {
+          "path": "@esbuild__darwin-arm64@0.28.1/LICENSE.md",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+        }
+      ]
+    },
+    {
+      "name": "@rollup/rollup-darwin-arm64",
+      "version": "4.62.3",
+      "license": "MIT",
+      "source": "https://raw.githubusercontent.com/rollup/rollup/a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a/LICENSE.md",
+      "npm_integrity": "sha512-Pch2pFNOxxz1hTjypIdPyRTR6riiwRl84+VcN9djS680fw+Co1nAJINrdpqp7KV0NvyuU8ilZXZCjd7ykJl1GQ==",
+      "git_head": "a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a",
+      "evidence": [
+        {
+          "path": "@rollup__rollup-darwin-arm64@4.62.3/LICENSE.md",
+          "sha256": "fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8"
+        }
+      ]
+    },
+    {
+      "name": "esrecurse",
+      "version": "4.3.0",
+      "license": "BSD-2-Clause",
+      "source": "npm:esrecurse@4.3.0",
+      "npm_integrity": "sha512-KmfKL3b6G+RXvP8N1vr3Tq1kL/oCFgn2NYXEtqP8/L3pKapUA4G8cFVaoF3SU323CD4XypR/ffioHmkti6/Tag==",
+      "git_head": "8ceb63797813d9ac69572a671b95cf58ffdf35b6",
+      "evidence": [
+        {
+          "path": "esrecurse@4.3.0/README.md",
+          "sha256": "a7007c78c9d9da690ef6cdb0e7a3427d05832edb00abd1f5a9882700d73be4ad"
+        }
+      ]
+    },
+    {
+      "name": "imurmurhash",
+      "version": "0.1.4",
+      "license": "MIT",
+      "source": "npm:imurmurhash@0.1.4",
+      "npm_integrity": "sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==",
+      "git_head": null,
+      "evidence": [
+        {
+          "path": "imurmurhash@0.1.4/README.md",
+          "sha256": "4491517f7deb68d0b2a3bb590e785e276a60f12448447a9650d0bd50161a101c"
+        }
+      ]
+    },
+    {
+      "name": "saxes",
+      "version": "6.0.0",
+      "license": "ISC",
+      "source": "https://raw.githubusercontent.com/lddubeau/saxes/211fa0ebec9b628affc09219199639887174bfc3/LICENSE",
+      "npm_integrity": "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==",
+      "git_head": "211fa0ebec9b628affc09219199639887174bfc3",
+      "evidence": [
+        {
+          "path": "saxes@6.0.0/LICENSE",
+          "sha256": "0fac2374380621b22e6b50451057721a9c52935b02d16d106a9f04897f061d0e"
+        }
+      ]
+    },
+    {
+      "name": "@esbuild/linux-x64",
+      "version": "0.28.1",
+      "license": "MIT",
+      "source": "https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md",
+      "git_head": "bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "evidence": [
+        {
+          "path": "@esbuild__darwin-arm64@0.28.1/LICENSE.md",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+        }
+      ],
+      "resolution": "Same-version platform executable; shared upstream project license"
+    },
+    {
+      "name": "@rollup/rollup-linux-x64-gnu",
+      "version": "4.62.3",
+      "license": "MIT",
+      "source": "https://raw.githubusercontent.com/rollup/rollup/a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a/LICENSE.md",
+      "git_head": "a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a",
+      "evidence": [
+        {
+          "path": "@rollup__rollup-darwin-arm64@4.62.3/LICENSE.md",
+          "sha256": "fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8"
+        }
+      ],
+      "resolution": "Same-version platform executable; shared upstream project license"
+    },
+    {
+      "name": "@rollup/rollup-linux-x64-musl",
+      "version": "4.62.3",
+      "license": "MIT",
+      "source": "https://raw.githubusercontent.com/rollup/rollup/a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a/LICENSE.md",
+      "git_head": "a80a1974c584bfa8b694fb5d1a20f3fa75ebaf0a",
+      "evidence": [
+        {
+          "path": "@rollup__rollup-darwin-arm64@4.62.3/LICENSE.md",
+          "sha256": "fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8"
+        }
+      ],
+      "resolution": "Same-version platform executable; shared upstream project license"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
-vendor/doocs-md/** -whitespace
+# Preserve upstream license bytes and evidence hashes for these original files.
+licenses/supplemental/javascript/@rollup__rollup-darwin-arm64@4.62.3/LICENSE.md -whitespace
 
 # Trellis: append-only developer journals should merge cleanly across
 # parallel sessions/worktrees — each session only appends a new block, so

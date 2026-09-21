@@ -1,0 +1,39 @@
+{
+  "id": "gh-127-open-source-alpha",
+  "name": "gh-127-open-source-alpha",
+  "title": "完成开源 Alpha 发布准备（#127）",
+  "description": "为 GitHub #127 交付原创 Apache-2.0 许可、开源材料与独立 Linux AMD64 自托管 Alpha；按已合并 #128，首次流程为 RSS 到 Reven 本地素材库。",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "open-source-alpha",
+  "package": null,
+  "priority": "P2",
+  "creator": "WangYiyang",
+  "assignee": "WangYiyang",
+  "createdAt": "2026-09-21",
+  "completedAt": null,
+  "branch": "codex/gh-127-open-source-alpha",
+  "base_branch": "main",
+  "worktree_path": "/Users/wangyiyang/Documents/Github/worktrees/Reven/codex/gh-127-open-source-alpha",
+  "commit": null,
+  "pr_url": "https://github.com/wangyiyang/Reven/pull/129",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "LICENSE",
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+    "server/src/reven/config.py",
+    "server/src/reven/api/routes/auth.py",
+    "infra/self-host/",
+    "infra/docker/Dockerfile.dockerignore"
+  ],
+  "notes": "草稿 PR #129 正在合并 main #128；保留其退役 Notion/稿件发布/renderer 决策，发布历史和许可核验仍未完成。",
+  "meta": {
+    "github_issue": "127",
+    "github_url": "https://github.com/wangyiyang/Reven/issues/127"
+  }
+}

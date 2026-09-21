@@ -2,6 +2,17 @@
 
 Reven 是面向超级个体的个人经营工作台，聚合需要判断和处理的经营事项。
 
+当前处于 **单用户、自托管 Alpha** 阶段。首次体验以 **RSS → 人工筛选 → Reven 本地素材库** 为目标；开源准备与尚未完成的发布验收见 [Issue #127](https://github.com/wangyiyang/Reven/issues/127)。
+
+## 开始使用
+
+按 [自托管指南](docs/self-hosting.md) 从源码构建 PostgreSQL 17、Reven 和 Caddy，无需维护者的私有镜像或云账号。
+
+- 正式支持目标为 **Linux AMD64**；ARM64 和 Docker Desktop 尚未正式验证。
+- 公网使用自己的域名和 Caddy 自动 HTTPS；本机体验提供仅绑定 loopback 的 HTTP 配置。
+- 基础启动需要数据库密码、管理员密码与加密主密钥；RSS 采纳保存不要求外部集成账号。
+- AI、飞书和品牌图片 COS 存储按需配置，见 [可选集成](docs/integrations.md)。
+
 ## 当前范围
 
 - RSS：定时抓取、去重、翻译、分层筛选、人工审核及本地素材保存。
@@ -38,9 +49,16 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 - 业务时间统一使用 Asia/Shanghai，数据库存储 UTC。
 - 密钥通过环境变量或加密集成配置管理。
 
+## Alpha 限制
+
+- 单个管理员账号，无多用户权限或租户隔离。
+- RSS 同一天最多执行一次；当天已空跑时新增来源可能要等次日 06:00，当前没有手动抓取入口。
+- 未配置翻译服务时可能保留原文；未配置 Embedding 时采用字面与 BM25 筛选，并显示语义降级。安装成功不表示全部 AI 功能已启用。
+- 数据库与配置仍可能演进，升级前须备份。尤其下述迁移 0021 不可降级。
+
 ## 本地验证
 
-    uv sync --all-packages
+    uv sync --frozen --all-packages --python 3.12
     uv run ruff check server
     uv run ruff format --check server
     uv run mypy server/src
@@ -65,3 +83,14 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 部署与验证见 [运行手册](docs/runbook.md)，Agent 架构见
 [Agent 架构](docs/agent-architecture.md)，测试覆盖见 [测试地图](docs/ai-test-map.md)。
 历史稿件设计保留在 docs/superpowers，已不代表当前产品范围。
+
+## 文档与贡献
+
+- [自托管、首次验收](docs/self-hosting.md)
+- [备份、恢复与升级](docs/self-hosting-operations.md)
+- [AI、COS 与飞书集成](docs/integrations.md)
+- [贡献指南](CONTRIBUTING.md) · [安全问题反馈](SECURITY.md)
+
+## 许可证
+
+Reven 原创代码采用 [Apache-2.0](LICENSE)，版权持有人为 Wang Yiyang。第三方依赖和开发工具保留各自许可，其中 Trellis 工具模板为 AGPL。具体边界和分发声明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
