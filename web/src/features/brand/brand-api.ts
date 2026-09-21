@@ -66,36 +66,6 @@ export async function publishChannelTemplate(channel: "wechat" | "blog"): Promis
   await apiRequest(`/brand/templates/${channel}/publish`, { method: "POST" })
 }
 
-export interface BrandImportRun {
-  id: string
-  status: string
-  dry_run: boolean
-  report: {
-    brand_name?: string
-    assets_imported?: number
-    assets_reused?: number
-    skipped?: { item: string; reason: string }[]
-  }
-  error: string | null
-  created_at: string
-  finished_at: string | null
-}
-
-export async function runNotionImport(dryRun: boolean): Promise<BrandImportRun> {
-  const value = await apiRequest<unknown>("/brand/import/notion", {
-    method: "POST",
-    body: JSON.stringify({ dry_run: dryRun }),
-  })
-  if (!isRecord(value)) throw new ApiError(200, "invalid_response", "导入结果响应格式无效")
-  return value as unknown as BrandImportRun
-}
-
-export async function fetchImportRuns(): Promise<BrandImportRun[]> {
-  const value = await apiRequest<unknown>("/brand/import/runs")
-  if (!Array.isArray(value)) throw new ApiError(200, "invalid_response", "导入记录响应格式无效")
-  return value as BrandImportRun[]
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

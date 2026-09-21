@@ -1,5 +1,5 @@
 export type Provider =
-  | "notion" | "github" | "wechat" | "feishu" | "feishu_bot"
+  | "feishu" | "feishu_bot"
   | "translate_baidu" | "translate_aliyun" | "embedding" | "agent-llm"
 
 export interface Integration {
@@ -34,58 +34,20 @@ export interface ProviderDefinition {
 
 export const PROVIDERS: ProviderDefinition[] = [
   {
-    provider: "notion",
-    number: "01",
-    title: "Notion",
-    eyebrow: "稿件来源",
-    description: "读取稿件库，并在发布前同步最新正文与封面。",
-    publicFields: [
-      { key: "database_id", label: "Database ID", placeholder: "3301a325-…" },
-      { key: "data_source_id", label: "Data Source ID", placeholder: "4f7889bf-…" },
-      { key: "inbox_data_source_id", label: "Inbox Data Source ID", placeholder: "素材 Inbox（可选）", optional: true },
-    ],
-    secretFields: [{ key: "token", label: "Token", type: "password", placeholder: "输入新 Token" }],
-  },
-  {
-    provider: "github",
-    number: "02",
-    title: "GitHub",
-    eyebrow: "博客发布",
-    description: "通过分支、校验和 Pull Request 将稿件发布到博客。",
-    publicFields: [
-      { key: "owner", label: "Owner", placeholder: "wangyiyang" },
-      { key: "repo", label: "Repo", placeholder: "wangyiyang.github.io" },
-      { key: "default_branch", label: "默认分支策略", placeholder: "master" },
-    ],
-    secretFields: [{ key: "token", label: "Token", type: "password", placeholder: "输入新 Token" }],
-  },
-  {
-    provider: "wechat",
-    number: "03",
-    title: "微信",
-    eyebrow: "草稿生成",
-    description: "上传素材并生成公众号草稿；不会自动群发。",
-    publicFields: [
-      { key: "app_id", label: "AppID", placeholder: "wx…" },
-      { key: "author", label: "作者", placeholder: "王翊仰" },
-    ],
-    secretFields: [{ key: "app_secret", label: "AppSecret", type: "password", placeholder: "输入新 AppSecret" }],
-  },
-  {
     provider: "feishu",
-    number: "04",
+    number: "01",
     title: "飞书",
     eyebrow: "结果通知",
-    description: "发布任务结束后，向指定机器人报告完整结果。",
-    publicFields: [{ key: "name", label: "通知名称", placeholder: "发布通知" }],
+    description: "RSS 内容发现完成后，向指定机器人发送每日汇总。",
+    publicFields: [{ key: "name", label: "通知名称", placeholder: "RSS 汇总通知" }],
     secretFields: [{ key: "webhook_url", label: "Webhook", type: "password", placeholder: "输入新 Webhook URL" }],
   },
   {
     provider: "feishu_bot",
-    number: "05",
+    number: "02",
     title: "飞书应用",
     eyebrow: "审核机器人",
-    description: "每日候选稿以交互卡片推送给白名单成员，在飞书内完成采纳 / 忽略。",
+    description: "每日候选素材以交互卡片推送给白名单成员，在飞书内完成采纳 / 忽略。",
     publicFields: [
       { key: "whitelist_open_ids", label: "白名单 Open ID", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
       { key: "enabled", label: "启用机器人长连接", type: "checkbox" },
@@ -97,7 +59,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_baidu",
-    number: "06",
+    number: "03",
     title: "百度翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -112,7 +74,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_aliyun",
-    number: "07",
+    number: "04",
     title: "阿里翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -127,7 +89,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "embedding",
-    number: "08",
+    number: "05",
     title: "Embedding",
     eyebrow: "语义向量",
     description: "候选语义打分使用的向量服务，默认 SiliconFlow bge-m3，兼容 OpenAI 端点。",
@@ -139,7 +101,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "agent-llm",
-    number: "08",
+    number: "06",
     title: "Agent LLM",
     eyebrow: "智能体",
     description: "Agent 核心的 LLM 推理服务，默认 DeepSeek，兼容 OpenAI 端点。",

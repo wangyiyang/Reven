@@ -24,9 +24,6 @@ HINT_KEY = "_secret_hint"
 MAX_ERROR_LENGTH = 500
 
 SECRET_HINT_FIELDS = {
-    "notion": "token",
-    "github": "token",
-    "wechat": "app_secret",
     "feishu": "webhook_url",
     "feishu_bot": "app_secret",
     "translate_baidu": "app_key",

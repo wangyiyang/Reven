@@ -72,7 +72,7 @@ describe("AppShell 移动端布局", () => {
   it("导航项在移动端始终显示文字标签，且不折行", () => {
     renderShell()
     const nav = screen.getByRole("navigation", { name: "内容工作台主导航" })
-    for (const label of ["稿件", "CRM", "人才库", "财务", "项目", "SOP（标准作业流程）", "RSS 候选", "RSS 源", "RSS 关键词", "集成设置", "系统状态"]) {
+    for (const label of ["CRM", "人才库", "财务", "项目", "SOP（标准作业流程）", "内容发现", "RSS 源", "RSS 关键词", "品牌管理", "集成设置", "系统状态"]) {
       const link = screen.getByRole("link", { name: label })
       const labelSpan = link.querySelector("span")
       expect(labelSpan?.className).not.toContain("hidden")

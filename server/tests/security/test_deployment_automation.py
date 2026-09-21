@@ -22,7 +22,7 @@ def test_container_ci_only_runs_when_full_checks_are_requested() -> None:
 def test_regular_ci_checks_keep_path_filters_and_full_override() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    for job in ("backend", "migration", "frontend", "renderer"):
+    for job in ("backend", "migration", "frontend"):
         assert f"\n  {job}:\n    if: inputs.full || needs.changes.outputs.{job} == 'true'\n" in workflow
         assert f"      {job}: ${{{{ steps.filter.outputs.{job} }}}}\n" in workflow
         assert f"\n            {job}:\n" in workflow
@@ -70,7 +70,7 @@ def test_deploy_script_only_accepts_digests_and_runs_the_required_health_gate() 
     assert "/opt/reven-release/infra" in script
     assert "compose/docker-compose.yml" in script
     assert "caddy/Caddyfile" in script
-    assert "docker/seccomp-bwrap.json" in script
+    assert "docker/seccomp-bwrap.json" not in script
     assert "caddy reload" in script
     assert 'sync_infra "$restore_source"' in script
     assert ".last-healthy-image" in script
@@ -90,8 +90,11 @@ def test_container_ci_verifies_embedded_infra_and_fake_docker_deployments() -> N
     assert 'docker cp "$export_container:/opt/reven-release/infra/."' in container
     assert 'diff -ru infra "$exported_infra"' in container
     assert "sh scripts/test_deploy_reven.sh" in container
-    assert "Verify non-root runtime and renderer sandbox" in container
-    assert "Verify production blog sandbox and resource limits" in container
+    assert "Verify non-root runtime and embedded agent" in container
+    assert "dsh --version" in container
+    assert "renderer/dist" not in dockerfile
+    assert "ruby-full" not in dockerfile
+    assert "bubblewrap" not in dockerfile
     assert "--format cyclonedx --output /work/reven-sbom.cdx.json reven:test" in container
     assert "--exit-code 1 --ignore-unfixed --severity CRITICAL reven:test" in container
     assert "name: reven-container-sbom" in container

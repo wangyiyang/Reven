@@ -1,6 +1,2 @@
 packages:
   - "web"
-  - "renderer"
-  - "vendor/doocs-md/packages/core"
-  - "vendor/doocs-md/shared"
-  - "vendor/doocs-md/config"

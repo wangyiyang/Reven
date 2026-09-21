@@ -42,14 +42,14 @@ describe("apiRequest CSRF headers", () => {
 
 describe("apiRequest auth redirect", () => {
   it("redirects to /login on 401 for non-auth paths", async () => {
-    const assign = stubLocation("/articles", "?channel=wechat")
+    const assign = stubLocation("/rss/candidates", "?status=saved")
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response('{"code":"unauthorized"}', { status: 401 })),
     )
 
-    await expect(apiRequest("/articles")).rejects.toMatchObject({ status: 401 })
-    expect(assign).toHaveBeenCalledWith("/login?next=%2Farticles%3Fchannel%3Dwechat")
+    await expect(apiRequest("/rss/candidates")).rejects.toMatchObject({ status: 401 })
+    expect(assign).toHaveBeenCalledWith("/login?next=%2Frss%2Fcandidates%3Fstatus%3Dsaved")
   })
 
   it("does not redirect on 401 from auth endpoints", async () => {

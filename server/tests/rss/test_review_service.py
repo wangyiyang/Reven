@@ -1,25 +1,14 @@
-"""CandidateReviewService：待审核查询筛选与排序、采纳委托、忽略状态机。"""
+"""CandidateReviewService：待审核查询筛选与排序、本地采纳、忽略状态机。"""
 
+import asyncio
 import hashlib
 from datetime import UTC, date, datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
-from reven.rss.inbox import InboxPushResult
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.review_service import CandidateReviewError, CandidateReviewService
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-PAGE_ID = UUID("55555555-5555-5555-5555-555555555555")
-
-
-class RecordingPusher:
-    def __init__(self) -> None:
-        self.item_ids: list[UUID] = []
-
-    async def push(self, item_id: UUID) -> InboxPushResult:
-        self.item_ids.append(item_id)
-        return InboxPushResult(item_id, PAGE_ID, "https://www.notion.so/material")
 
 
 def digest(value: str) -> str:
@@ -65,9 +54,9 @@ async def seed_items(db_session: AsyncSession, *items: tuple[str, dict[str, obje
     return seeded
 
 
-def build_service(db_session: AsyncSession, pusher: RecordingPusher | None = None) -> CandidateReviewService:
+def build_service(db_session: AsyncSession) -> CandidateReviewService:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    return CandidateReviewService(factory, pusher or RecordingPusher())
+    return CandidateReviewService(factory)
 
 
 @pytest.mark.anyio
@@ -93,14 +82,75 @@ async def test_list_pending_review_filters_and_orders_by_published_at(db_session
 
 
 @pytest.mark.anyio
-async def test_approve_delegates_to_inbox_push(db_session: AsyncSession) -> None:
+async def test_approve_saves_locally_and_preserves_original_timestamp(db_session: AsyncSession) -> None:
     seeded = await seed_items(db_session, ("one", {}))
-    pusher = RecordingPusher()
+    service = build_service(db_session)
 
-    result = await build_service(db_session, pusher).approve(seeded[0].id)
+    first = await service.approve(seeded[0].id)
+    second = await service.approve(seeded[0].id)
 
-    assert pusher.item_ids == [seeded[0].id]
-    assert result == InboxPushResult(seeded[0].id, PAGE_ID, "https://www.notion.so/material")
+    assert first.id == second.id == seeded[0].id
+    assert first.status == second.status == "saved"
+    assert first.saved_at is not None
+    assert second.saved_at == first.saved_at
+    async with async_sessionmaker(db_session.bind, expire_on_commit=False)() as session:
+        stored = await session.get(RssItem, seeded[0].id)
+        assert stored is not None
+        assert stored.status == "saved"
+        assert stored.saved_at == first.saved_at
+    assert await service.list_pending_review() == []
+
+
+@pytest.mark.anyio
+async def test_approve_missing_candidate_raises_not_found(db_session: AsyncSession) -> None:
+    with pytest.raises(CandidateReviewError) as caught:
+        await build_service(db_session).approve(uuid4())
+
+    assert caught.value.code == "RSS_CANDIDATE_NOT_FOUND"
+    assert caught.value.status_code == 404
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", ["ignored", "filtered", "pending"])
+async def test_approve_rejects_non_candidates(db_session: AsyncSession, status: str) -> None:
+    seeded = await seed_items(db_session, ("one", {"status": status}))
+
+    with pytest.raises(CandidateReviewError) as caught:
+        await build_service(db_session).approve(seeded[0].id)
+
+    assert caught.value.code == "RSS_CANDIDATE_NOT_SAVABLE"
+    assert caught.value.status_code == 409
+    await db_session.refresh(seeded[0])
+    assert seeded[0].status == status
+    assert seeded[0].saved_at is None
+
+
+@pytest.mark.anyio
+async def test_concurrent_approvals_share_one_saved_timestamp(db_session: AsyncSession) -> None:
+    seeded = await seed_items(db_session, ("one", {}))
+    service = build_service(db_session)
+
+    results = await asyncio.gather(*(service.approve(seeded[0].id) for _ in range(5)))
+
+    assert all(item.status == "saved" for item in results)
+    assert results[0].saved_at is not None
+    assert {item.saved_at for item in results} == {results[0].saved_at}
+
+
+@pytest.mark.anyio
+async def test_concurrent_approve_and_ignore_keep_one_terminal_state(db_session: AsyncSession) -> None:
+    seeded = await seed_items(db_session, ("one", {}))
+    service = build_service(db_session)
+
+    results = await asyncio.gather(service.approve(seeded[0].id), service.ignore(seeded[0].id), return_exceptions=True)
+
+    successes = [result for result in results if isinstance(result, RssItem)]
+    errors = [result for result in results if isinstance(result, CandidateReviewError)]
+    assert len(successes) == len(errors) == 1
+    assert errors[0].status_code == 409
+    await db_session.refresh(seeded[0])
+    assert seeded[0].status == successes[0].status
+    assert (seeded[0].saved_at is not None) == (seeded[0].status == "saved")
 
 
 @pytest.mark.anyio
@@ -138,7 +188,7 @@ async def test_ignore_already_ignored_is_idempotent(db_session: AsyncSession) ->
 
 @pytest.mark.anyio
 async def test_ignore_non_candidate_raises_conflict(db_session: AsyncSession) -> None:
-    seeded = await seed_items(db_session, ("one", {"status": "pushed"}))
+    seeded = await seed_items(db_session, ("one", {"status": "saved"}))
 
     with pytest.raises(CandidateReviewError) as caught:
         await build_service(db_session).ignore(seeded[0].id)

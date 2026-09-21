@@ -15,7 +15,6 @@ def test_projects_crud_and_filters(workbench) -> None:  # type: ignore[no-untype
             "department": "工程交付",
             "due_on": "2026-09-30",
             "github_repo": "wangyiyang/OLL",
-            "notion_url": "https://www.notion.so/example",
             "notes": "主线项目",
         },
     )
@@ -54,12 +53,6 @@ def test_projects_reject_invalid_links(workbench) -> None:  # type: ignore[no-un
         json={"name": "坏链接", "github_repo": "bad url"},
     )
     assert bad_github.status_code == 422
-
-    bad_notion = client.post(
-        "/api/projects",
-        json={"name": "坏链接", "notion_url": "not a url"},
-    )
-    assert bad_notion.status_code == 422
 
     assert client.get("/api/projects").json() == []
 

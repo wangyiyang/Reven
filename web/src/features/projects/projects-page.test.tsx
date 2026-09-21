@@ -2,10 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { toast } from "sonner"
+
+import { server } from "@/test/server"
 
 import { ProjectsPage } from "./projects-page"
 
@@ -23,14 +24,11 @@ const project = {
   status: "进行中",
   department: "工程交付",
   due_on: "2026-09-30",
-  notion_url: null as string | null,
   github_repo: "wangyiyang/OLL",
   notes: null as string | null,
   created_at: "2026-08-19T00:00:00Z",
   updated_at: "2026-08-19T00:00:00Z",
 }
-
-const server = setupServer()
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -42,12 +40,9 @@ function renderPage() {
 }
 
 describe("ProjectsPage", () => {
-  beforeAll(() => server.listen())
   afterEach(() => {
-    server.resetHandlers()
     vi.unstubAllGlobals()
   })
-  afterAll(() => server.close())
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -62,6 +57,7 @@ describe("ProjectsPage", () => {
     expect(await screen.findByRole("heading", { name: "项目库" })).toBeInTheDocument()
     expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
     expect(screen.getByText("wangyiyang/OLL")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Notion URL")).not.toBeInTheDocument()
   })
 
   it("shows empty state when no projects", async () => {
@@ -100,13 +96,12 @@ describe("ProjectsPage", () => {
       status: "进行中",
       department: "工程交付",
       due_on: "2026-12-31",
-      notion_url: null,
       github_repo: "wangyiyang/Reven",
       notes: null,
     })
   })
 
-  it("rejects invalid GitHub or Notion links before posting", async () => {
+  it("rejects invalid GitHub links before posting", async () => {
     let posted = false
     server.use(http.post("/api/projects", () => {
       posted = true
@@ -118,7 +113,7 @@ describe("ProjectsPage", () => {
     await userEvent.type(screen.getByLabelText("GitHub 仓库"), "bad url")
     await userEvent.click(screen.getByRole("button", { name: "添加项目" }))
 
-    expect(toast.error).toHaveBeenCalledWith("GitHub 仓库或 Notion URL 格式不正确")
+    expect(toast.error).toHaveBeenCalledWith("GitHub 仓库格式不正确")
     expect(posted).toBe(false)
   })
 

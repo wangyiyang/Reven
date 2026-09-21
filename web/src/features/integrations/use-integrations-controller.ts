@@ -2,12 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { apiRequest } from "@/lib/api"
 import {
   fetchIntegrations,
   fetchLatestRssRun,
   runIntegrationAction,
-  type EgressResponse,
   type IntegrationAction,
 } from "./integration-api"
 import type { Integration, Provider } from "./types"
@@ -17,11 +15,6 @@ export function useIntegrationsController() {
   const actionLocked = useRef(false)
   const [isActionLocked, setIsActionLocked] = useState(false)
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: fetchIntegrations })
-  const egress = useQuery({
-    queryKey: ["egress-ip"],
-    queryFn: () => apiRequest<EgressResponse>("/system/egress-ip"),
-    enabled: integrations.isSuccess,
-  })
   const latestRun = useQuery({
     queryKey: ["rss-latest-run"],
     queryFn: fetchLatestRssRun,
@@ -51,7 +44,6 @@ export function useIntegrationsController() {
   }, [mutation])
   return {
     integrations,
-    egress,
     latestRun,
     execute,
     isActionLocked,

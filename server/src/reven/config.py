@@ -18,11 +18,6 @@ class Settings(BaseSettings):
         default="http://dev.wangyiyang.cc:3001",
         validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
     )
-    sync_interval_seconds: int = 60
-    scheduler_interval_seconds: int = 5
-    job_lease_seconds: int = Field(default=120, ge=3)
-    job_data_dir: str = "/data/jobs"
-    renderer_command: str = "node /app/renderer/dist/cli.mjs"
     cos_bucket: str | None = None
     cos_region: str | None = None
     cos_secret_id: SecretStr | None = None

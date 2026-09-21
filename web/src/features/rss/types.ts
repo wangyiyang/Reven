@@ -40,12 +40,7 @@ export interface RssCandidate {
   reason: string | null
   rules_version: string | null
   screening_error: string | null
-  push_error: string | null
-  notion_url: string | null
+  saved_at: string | null
 }
 
-export interface RssInboxPushResult {
-  item_id: string
-  notion_page_id: string
-  notion_url: string
-}
+export type RssCandidateView = "candidate" | "saved"

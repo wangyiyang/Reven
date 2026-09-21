@@ -17,12 +17,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.integrations.feishu_bot.config import PROVIDER, load_feishu_bot_config
-from reven.rss.inbox import InboxPushError
 from reven.rss.review_service import CandidateReviewError
 from reven.security.secrets import SecretBox
 
 if TYPE_CHECKING:
-    from reven.rss.inbox import InboxPushResult
     from reven.rss.models import RssItem
 
 logger = logging.getLogger(__name__)
@@ -38,7 +36,7 @@ class ReviewActionOutcome:
     text: str
 
 
-TOAST_APPROVED = ReviewActionOutcome("success", "已采纳，推入 Notion Inbox")
+TOAST_APPROVED = ReviewActionOutcome("success", "已保存素材")
 TOAST_IGNORED = ReviewActionOutcome("success", "已忽略")
 TOAST_ALREADY_HANDLED = ReviewActionOutcome("info", "该候选已处理")
 TOAST_FORBIDDEN = ReviewActionOutcome("error", "无审核权限")
@@ -49,7 +47,7 @@ TOAST_FAILED = ReviewActionOutcome("error", "操作失败，请稍后重试")
 class ReviewActionExecutor(Protocol):
     """审核动作核心口：approve/ignore（CandidateReviewService 满足该协议）。"""
 
-    async def approve(self, item_id: UUID) -> InboxPushResult: ...
+    async def approve(self, item_id: UUID) -> RssItem: ...
 
     async def ignore(self, item_id: UUID) -> RssItem: ...
 
@@ -85,7 +83,7 @@ async def run_review_action(
             await executor.ignore(item_id)
             return TOAST_IGNORED
         return TOAST_INVALID  # 防御：事件处理器已保证 action 合法
-    except (CandidateReviewError, InboxPushError) as exc:
+    except CandidateReviewError as exc:
         if exc.status_code in (404, 409):
             return TOAST_ALREADY_HANDLED  # 重复点击/飞书重放的幂等语意
         logger.warning("飞书机器人审核回调领域错误（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)

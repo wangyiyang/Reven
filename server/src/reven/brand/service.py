@@ -1,16 +1,21 @@
 """品牌领域业务流转：草稿编辑、版本发布、素材登记。"""
 
 import hashlib
+from typing import Protocol
 from uuid import UUID
 
-from reven.brand.application import template_asset_ids
 from reven.brand.domain import BrandVersionSource, BrandVersionStatus
 from reven.brand.images import image_dimensions
 from reven.brand.models import BrandAsset, BrandVersion, ChannelTemplateVersion
 from reven.brand.repository import BrandRepository
-from reven.content_sync.media_archive import ContentAssetStore
+from reven.brand.template_assets import template_asset_ids
 from reven.domain import TargetChannel
+from reven.integrations.tencent_cos.store import ArchivedAsset
 from reven.scheduling import utc_now
+
+
+class BrandAssetStore(Protocol):
+    async def archive(self, content: bytes, *, sha256: str, mime_type: str) -> ArchivedAsset: ...
 
 
 class BrandError(RuntimeError):
@@ -120,7 +125,7 @@ class BrandService:
 
     async def register_asset(
         self,
-        store: ContentAssetStore,
+        store: BrandAssetStore,
         content: bytes,
         *,
         mime_type: str,

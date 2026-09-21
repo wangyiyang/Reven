@@ -47,10 +47,9 @@ make_infra() {
   compose_value="$3"
   marker_value="$4"
 
-  mkdir -p "$fixture_root/caddy" "$fixture_root/compose" "$fixture_root/docker" "$fixture_root/nested"
+  mkdir -p "$fixture_root/caddy" "$fixture_root/compose" "$fixture_root/nested"
   printf '%s\n' "$caddy_value" >"$fixture_root/caddy/Caddyfile"
   printf '%s\n' "$compose_value" >"$fixture_root/compose/docker-compose.yml"
-  printf '%s\n' '{"defaultAction":"SCMP_ACT_ERRNO"}' >"$fixture_root/docker/seccomp-bwrap.json"
   printf '%s\n' "$marker_value" >"$fixture_root/nested/release-marker"
 }
 

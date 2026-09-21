@@ -10,8 +10,8 @@ from reven.integrations.embedding.configuration import (
     EmbeddingConfig,
     load_embedding_config,
 )
+from reven.integrations.errors import IntegrationConfigurationError
 from reven.integrations.models import Integration
-from reven.integrations.notion.configuration import IntegrationConfigurationError
 from reven.rss.embedding import BGE_M3_MODEL
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

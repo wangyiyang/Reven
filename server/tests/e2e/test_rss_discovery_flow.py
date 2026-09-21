@@ -3,9 +3,9 @@ from datetime import UTC, date, datetime
 import pytest
 from reven.rss.discovery import FeedEntry, LocalizedEntry, RssDiscoveryService
 from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, EmbedOutcome, KeywordEmbeddingService
-from reven.rss.inbox import RssInboxService
 from reven.rss.models import RssItem, RssSource
 from reven.rss.repository import RssSettingsRepository
+from reven.rss.review_service import CandidateReviewService
 from reven.rss.screening import RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from sqlalchemy import select
@@ -47,31 +47,8 @@ class Notifier:
         self.messages.append(message)
 
 
-class Notion:
-    def __init__(self) -> None:
-        self.pages: list[dict[str, object]] = []
-
-    async def retrieve_data_source(self, data_source_id: str) -> dict[str, object]:
-        return {"properties": {"来源": {"type": "rich_text"}}}
-
-    async def query_data_source(self, data_source_id: str, *, filter: dict[str, object]) -> dict[str, object]:
-        item_id = filter["rich_text"]["equals"]  # type: ignore[index]
-        matches = [page for page in self.pages if page["reven_id"] == item_id]
-        return {"results": matches}
-
-    async def create_page(self, data_source_id: str, *, properties: dict[str, object]) -> dict[str, object]:
-        page = {
-            "id": "55555555-5555-5555-5555-555555555555",
-            "url": "https://www.notion.so/material",
-            "reven_id": properties["Reven ID"]["rich_text"][0]["text"]["content"],  # type: ignore[index]
-            "properties": properties,
-        }
-        self.pages.append(page)
-        return page
-
-
 @pytest.mark.anyio
-async def test_rss_discovery_to_human_confirmed_notion_inbox_is_idempotent(
+async def test_rss_discovery_to_saved_material_is_idempotent(
     db_session: AsyncSession,
 ) -> None:
     source = RssSource(name="Example", feed_url="https://example.com/e2e.xml", enabled=True)
@@ -101,16 +78,23 @@ async def test_rss_discovery_to_human_confirmed_notion_inbox_is_idempotent(
         assert candidate.positive_literal_matches == ["AI 智能体"]
         assert candidate.embedding_status == "completed"
 
-    notion = Notion()
-    inbox = RssInboxService(factory, notion, "inbox")
-    pushed = await inbox.push(candidate_id)
-    repeated = await inbox.push(candidate_id)
+    review = CandidateReviewService(factory)
+    saved = await review.approve(candidate_id)
+    repeated = await review.approve(candidate_id)
 
     assert first.run_id == second.run_id
     assert first.candidate_count == 1
     assert len(notifier.messages) == 1
-    assert pushed == repeated
-    assert len(notion.pages) == 1
-    properties = notion.pages[0]["properties"]
-    assert properties["名称"]["title"][0]["text"]["content"] == "AI 智能体架构"  # type: ignore[index]
-    assert "reason" not in properties and "bm25_score" not in properties  # type: ignore[operator]
+    assert saved.id == repeated.id == candidate_id
+    assert saved.saved_at is not None
+    assert saved.saved_at == repeated.saved_at
+    assert await review.list_pending_review() == []
+    async with factory() as session:
+        materials = list(await session.scalars(select(RssItem).where(RssItem.status == "saved")))
+        assert len(materials) == 1
+        material = materials[0]
+        assert material.id == candidate_id
+        assert material.saved_at == saved.saved_at
+        assert material.title_zh == "AI 智能体架构"
+        assert material.summary_zh == "实用工程模式"
+        assert material.url == "https://example.com/agent-1"

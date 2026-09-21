@@ -3,20 +3,10 @@ FROM node:22.22.2-bookworm-slim@sha256:9f6d5975c7dca860947d3915877f85607946403fc
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY renderer/package.json renderer/package.json
 COPY web/package.json web/package.json
-COPY vendor/doocs-md/config/package.json vendor/doocs-md/config/package.json
-COPY vendor/doocs-md/packages/core/package.json vendor/doocs-md/packages/core/package.json
-COPY vendor/doocs-md/shared/package.json vendor/doocs-md/shared/package.json
-COPY vendor/doocs-md/patches/ vendor/doocs-md/patches/
 RUN pnpm install --frozen-lockfile
-COPY renderer/ renderer/
 COPY web/ web/
-COPY vendor/doocs-md/config/ vendor/doocs-md/config/
-COPY vendor/doocs-md/packages/core/ vendor/doocs-md/packages/core/
-COPY vendor/doocs-md/shared/ vendor/doocs-md/shared/
-RUN pnpm --filter @reven/renderer build \
-    && pnpm --filter @reven/web build
+RUN pnpm --filter @reven/web build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS python-build
 WORKDIR /app
@@ -26,30 +16,16 @@ COPY server/src/ server/src/
 RUN uv sync --frozen --no-dev --all-packages
 
 FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS runtime
-ARG BUNDLER_VERSION=2.5.22
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       bubblewrap build-essential ca-certificates git ruby-full tini \
-    && gem install bundler -v "${BUNDLER_VERSION}" --no-document \
+    && apt-get install -y --no-install-recommends ca-certificates tini util-linux \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-COPY infra/blog/runtime/ /opt/reven-blog/
-RUN BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle config set --local deployment true \
-    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle config set --local path /opt/reven-blog/vendor/bundle \
-    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle install --jobs 4 \
-    && BUNDLE_GEMFILE=/opt/reven-blog/Gemfile bundle check \
-    && chmod 755 /opt/reven-blog \
-    && chmod 644 /opt/reven-blog/Gemfile /opt/reven-blog/Gemfile.lock \
-    && chmod -R a+rX /opt/reven-blog/vendor
 # /data/dsh is the writable DSH_HOME for the embedded dsh agent (profiles, session logs).
 RUN useradd --create-home --uid 10001 reven \
-    && mkdir -p /app /data/jobs /data/dsh /srv/reven \
+    && mkdir -p /app /data/dsh /srv/reven \
     && chown -R reven:reven /app /data /srv/reven
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
-# The renderer only needs the Node executable; excluding npm/corepack shrinks the runtime attack surface.
-COPY --from=node-build /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-build --chown=reven:reven /app/renderer/dist /app/renderer/dist
 COPY --from=node-build --chown=reven:reven /app/web/dist /app/web-dist
 RUN find /app/web-dist -type f -print0 \
     | sort -z \

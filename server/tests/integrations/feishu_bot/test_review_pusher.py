@@ -54,11 +54,6 @@ class SenderFactoryStub:
         return self.sender
 
 
-class _NoopInbox:
-    async def push(self, item_id: UUID) -> None:
-        raise AssertionError("推送管道不应触发采纳流程")
-
-
 async def _write_bot_config(
     session: AsyncSession,
     *,
@@ -109,13 +104,13 @@ def _build_pusher(
     review_board: object | None = None,
 ) -> tuple[ReviewCardPusher, SenderFactoryStub]:
     factory = _factory(session)
-    board = review_board or CandidateReviewService(factory, _NoopInbox())  # type: ignore[arg-type]
+    board = review_board or CandidateReviewService(factory)
     factory_stub = SenderFactoryStub(sender)
     return ReviewCardPusher(factory, _secret_box(), board, sender_factory=factory_stub), factory_stub
 
 
 async def _pending_ids(session: AsyncSession) -> list[UUID]:
-    service = CandidateReviewService(_factory(session), _NoopInbox())  # type: ignore[arg-type]
+    service = CandidateReviewService(_factory(session))
     return [item.id for item in await service.list_pending_review()]
 
 

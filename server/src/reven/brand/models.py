@@ -87,17 +87,3 @@ class BrandAsset(Base):
     source: Mapped[str] = mapped_column(String(16), default="上传")
     source_ref: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-
-
-class BrandImportRun(Base):
-    __tablename__ = "brand_import_runs"
-    __table_args__ = (Index("ix_brand_import_runs_page", "notion_page_id", "created_at"),)
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    notion_page_id: Mapped[str] = mapped_column(String(64))
-    dry_run: Mapped[bool] = mapped_column(Boolean)
-    status: Mapped[str] = mapped_column(String(16))
-    report: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
-    error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

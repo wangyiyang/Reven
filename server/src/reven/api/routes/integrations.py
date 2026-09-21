@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from reven.api.schemas.integrations import (
     PROVIDERS,
     PUT_MODELS,
-    BootstrapSchemaResponse,
     IntegrationPut,
     IntegrationResponse,
     to_response,
@@ -28,7 +27,6 @@ from reven.integrations.agent_llm.service import register_agent_llm_adapter
 from reven.integrations.embedding.service import register_embedding_adapter
 from reven.integrations.feishu.service import register_feishu_adapter
 from reven.integrations.feishu_bot.service import register_feishu_bot_adapter
-from reven.integrations.notion.service import bootstrap_notion_schema, register_notion_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import register_aliyun_adapter
 from reven.integrations.translation.baidu import register_baidu_adapter
@@ -37,7 +35,6 @@ from reven.security.secrets import SecretBox
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 # 显式注册连接测试适配器，使 POST /api/integrations/{provider}/test 可用
-register_notion_adapter()
 register_feishu_adapter()
 register_feishu_bot_adapter()
 register_baidu_adapter()
@@ -148,16 +145,6 @@ async def delete_secret(provider: str, request: Request, session: SessionDep) ->
     await session.commit()
     _reload_feishu_bot_supervisor(request, provider)
     return to_response(integration)
-
-
-@router.post("/notion/bootstrap-schema", response_model=BootstrapSchemaResponse)
-async def bootstrap_schema(session: SessionDep) -> BootstrapSchemaResponse | JSONResponse:
-    """初始化 Notion 稿件库字段（只增不删、幂等），是有副作用的显式操作。"""
-    try:
-        patch = await bootstrap_notion_schema(IntegrationService(session, _secret_box()))
-    except IntegrationError as exc:
-        return _error_response(exc)
-    return BootstrapSchemaResponse(patched=patch is not None, properties=sorted(patch) if patch else [])
 
 
 @router.post("/{provider}/test", response_model=IntegrationResponse)

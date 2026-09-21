@@ -38,13 +38,13 @@ def test_migration_0013_adds_nullable_last_latency_ms() -> None:
     config = _alembic_config(database_url)
 
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         assert "last_latency_ms" in asyncio.run(_column_names(database_url))
 
         command.downgrade(config, "0012_sops")
         assert "last_latency_ms" not in asyncio.run(_column_names(database_url))
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         assert "last_latency_ms" in asyncio.run(_column_names(database_url))
     finally:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")

@@ -30,7 +30,6 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       migration: ${{ steps.filter.outputs.migration }}
       frontend: ${{ steps.filter.outputs.frontend }}
-      renderer: ${{ steps.filter.outputs.renderer }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,12 +52,6 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'web/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.github/workflows/ci.yml'
-            renderer:
-              - 'renderer/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -132,7 +125,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --frozen --all-packages
       - run: uv run alembic -c server/migrations/alembic.ini upgrade head
-      - run: uv run pytest server/tests/migrations/test_notification_outbox_migration.py
+      - run: uv run pytest server/tests/migrations
 
   frontend:
     if: inputs.full || needs.changes.outputs.frontend == 'true'
@@ -150,29 +143,12 @@ jobs:
       - run: pnpm --filter @reven/web exec tsc -b
       - run: pnpm --filter @reven/web build
 
-  renderer:
-    if: inputs.full || needs.changes.outputs.renderer == 'true'
-    needs: changes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22.22.2
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @reven/renderer test
-      - run: pnpm --filter @reven/renderer build
-
   container:
     if: inputs.full
     needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # ubuntu-24.04 内核默认通过 AppArmor 拦截非特权 user namespace，bwrap 需要放行
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: docker build --pull --no-cache -f infra/docker/Dockerfile -t reven:test .
       - name: Verify embedded release infra
         run: |
@@ -187,9 +163,6 @@ jobs:
           diff -ru infra "$exported_infra"
       - name: Verify deployment infra synchronization and restoration
         run: sh scripts/test_deploy_reven.sh
-      - run: echo '{"markdown":"# smoke"}' | docker run --rm -i reven:test node /app/renderer/dist/cli.mjs
-      - run: docker run --rm reven:test ruby --version
-      - run: docker run --rm reven:test bundle --version
       - name: Validate Compose and Caddy
         run: |
           cp .env.example .env
@@ -200,32 +173,10 @@ jobs:
             -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c \
             caddy validate --config /etc/caddy/Caddyfile
-      - name: Verify non-root runtime and renderer sandbox
+      - name: Verify non-root runtime and embedded agent
         run: |
           test "$(docker run --rm reven:test id -u)" = "10001"
-          docker run --rm \
-            --cap-drop=ALL \
-            --security-opt=no-new-privileges:true \
-            --security-opt=apparmor=unconfined \
-            --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
-            reven:test \
-            python -c "import asyncio; from pathlib import Path; \
-            from reven.publishing.wechat.renderer import WechatRenderer; \
-            asyncio.run(WechatRenderer('node', Path('/app/renderer/dist/cli.mjs'), \
-            sandbox_executable=Path('/usr/bin/bwrap')).render('# sandbox'))"
-      - name: Verify production blog sandbox and resource limits
-        run: |
-          docker volume create reven-ci-security
-          docker run --rm --cap-drop=ALL \
-            --security-opt=no-new-privileges:true \
-            --security-opt=apparmor=unconfined \
-            --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
-            --memory=2g --cpus=2 --pids-limit=128 --tmpfs /tmp:size=256m \
-            -v reven-ci-security:/data \
-            -v "$PWD/server/tests/fixtures/blog:/fixture:ro" \
-            -v "$PWD/scripts/container_security_smoke.py:/smoke.py:ro" \
-            reven:test python /smoke.py
-          docker volume rm reven-ci-security
+          docker run --rm reven:test dsh --version
       - name: Verify migration failure preserves current static release
         run: |
           docker volume create reven-ci-static
@@ -234,8 +185,6 @@ jobs:
             ln -s releases/old /srv/reven/current'
           if docker run --rm --read-only --tmpfs /tmp:size=256m \
             --cap-drop=ALL --security-opt=no-new-privileges:true \
-            --security-opt=apparmor=unconfined \
-            --security-opt=seccomp=infra/docker/seccomp-bwrap.json \
             -v reven-ci-static:/srv/reven -v reven-ci-security-data:/data \
             -e DATABASE_URL=postgresql+asyncpg://invalid:invalid@127.0.0.1:1/invalid \
             -e REVEN_MASTER_KEY=dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ= \

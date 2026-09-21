@@ -31,7 +31,7 @@ export function ProfileSection() {
   const publish = useMutation({
     mutationFn: publishProfile,
     onSuccess: async () => {
-      toast.success("品牌档案已发布，新任务将使用新版本")
+      toast.success("品牌档案新版本已发布")
       await client.invalidateQueries({ queryKey: ["brand-profile"] })
     },
     onError: (error: Error) => toast.error(error.message),
@@ -60,7 +60,7 @@ export function ProfileSection() {
             <p className="mt-1 text-xs text-[var(--muted)]">
               {published
                 ? `当前已发布 v${published.version}${published.published_at ? ` · ${formatTime(published.published_at)}` : ""}`
-                : "尚未发布品牌档案，发布链路保持现有默认行为（legacy 回落）"}
+                : "尚未发布品牌档案，请保存草稿后发布新版本"}
               {hasDraft && " · 存在未发布草稿"}
             </p>
           </div>
@@ -90,7 +90,7 @@ export function ProfileSection() {
               aria-label="默认署名"
               maxLength={16}
               onChange={(event) => setForm({ ...form, default_author: event.target.value })}
-              placeholder="发布时优先使用的作者名"
+              placeholder="品牌默认署名"
               value={form.default_author}
             />
           </Field>

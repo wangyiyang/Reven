@@ -86,11 +86,11 @@ def test_migration_0015_removes_only_tencent_and_downgrade_does_not_restore_it()
     config = _alembic_config(database_url)
 
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         command.downgrade(config, "0013_integration_last_latency_ms")
         asyncio.run(_seed_rows(database_url))
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")
         assert asyncio.run(_stored_providers(database_url)) == {
             "translate_baidu",
             "migration_keep_provider",
@@ -103,4 +103,4 @@ def test_migration_0015_removes_only_tencent_and_downgrade_does_not_restore_it()
         }
     finally:
         asyncio.run(_cleanup(database_url))
-        command.upgrade(config, "head")
+        command.upgrade(config, "0020_rss_item_review_pushed_at")

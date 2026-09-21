@@ -47,7 +47,7 @@ export function AssetsSection() {
     <Card>
       <CardHeader>
         <h2 className="text-base font-semibold">品牌素材库</h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">统一归档标志、二维码与封面等素材，供渠道模板与稿件封面选择引用。</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">统一归档标志、二维码与封面等品牌素材，支持上传、查阅与停用。</p>
       </CardHeader>
       <CardContent>
         <div className="flex flex-wrap items-end gap-3 border-b border-[var(--line)] pb-5">
