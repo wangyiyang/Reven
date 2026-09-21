@@ -1,0 +1,4 @@
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"检查 provider 退役、API、密钥与迁移完整性"}
+{"file":".trellis/spec/reven-server/backend/ci-release-contract.md","reason":"检查 CI 发布行为未改变"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查全链路测试及错误语义"}
+{"file":".trellis/spec/reven-server/backend/feishu-app-notification-contract.md","reason":"检查本次应用机器人唯一通知路径契约"}

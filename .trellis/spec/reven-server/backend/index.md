@@ -18,6 +18,8 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [HTTPS 与开源 Alpha 自托管契约](./open-source-self-host-contract.md) | Origin/CSRF/Cookie、独立 Compose、持久化与真实验收边界 | Active |
 | [Agent (dsh) 集成契约](./agent-dsh-contract.md) | dsh 嵌入式子进程、MCP 工具通道、配置/部署/测试约定 | Active |
 | [RSS 素材采纳契约](./rss-materials-contract.md) | 本地采纳、并发与飞书审核、RSS 基础设施 | Active |
+| [集成 Provider 契约](./integration-provider-contract.md) | 配置、API、凭证与退役迁移的跨层一致性 | Active |
+| [飞书应用通知契约](./feishu-app-notification-contract.md) | 应用机器人通知、测试发送、RSS 审核与部署通知 | Active |
 | [Brand Publishing Contract](./brand-publishing-contract.md) | 品牌档案、素材与模板配置，稿件发布已退役 | Active |
 | [Finance Summary Contract](./finance-summary-contract.md) | Cash-status semantics for the finance summary API and UI | Active |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |

@@ -90,9 +90,9 @@ def test_retirement_removes_only_retired_schema_and_credentials(monkeypatch: pyt
     config = Config(str(ROOT / "server/migrations/alembic.ini"))
     command.upgrade(config, "0020_rss_item_review_pushed_at")
     asyncio.run(_seed_integrations(url))
-    command.upgrade(config, "head")
+    command.upgrade(config, "0021_retire_publishing")
     asyncio.run(_assert_schema(url))
-    command.upgrade(config, "head")
+    command.upgrade(config, "0021_retire_publishing")
     with pytest.raises(RuntimeError, match="无法降级"):
         command.downgrade(config, "0020_rss_item_review_pushed_at")
     asyncio.run(_assert_schema(url))

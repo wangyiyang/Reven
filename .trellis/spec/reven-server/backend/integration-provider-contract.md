@@ -72,7 +72,6 @@ PROVIDERS = (*PROVIDERS, "retired_provider")
 # One backend registry owns membership; API list responses filter repository
 # rows through it, and retirement includes an exact credential-purge migration.
 SUPPORTED_INTEGRATION_PROVIDERS = (
-    "feishu",
     "feishu_bot",
     *TRANSLATION_PROVIDERS,
     "embedding",
@@ -84,3 +83,6 @@ SUPPORTED_INTEGRATION_PROVIDERS = (
 
 迁移 0021 同时移除 notion/github/wechat 三个 provider 及密文凭据。
 退役路由返回 INTEGRATION_PROVIDER_UNKNOWN；RSS 采纳只更新本地素材，无外部写入。
+
+迁移 0022 精确删除 `feishu` Webhook provider 及密文凭据，唯一飞书 provider 为
+`feishu_bot`；通知和测试行为见 [飞书应用通知契约](./feishu-app-notification-contract.md)。

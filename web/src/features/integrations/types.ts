@@ -1,5 +1,5 @@
 export type Provider =
-  | "feishu" | "feishu_bot"
+  | "feishu_bot"
   | "translate_baidu" | "translate_aliyun" | "embedding" | "agent-llm"
 
 export interface Integration {
@@ -34,23 +34,14 @@ export interface ProviderDefinition {
 
 export const PROVIDERS: ProviderDefinition[] = [
   {
-    provider: "feishu",
-    number: "01",
-    title: "飞书",
-    eyebrow: "结果通知",
-    description: "RSS 内容发现完成后，向指定机器人发送每日汇总。",
-    publicFields: [{ key: "name", label: "通知名称", placeholder: "RSS 汇总通知" }],
-    secretFields: [{ key: "webhook_url", label: "Webhook", type: "password", placeholder: "输入新 Webhook URL" }],
-  },
-  {
     provider: "feishu_bot",
-    number: "02",
+    number: "01",
     title: "飞书应用",
-    eyebrow: "审核机器人",
-    description: "每日候选素材以交互卡片推送给白名单成员，在飞书内完成采纳 / 忽略。",
+    eyebrow: "通知与审核",
+    description: "向白名单成员发送每日汇总和候选素材审核卡片，在飞书内完成采纳 / 忽略。",
     publicFields: [
-      { key: "whitelist_open_ids", label: "白名单 Open ID", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
-      { key: "enabled", label: "启用机器人长连接", type: "checkbox" },
+      { key: "whitelist_open_ids", label: "接收人 Open ID（审核白名单）", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
+      { key: "enabled", label: "启用机器人", type: "checkbox" },
     ],
     secretFields: [
       { key: "app_id", label: "App ID", placeholder: "cli_…" },
@@ -59,7 +50,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_baidu",
-    number: "03",
+    number: "02",
     title: "百度翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -74,7 +65,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "translate_aliyun",
-    number: "04",
+    number: "03",
     title: "阿里翻译",
     eyebrow: "机器翻译",
     description: "专业机翻引擎，按优先级参与故障切换。",
@@ -89,7 +80,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "embedding",
-    number: "05",
+    number: "04",
     title: "Embedding",
     eyebrow: "语义向量",
     description: "候选语义打分使用的向量服务，默认 SiliconFlow bge-m3，兼容 OpenAI 端点。",
@@ -101,7 +92,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     provider: "agent-llm",
-    number: "06",
+    number: "05",
     title: "Agent LLM",
     eyebrow: "智能体",
     description: "Agent 核心的 LLM 推理服务，默认 DeepSeek，兼容 OpenAI 端点。",

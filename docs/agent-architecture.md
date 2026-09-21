@@ -105,7 +105,7 @@ PRD 字面 `POST /agent/chat` 的安全必要修正）。`session_id` 可传入�
 
 以下不属于本层，归 #119（飞书机器人）：
 
-- 飞书 webhook、事件订阅、卡片协议；
+- 飞书应用机器人的事件订阅、卡片协议；
 - **确定性指令/卡片路径**（固定指令直调业务接口、不经 LLM 推理），自研实现；
 - IM 侧的会话映射。未来飞书路径的 session_id 约定为
   `feishu:{chat_id}:{user_id}`，与本层 `AgentService.chat()` 复用同一服务层。

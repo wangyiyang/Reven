@@ -21,6 +21,10 @@ def test_container_ci_only_runs_when_full_checks_are_requested() -> None:
 
 def test_regular_ci_checks_keep_path_filters_and_full_override() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    backend_paths = workflow.split("            backend:\n", 1)[1].split("            migration:\n", 1)[0]
+
+    assert "'scripts/notify_feishu_deploy.py'" in backend_paths
+    assert "'.github/workflows/release.yml'" in backend_paths
 
     for job in ("backend", "migration", "frontend"):
         assert f"\n  {job}:\n    if: inputs.full || needs.changes.outputs.{job} == 'true'\n" in workflow
@@ -54,7 +58,10 @@ def test_release_workflow_builds_and_deploys_version_tags_with_immutable_acr_ima
     assert "concurrency:" in workflow
     assert "REVEN_DEPLOY_SSH_PRIVATE_KEY" in workflow
     assert "REVEN_DEPLOY_KNOWN_HOSTS" in workflow
-    assert "FEISHU_DEPLOY_WEBHOOK" in workflow
+    assert "FEISHU_DEPLOY_WEBHOOK" not in workflow
+    for secret in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_NOTIFY_OPEN_IDS"):
+        assert f"{secret}: ${{{{ secrets.{secret} }}}}" in workflow
+    assert "run: python3 scripts/notify_feishu_deploy.py" in workflow
 
 
 def test_deploy_script_only_accepts_digests_and_runs_the_required_health_gate() -> None:

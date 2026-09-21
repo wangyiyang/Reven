@@ -202,8 +202,17 @@ class RssDiscoveryService:
     async def _notify_if_needed(self, summary: RssRunSummary) -> RssRunSummary:
         async with self._factory() as session:
             run = await session.get(RssDiscoveryRun, summary.run_id)
-            if run is None or run.notification_sent_at is not None or run.finished_at is None:
+            if run is None or run.finished_at is None:
                 return summary
+            needs_summary = run.notification_sent_at is None
+        try:
+            if needs_summary:
+                await self._send_summary(summary)
+        finally:
+            await self._push_review_cards()
+        return summary
+
+    async def _send_summary(self, summary: RssRunSummary) -> None:
         links = {"打开候选工作台": self._candidate_url} if self._candidate_url else {}
         notification = Notification(
             "Reven RSS 每日汇总",
@@ -221,17 +230,15 @@ class RssDiscoveryService:
                 run = await session.get(RssDiscoveryRun, summary.run_id, with_for_update=True)
                 if run is not None:
                     run.notification_error = type(exc).__name__
-            return summary
+            return
         async with self._factory.begin() as session:
             run = await session.get(RssDiscoveryRun, summary.run_id, with_for_update=True)
             if run is not None and run.notification_sent_at is None:
                 run.notification_sent_at = utc_now()
                 run.notification_error = None
-        await self._push_review_cards()
-        return summary
 
     async def _push_review_cards(self) -> None:
-        """汇总通知发送成功后推送候选审核卡片；任何失败只记日志，绝不影响 run 结果与通知标记。"""
+        """已完成运行独立推送候选审核卡片；任何失败只记日志，绝不影响 run 结果与通知标记。"""
         pusher = self._review_pusher
         if pusher is None:
             return

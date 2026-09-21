@@ -1,0 +1,5 @@
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"provider 退役跨层与凭证迁移契约"}
+{"file":".trellis/spec/reven-server/backend/ci-release-contract.md","reason":"部署通知变更必须保持 CI 发布契约"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"配置、API、运行时与 UI 同步"}
+{"file":".trellis/spec/web/frontend/brand-vi.md","reason":"保持已有前端交互与样式"}
+{"file":".trellis/spec/reven-server/backend/feishu-app-notification-contract.md","reason":"通知与配置新行为契约"}

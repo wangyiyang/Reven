@@ -1,5 +1,5 @@
 import { apiRequest, ApiError } from "@/lib/api"
-import type { Integration, Provider } from "./types"
+import { PROVIDERS, type Integration, type Provider } from "./types"
 
 export type IntegrationAction =
   | { action: "save"; provider: Provider; publicConfig: Record<string, unknown>; secret?: Record<string, string> }
@@ -51,8 +51,12 @@ export async function runIntegrationAction(action: IntegrationAction): Promise<{
     await requestIntegration(`/integrations/${action.provider}/secret`, { method: "DELETE" })
     return { message: "密钥已删除" }
   }
-  await requestIntegration(`/integrations/${action.provider}/test`, { method: "POST" })
-  return { message: action.provider === "feishu" ? "测试消息已发送" : "连接测试已完成" }
+  const result = await requestIntegration(`/integrations/${action.provider}/test`, { method: "POST" })
+  const sendsMessage = action.provider === "feishu_bot"
+  if (result.connection_status !== "连接正常") {
+    throw new ApiError(200, "integration_test_failed", result.last_error || (sendsMessage ? "测试消息发送失败" : "连接测试失败"))
+  }
+  return { message: sendsMessage ? "测试消息已发送" : "连接测试已完成" }
 }
 
 async function requestIntegration(path: string, init: RequestInit): Promise<Integration> {
@@ -74,9 +78,7 @@ function isIntegration(value: unknown): value is Integration {
 }
 
 function isProvider(value: unknown): value is Provider {
-  return value === "feishu"
-    || value === "feishu_bot"
-    || value === "translate_baidu" || value === "translate_aliyun" || value === "embedding" || value === "agent-llm"
+  return PROVIDERS.some((definition) => definition.provider === value)
 }
 
 function isRssRunHealth(value: unknown): value is RssRunHealth {

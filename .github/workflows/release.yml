@@ -161,14 +161,9 @@ jobs:
       - name: Notify Feishu
         if: always()
         env:
-          FEISHU_DEPLOY_WEBHOOK: ${{ secrets.FEISHU_DEPLOY_WEBHOOK }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_NOTIFY_OPEN_IDS: ${{ secrets.FEISHU_NOTIFY_OPEN_IDS }}
           DEPLOY_IMAGE: ${{ steps.target.outputs.image || 'previous healthy image' }}
           JOB_STATUS: ${{ job.status }}
-        run: |
-          if [ -z "$FEISHU_DEPLOY_WEBHOOK" ]; then
-            exit 0
-          fi
-          payload="$(jq -n --arg text "Reven production ${JOB_STATUS}: ${DEPLOY_IMAGE}\n${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            '{msg_type: "text", content: {text: $text}}')"
-          curl --fail-with-body --silent --show-error --retry 3 \
-            -H 'Content-Type: application/json' --data "$payload" "$FEISHU_DEPLOY_WEBHOOK"
+        run: python3 scripts/notify_feishu_deploy.py

@@ -5,7 +5,8 @@ import respx
 from fastapi.testclient import TestClient
 
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v1/info"
+MESSAGES_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v3/info"
 APP_ID = "cli_a1b2c3d4e5"
 APP_SECRET = "feishu-bot-secret-value"
 
@@ -95,7 +96,7 @@ def test_feishu_bot_connection_test_rejects_invalid_credentials(client: TestClie
     assert response.status_code == 200
     body = response.json()
     assert body["connection_status"] == "连接失败"
-    assert body["last_error"] == "飞书应用凭证无效"
+    assert body["last_error"] == "飞书应用凭证无效（code=99991663）"
     assert APP_SECRET not in response.text
 
 
@@ -107,8 +108,11 @@ def test_feishu_bot_connection_test_succeeds_with_tenant_token(client: TestClien
             return_value=httpx.Response(200, json={"code": 0, "tenant_access_token": "t-token", "expire": 7200})
         )
         router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json={"code": 0, "bot": {"app_name": "Reven"}}))
+        message = router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
         response = client.post("/api/integrations/feishu_bot/test")
 
+    assert message.call_count == 1
+    assert json.loads(message.calls[0].request.content)["receive_id"] == "ou_boss"
     assert response.status_code == 200
     assert response.json()["connection_status"] == "连接正常"
     payload = json.loads(request.calls[0].request.content)
@@ -165,11 +169,8 @@ def test_put_other_provider_does_not_trigger_reload(client: TestClient) -> None:
     client.app.state.feishu_bot_supervisor = supervisor
 
     response = client.put(
-        "/api/integrations/feishu",
-        json={
-            "public_config": {"name": "运营通知群"},
-            "secret": {"webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/abc-def"},
-        },
+        "/api/integrations/embedding",
+        json={"public_config": {"base_url": "https://api.siliconflow.cn"}, "secret": {"api_key": "embedding-secret"}},
     )
 
     assert response.status_code == 200
@@ -197,3 +198,51 @@ def test_delete_feishu_bot_secret_triggers_reload(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert supervisor.reload_calls == 2
+
+
+def test_explicit_test_sends_while_notifications_disabled(client: TestClient) -> None:
+    client.put(
+        "/api/integrations/feishu_bot",
+        json=_payload(
+            public_config={"enabled": False, "whitelist_open_ids": ["ou_first", "ou_second"]}, secret=_credentials()
+        ),
+    )
+    with respx.mock(assert_all_called=True) as router:
+        router.post(TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"code": 0, "tenant_access_token": "t-token"})
+        )
+        router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
+        messages = router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
+        response = client.post("/api/integrations/feishu_bot/test")
+
+    assert messages.call_count == 2
+    assert response.json()["connection_status"] == "连接正常"
+    assert response.json()["public_config"]["enabled"] is False
+
+
+def test_connection_test_with_empty_recipients_reports_failure(client: TestClient) -> None:
+    client.put("/api/integrations/feishu_bot", json=_payload(public_config={}, secret=_credentials()))
+    with respx.mock(assert_all_called=True):
+        response = client.post("/api/integrations/feishu_bot/test")
+
+    assert response.json()["connection_status"] == "连接失败"
+    assert response.json()["last_error"] == "请先配置通知接收人 Open ID"
+
+
+def test_permission_failure_is_persisted_without_secrets_or_token(client: TestClient) -> None:
+    client.put("/api/integrations/feishu_bot", json=_payload(secret=_credentials()))
+    with respx.mock(assert_all_called=True) as router:
+        router.post(TOKEN_URL).mock(
+            return_value=httpx.Response(200, json={"code": 0, "tenant_access_token": "t-token"})
+        )
+        router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
+        router.post(MESSAGES_URL).mock(
+            return_value=httpx.Response(400, json={"code": 99991672, "msg": f"{APP_SECRET} t-token"})
+        )
+        response = client.post("/api/integrations/feishu_bot/test")
+
+    assert response.json()["connection_status"] == "连接失败"
+    assert "im:message:send_as_bot" in response.json()["last_error"]
+    assert APP_SECRET not in response.text
+    assert "t-token" not in response.text
+    assert client.get("/api/integrations/feishu_bot").json()["last_error"] == response.json()["last_error"]

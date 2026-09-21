@@ -24,7 +24,6 @@ HINT_KEY = "_secret_hint"
 MAX_ERROR_LENGTH = 500
 
 SECRET_HINT_FIELDS = {
-    "feishu": "webhook_url",
     "feishu_bot": "app_secret",
     "translate_baidu": "app_key",
     "translate_aliyun": "access_key_secret",

@@ -19,10 +19,10 @@ describe("Integration providers", () => {
     ])))
     renderPage()
     await findCard("Embedding")
-    for (const title of ["飞书", "飞书应用", "百度翻译", "阿里翻译", "Embedding", "Agent LLM"]) {
+    for (const title of ["飞书应用", "百度翻译", "阿里翻译", "Embedding", "Agent LLM"]) {
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument()
     }
-    for (const title of ["Notion", "GitHub", "微信"]) {
+    for (const title of ["Notion", "GitHub", "微信", "飞书"]) {
       expect(screen.queryByRole("heading", { name: title })).not.toBeInTheDocument()
     }
     expect(screen.queryByRole("button", { name: "初始化字段" })).not.toBeInTheDocument()
@@ -231,77 +231,4 @@ describe("Integration providers", () => {
     expect(await screen.findAllByText("最近每日任务：暂无运行记录")).toHaveLength(3)
   })
 
-  it("renders the Feishu bot card with the whitelist as newline-separated text", async () => {
-    server.use(http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])))
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    expect(card.getByLabelText("白名单 Open ID")).toHaveValue("ou_boss\nou_ops")
-    expect(card.getByLabelText("启用机器人长连接")).toBeChecked()
-    expect(card.getByText("已配置 · ****alue")).toBeInTheDocument()
-  })
-
-  it("serializes the Feishu bot whitelist as a string list with the enabled flag", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([])),
-      http.put("/api/integrations/feishu_bot", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await user.type(card.getByLabelText("白名单 Open ID"), "ou_boss, ou_ops\nou_backup")
-    await user.click(card.getByLabelText("启用机器人长连接"))
-    await user.click(card.getByRole("button", { name: "保存飞书应用配置" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { whitelist_open_ids: ["ou_boss", "ou_ops", "ou_backup"], enabled: true },
-    }))
-  })
-
-  it("replaces Feishu bot credentials through the explicit action", async () => {
-    let requestBody: unknown
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])),
-      http.put("/api/integrations/feishu_bot", async ({ request }) => {
-        requestBody = await request.json()
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    const user = userEvent.setup()
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await user.type(card.getByLabelText("App ID"), "cli_new")
-    await user.type(card.getByLabelText("App Secret"), "new-secret")
-    await user.click(card.getByRole("button", { name: "替换飞书应用密钥" }))
-
-    await waitFor(() => expect(requestBody).toEqual({
-      public_config: { whitelist_open_ids: ["ou_boss", "ou_ops"], enabled: true },
-      secret: { app_id: "cli_new", app_secret: "new-secret" },
-    }))
-  })
-
-  it("tests the Feishu bot connection without the webhook messaging copy", async () => {
-    const tests: string[] = []
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredFeishuBot])),
-      http.post("/api/integrations/feishu_bot/test", () => {
-        tests.push("feishu_bot")
-        return HttpResponse.json(configuredFeishuBot)
-      }),
-    )
-    renderPage()
-
-    const card = await findCard("飞书应用")
-    await userEvent.click(card.getByRole("button", { name: "测试飞书应用连接" }))
-
-    await waitFor(() => expect(tests).toEqual(["feishu_bot"]))
-    expect(toast.success).toHaveBeenCalledWith("连接测试已完成")
-    expect(card.queryByText("测试飞书会主动发送一条消息。")).not.toBeInTheDocument()
-  })
 })

@@ -25,7 +25,6 @@ from reven.api.schemas.integrations import (
 from reven.config import get_settings
 from reven.integrations.agent_llm.service import register_agent_llm_adapter
 from reven.integrations.embedding.service import register_embedding_adapter
-from reven.integrations.feishu.service import register_feishu_adapter
 from reven.integrations.feishu_bot.service import register_feishu_bot_adapter
 from reven.integrations.service import IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import register_aliyun_adapter
@@ -35,7 +34,6 @@ from reven.security.secrets import SecretBox
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 # 显式注册连接测试适配器，使 POST /api/integrations/{provider}/test 可用
-register_feishu_adapter()
 register_feishu_bot_adapter()
 register_baidu_adapter()
 register_aliyun_adapter()
