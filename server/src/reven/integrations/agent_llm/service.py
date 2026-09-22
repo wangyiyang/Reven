@@ -7,7 +7,7 @@ import time
 
 import httpx
 
-from reven.integrations.service import ConnectionTestResult, register_connection_test_adapter
+from reven.integrations.service import ConnectionTestResult
 
 
 async def test_agent_llm_connection(
@@ -28,7 +28,3 @@ async def test_agent_llm_connection(
     except Exception as exc:
         return ConnectionTestResult(False, f"Agent LLM 端点不可达（{type(exc).__name__}）")
     return ConnectionTestResult(True, latency_ms=int((time.monotonic() - started) * 1000))
-
-
-def register_agent_llm_adapter() -> None:
-    register_connection_test_adapter("agent-llm", test_agent_llm_connection)
