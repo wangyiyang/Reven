@@ -2,7 +2,7 @@
 
 from reven.integrations.feishu_bot.client import FeishuBotApiClient, FeishuBotApiError
 from reven.integrations.feishu_bot.config import parse_whitelist
-from reven.integrations.service import ConnectionTestResult, register_connection_test_adapter
+from reven.integrations.service import ConnectionTestResult
 
 
 async def test_feishu_bot_connection(
@@ -25,7 +25,3 @@ async def test_feishu_bot_connection(
     except Exception as exc:
         return ConnectionTestResult(False, f"飞书应用测试失败（{type(exc).__name__}）")
     return ConnectionTestResult(True)
-
-
-def register_feishu_bot_adapter() -> None:
-    register_connection_test_adapter("feishu_bot", test_feishu_bot_connection)

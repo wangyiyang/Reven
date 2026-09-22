@@ -11,7 +11,6 @@ from reven.api.routes.integrations import router as integrations_router
 from reven.app import create_app
 from reven.config import get_settings
 from reven.db import create_session_factory
-from reven.integrations.embedding.service import register_embedding_adapter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -19,13 +18,6 @@ from sqlalchemy.pool import NullPool
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 TEST_ADMIN_PASSWORD = "test-admin-password"
 WRITE_HEADERS = {"Origin": "http://dev.wangyiyang.cc:3001", "X-Reven-CSRF": "1"}
-
-
-@pytest.fixture(autouse=True)
-def _restore_embedding_adapter() -> Iterator[None]:
-    register_embedding_adapter()
-    yield
-    register_embedding_adapter()
 
 
 async def _reset_integrations(database_url: str) -> None:

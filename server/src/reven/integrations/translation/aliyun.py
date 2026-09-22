@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 import httpx
 
-from reven.integrations.service import ConnectionTestResult, register_connection_test_adapter
+from reven.integrations.service import ConnectionTestResult
 from reven.integrations.translation import TranslationError
 
 ALIYUN_MT_BASE_URL = "https://mt.cn-hangzhou.aliyuncs.com"
@@ -94,7 +94,3 @@ async def test_aliyun_translation(
     except Exception as exc:
         return ConnectionTestResult(False, f"阿里翻译连接失败（{type(exc).__name__}）")
     return ConnectionTestResult(True, latency_ms=int((time.monotonic() - started) * 1000))
-
-
-def register_aliyun_adapter() -> None:
-    register_connection_test_adapter("translate_aliyun", test_aliyun_translation)

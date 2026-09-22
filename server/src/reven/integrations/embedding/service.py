@@ -5,7 +5,7 @@ import time
 import httpx
 
 from reven.integrations.embedding.configuration import DEFAULT_EMBEDDING_BASE_URL
-from reven.integrations.service import ConnectionTestResult, register_connection_test_adapter
+from reven.integrations.service import ConnectionTestResult
 from reven.rss.embedding import BGE_M3_MODEL, EmbeddingError, SiliconFlowEmbeddingClient
 
 
@@ -40,7 +40,3 @@ async def test_embedding_connection(
     if error_code is not None:
         return ConnectionTestResult(False, f"Embedding 连接失败（{error_code}）")
     return ConnectionTestResult(True, latency_ms=int((time.monotonic() - started) * 1000))
-
-
-def register_embedding_adapter() -> None:
-    register_connection_test_adapter("embedding", test_embedding_connection)
