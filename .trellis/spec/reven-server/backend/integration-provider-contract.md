@@ -17,12 +17,16 @@ Use this contract whenever a change alters a provider identifier, credential sch
   - `DELETE /api/integrations/{provider}/secret -> IntegrationResponse | 404`
   - `POST /api/integrations/{provider}/test -> IntegrationResponse | 404`
 - Database owner: `integrations.provider` is unique; `public_config` is JSONB and `encrypted_secret` is nullable ciphertext.
-- RSS translation loader: `load_translation_configs(session_factory) -> tuple[TranslationConfig, ...]`.
+- Credential resolution: `IntegrationCredentials(session_factory, settings)` in `integrations/credentials.py` — `feishu_bot()/embedding()/agent_llm()/translations()` / `resolve(provider)`; it is the only `SecretBox.from_base64` call site in the codebase.
+- Runtime clients: `ProviderClients(credentials, settings)` lifespan singleton in `provider_clients.py` — `async with clients.feishu_bot()/embedding()/siliconflow_chat()`; an unavailable provider yields `None` and the caller applies its own degrade/report policy.
+- Connection-test adapters: one explicit literal dict built in `api/routes/integrations.py`, passed as `IntegrationService(session, secret_box, adapters)`. Module import must not change behavior; there are no `register_*` functions.
 
 ### 3. Contracts
 
 - The backend registry is the source of truth for API provider membership and list filtering. Unknown persisted rows must never cross the API boundary.
-- Adding or removing a provider requires auditing all mirrored surfaces: canonical registry, Pydantic request model and `PUT_MODELS`, secret-hint field, connection-test registration/client, CMS `Provider` union/runtime guard/card, and tests.
+- Adding or removing a provider requires auditing all mirrored surfaces: canonical registry, Pydantic request model and `PUT_MODELS`, secret-hint field, connection-test adapter dict entry/client, CMS `Provider` union/runtime guard/card, and tests. A test asserts the adapter dict keys equal `SUPPORTED_INTEGRATION_PROVIDERS`.
+- Runtime credential reads must go through `IntegrationCredentials`; no other module constructs `SecretBox` or knows `_secret_hint` stripping. An invalid master key is logged and degrades to env fallback — it must never crash startup or a request.
+- Runtime loaders use only enabled rows with complete, decryptable credentials. They may skip unusable rows with a log containing provider and error type only.
 - API responses expose only `secret_configured` and an irreversible `secret_hint`; plaintext and ciphertext never appear in responses, logs, exception messages, dataclass `repr`, or snapshots.
 - Runtime loaders use only enabled rows with complete, decryptable credentials. They may skip unusable rows with a log containing provider and error type only.
 - Translation configs sort by numeric `priority`, then the order declared in `TRANSLATION_PROVIDERS`.
