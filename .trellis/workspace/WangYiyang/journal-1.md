@@ -221,3 +221,36 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 架构深化批次（GH #133-#137）全部交付
+
+**Date**: 2026-09-22
+**Task**: 09-22-architecture-deepening
+**Package**: web + reven-server
+**Branch**: main（5 个 feature 分支各自 PR squash 合并）
+
+### Summary
+
+架构评审（improve-codebase-architecture）产出的 5 个 Issue 全部交付并关闭：#134 注册表拆除（PR #138）、#136 web CRUD seam（PR #139，净删 384 行）、#137 路由+卡片收拢（PR #140）、#133 凭证 seam + ProviderClients（PR #141，30 文件 +1440/-924）、#135 Settings 组合根（PR #142）。spec 回写 PR #143。实施经 trellis-implement × 6 波 + trellis-check × 5 轮独立复核；check 在 PR-B 抓住 1 处真实语义回归（master key 非法时启动崩溃 vs env 降级）并修复附回归测试。最终门禁：server 616 测试 + ruff + mypy strict 绿，web 200 测试 + lint + build 绿，全部 PR CI 通过后 squash 合并。
+
+### Key Decisions
+
+- ProviderClients 不可用 yield None（各调用方领域语义不同，typed 异常无法真正统一）；落顶层 provider_clients.py（避免 integrations→rss 层级倒置，实测消除一次循环导入）
+- tencent_cos 纯 env 形态不进 IntegrationCredentials seam
+- CSRF settings 缺失 500→403 fail-closed（生产不可达，更符合威胁模型）
+- web 前端 spec 原为占位模板，本次仅回写本批次确立的约定，完整 bootstrap 留待后续
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3de29bb` | refactor(server): 删除 connection-test 全局 adapter 注册表 (#134) (#138) |
+| `a251e56` | refactor(web): useResourceList + ResponsiveList (#136) (#139) |
+| `c363aae` | refactor(web): routes.tsx + IntegrationCard (#137) (#140) |
+| `d4c1a91` | refactor(server): IntegrationCredentials + ProviderClients (#133) (#141) |
+| `02cb110` | refactor(server): Settings 组合根 (#135) (#142) |
+
+### Status
+
+[OK] **Completed**
