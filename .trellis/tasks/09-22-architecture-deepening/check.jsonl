@@ -1,0 +1,6 @@
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"检查凭证收口与注册表拆除未破坏 provider 契约"}
+{"file":".trellis/spec/reven-server/backend/error-handling.md","reason":"检查降级语义与错误码未漂移"}
+{"file":".trellis/spec/reven-server/backend/quality-guidelines.md","reason":"检查 server 门禁与 replace-don't-layer 测试迁移"}
+{"file":".trellis/spec/web/frontend/quality-guidelines.md","reason":"检查 web 门禁"}
+{"file":".trellis/spec/web/frontend/state-management.md","reason":"检查 query-key 纪律与组开关状态未破坏既有约定"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查深化后的复用无新浅 module 残留"}
