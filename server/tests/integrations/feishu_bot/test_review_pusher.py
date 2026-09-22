@@ -8,6 +8,8 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.client import FeishuBotApiError
 from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
 from reven.integrations.models import Integration
@@ -25,6 +27,15 @@ def _factory(session: AsyncSession) -> async_sessionmaker[AsyncSession]:
 
 def _secret_box() -> SecretBox:
     return SecretBox.from_base64(TEST_MASTER_KEY)
+
+
+def _credentials(session: AsyncSession) -> IntegrationCredentials:
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+    )
+    return IntegrationCredentials(_factory(session), settings)
 
 
 def _digest(value: str) -> str:
@@ -106,7 +117,7 @@ def _build_pusher(
     factory = _factory(session)
     board = review_board or CandidateReviewService(factory)
     factory_stub = SenderFactoryStub(sender)
-    return ReviewCardPusher(factory, _secret_box(), board, sender_factory=factory_stub), factory_stub
+    return ReviewCardPusher(_credentials(session), board, sender_factory=factory_stub), factory_stub
 
 
 async def _pending_ids(session: AsyncSession) -> list[UUID]:

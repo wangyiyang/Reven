@@ -8,6 +8,8 @@ from datetime import date
 from uuid import UUID
 
 import pytest
+from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.review_callback import (
     TOAST_ALREADY_HANDLED,
     TOAST_APPROVED,
@@ -36,6 +38,15 @@ def _factory(session: AsyncSession) -> async_sessionmaker[AsyncSession]:
 
 def _secret_box() -> SecretBox:
     return SecretBox.from_base64(TEST_MASTER_KEY)
+
+
+def _credentials(session: AsyncSession) -> IntegrationCredentials:
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+    )
+    return IntegrationCredentials(_factory(session), settings)
 
 
 class FakeExecutor:
@@ -73,7 +84,7 @@ async def _write_bot_config(
 
 
 def _dispatcher(session: AsyncSession, executor: object) -> ReviewCallbackDispatcher:
-    return ReviewCallbackDispatcher(_factory(session), _secret_box(), executor)  # type: ignore[arg-type]
+    return ReviewCallbackDispatcher(_credentials(session), executor)  # type: ignore[arg-type]
 
 
 async def _seed_candidate(session: AsyncSession) -> UUID:

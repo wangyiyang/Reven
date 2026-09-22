@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from reven.background import BackgroundRunner, RssDiscoveryTick, build_background_runner
@@ -77,23 +78,12 @@ async def test_tick_cancellation_stops_the_loop() -> None:
     await runner.stop()
 
 
-def test_default_runner_builds_rss_with_notification_service(monkeypatch) -> None:
+def test_default_runner_builds_rss_with_notification_service() -> None:
     factory = object()
+    clients = SimpleNamespace(credentials=object())
     settings = type("Settings", (), {"rss_scheduler_interval_seconds": 42})()
-    notifier = object()
 
-    async def tick() -> None:
-        return None
-
-    def build_tick(actual_factory, actual_settings, actual_notifier):
-        assert (actual_factory, actual_settings, actual_notifier) == (factory, settings, notifier)
-        return tick
-
-    monkeypatch.setattr("reven.background.get_settings", lambda: settings)
-    monkeypatch.setattr("reven.background.build_configured_notifier", lambda *args: notifier)
-    monkeypatch.setattr("reven.background.build_configured_rss_tick", build_tick)
-
-    runner = build_background_runner(factory)
+    runner = build_background_runner(factory, clients, settings)  # type: ignore[arg-type]
 
     assert isinstance(runner._rss_tick, RssDiscoveryTick)
     assert runner._rss_interval == 42

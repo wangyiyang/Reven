@@ -45,7 +45,7 @@ def test_default_background_runner_is_built_started_and_stopped(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     built_with = None
 
-    def fake_build(candidate):  # type: ignore[no-untyped-def]
+    def fake_build(candidate, clients, settings):  # type: ignore[no-untyped-def]
         nonlocal built_with
         built_with = candidate
         return runner
@@ -127,7 +127,7 @@ def test_runner_build_failure_disposes_internal_engine(monkeypatch) -> None:  # 
     monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
     monkeypatch.setattr(
         "reven.app.build_background_runner",
-        lambda candidate: (_ for _ in ()).throw(RuntimeError("build failed")),
+        lambda candidate, clients, settings: (_ for _ in ()).throw(RuntimeError("build failed")),
     )
     monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
 
@@ -143,7 +143,7 @@ def test_runner_build_failure_does_not_dispose_external_engine(monkeypatch) -> N
     factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(
         "reven.app.build_background_runner",
-        lambda candidate: (_ for _ in ()).throw(RuntimeError("build failed")),
+        lambda candidate, clients, settings: (_ for _ in ()).throw(RuntimeError("build failed")),
     )
 
     with pytest.raises(RuntimeError, match="build failed"):
