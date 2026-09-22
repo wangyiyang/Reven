@@ -10,13 +10,11 @@ from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.client import FeishuBotApiClient
-from reven.integrations.feishu_bot.config import PROVIDER, load_feishu_bot_config
+from reven.integrations.feishu_bot.config import PROVIDER
 from reven.integrations.feishu_bot.review_card import build_review_card_batches
 from reven.rss.models import RssItem
-from reven.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +41,17 @@ class ReviewCardPusher:
 
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
-        secret_box: SecretBox,
+        credentials: IntegrationCredentials,
         review_board: ReviewBoard,
         *,
         sender_factory: SenderFactory | None = None,
     ) -> None:
-        self._session_factory = session_factory
-        self._secret_box = secret_box
+        self._credentials = credentials
         self._review_board = review_board
         self._sender_factory = sender_factory or FeishuBotApiClient
 
     async def push_pending_review(self) -> None:
-        config = await load_feishu_bot_config(self._session_factory, self._secret_box)
+        config = await self._credentials.feishu_bot()
         if config is None:
             return  # loader 已按 provider + 异常类型记日志
         recipients = config.whitelist_open_ids

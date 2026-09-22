@@ -19,11 +19,9 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from reven.integrations.feishu_bot.config import PROVIDER, load_feishu_bot_config
+from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.feishu_bot.config import PROVIDER
 from reven.integrations.feishu_bot.review_callback import ReviewActionDispatch, ReviewCallback
-from reven.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +52,12 @@ class FeishuBotSupervisor:
 
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
-        secret_box: SecretBox,
+        credentials: IntegrationCredentials,
         *,
         connection_factory: ConnectionFactory | None = None,
         review_callback: ReviewCallback | None = None,
     ) -> None:
-        self._session_factory = session_factory
-        self._secret_box = secret_box
+        self._credentials = credentials
         self._review_callback = review_callback
         self._connection_factory = connection_factory or self._build_default_connection
         self._main_loop: asyncio.AbstractEventLoop | None = None
@@ -148,7 +144,7 @@ class FeishuBotSupervisor:
 
     async def _load_credentials(self) -> FeishuBotCredentials | None:
         """读取 feishu_bot 配置；未配置/未启用/凭证不完整/读取失败均返回 None。"""
-        config = await load_feishu_bot_config(self._session_factory, self._secret_box)
+        config = await self._credentials.feishu_bot()
         if config is None:
             return None
         return FeishuBotCredentials(app_id=config.app_id, app_secret=config.app_secret)

@@ -11,9 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.embedding.configuration import EmbeddingConfig, load_embedding_config
 from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
-from reven.integrations.translation.configuration import load_translation_configs
 from reven.notifications import DeliveryNotifier
 from reven.rss.ai import SiliconFlowChatClient
 from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, ReviewCardPush, RssDiscoveryService
@@ -33,7 +33,6 @@ from reven.rss.scheduler import RssScheduleTick
 from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from reven.rss.translation import configured_translation_localizer
-from reven.security.secrets import SecretBox
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn"
 SILICONFLOW_TIMEOUT = httpx.Timeout(45.0)
@@ -95,13 +94,12 @@ class ConfiguredRssDiscoveryTick:
     def _build_review_pusher(self) -> ReviewCardPusher | None:
         """按 settings 组装默认审核卡片推送器；密钥不可用时降级停用，不影响 discovery 主流程。"""
         try:
-            secret_box = SecretBox.from_base64(self._settings.reven_master_key.get_secret_value())
+            credentials = IntegrationCredentials(self._factory, self._settings)
         except Exception as exc:
             logger.warning("飞书机器人审核卡片推送停用：密钥不可用（error_type=%s）", type(exc).__name__)
             return None
         return ReviewCardPusher(
-            self._factory,
-            secret_box,
+            credentials,
             CandidateReviewService(self._factory),
         )
 
@@ -129,7 +127,7 @@ class ConfiguredRssDiscoveryTick:
             else None
         )
         embedding_config = await load_embedding_config(self._factory)
-        translation_configs = await load_translation_configs(self._factory)
+        translation_configs = await IntegrationCredentials(self._factory, self._settings).translations()
         async with httpx.AsyncClient(
             base_url=SILICONFLOW_BASE_URL,
             timeout=SILICONFLOW_TIMEOUT,

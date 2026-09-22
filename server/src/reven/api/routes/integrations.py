@@ -24,12 +24,12 @@ from reven.api.schemas.integrations import (
 )
 from reven.config import get_settings
 from reven.integrations.agent_llm.service import test_agent_llm_connection
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.embedding.service import test_embedding_connection
 from reven.integrations.feishu_bot.service import test_feishu_bot_connection
 from reven.integrations.service import ConnectionTestAdapter, IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import test_aliyun_translation
 from reven.integrations.translation.baidu import test_baidu_translation
-from reven.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -60,12 +60,9 @@ async def get_session(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-def _secret_box() -> SecretBox:
-    return SecretBox.from_base64(get_settings().reven_master_key.get_secret_value())
-
-
-def _service(session: AsyncSession) -> IntegrationService:
-    return IntegrationService(session, _secret_box(), CONNECTION_TEST_ADAPTERS)
+def _service(request: Request, session: AsyncSession) -> IntegrationService:
+    credentials = IntegrationCredentials(get_session_factory(request), get_settings())
+    return IntegrationService(session, credentials.secret_box, CONNECTION_TEST_ADAPTERS)
 
 
 def _ensure_known_provider(provider: str) -> None:
@@ -105,17 +102,17 @@ async def _parse_put_body(provider: str, request: Request) -> IntegrationPut:
 
 
 @router.get("", response_model=list[IntegrationResponse])
-async def list_integrations(session: SessionDep) -> list[IntegrationResponse]:
-    service = _service(session)
+async def list_integrations(request: Request, session: SessionDep) -> list[IntegrationResponse]:
+    service = _service(request, session)
     integrations = await service.list_integrations()
     return [to_response(integration) for integration in integrations if integration.provider in PROVIDERS]
 
 
 @router.get("/{provider}", response_model=IntegrationResponse)
-async def get_integration(provider: str, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def get_integration(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(session).get_integration(provider)
+        integration = await _service(request, session).get_integration(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     return to_response(integration)
@@ -128,7 +125,7 @@ async def put_integration(provider: str, request: Request, session: SessionDep) 
         body = await _parse_put_body(provider, request)
     except IntegrationError as exc:
         return _error_response(exc)
-    service = _service(session)
+    service = _service(request, session)
     integration = await service.upsert_integration(
         provider=provider,
         public_config=body.public_config.model_dump(mode="json", exclude_none=True),
@@ -143,7 +140,7 @@ async def put_integration(provider: str, request: Request, session: SessionDep) 
 async def delete_secret(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(session).delete_secret(provider)
+        integration = await _service(request, session).delete_secret(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     await session.commit()
@@ -152,10 +149,10 @@ async def delete_secret(provider: str, request: Request, session: SessionDep) ->
 
 
 @router.post("/{provider}/test", response_model=IntegrationResponse)
-async def test_connection(provider: str, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def test_connection(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(session).run_connection_test(provider)
+        integration = await _service(request, session).run_connection_test(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     await session.commit()

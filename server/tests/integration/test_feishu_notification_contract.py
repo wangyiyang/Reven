@@ -1,13 +1,17 @@
+import base64
 import json
 
 import httpx
 import pytest
+from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.client import FeishuBotApiError
 from reven.integrations.models import Integration
 from reven.notifications import ConfiguredFeishuNotifier, Notification
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+TEST_MASTER_KEY = base64.urlsafe_b64encode(b"k" * 32).decode()
 SECRET_BOX = SecretBox(b"k" * 32)
 NOTIFICATION = Notification(
     "Reven RSS 每日汇总",
@@ -32,9 +36,14 @@ async def _configure(session: AsyncSession, *, enabled: bool = True, recipients:
 
 
 def _notifier(session: AsyncSession, handler: object) -> ConfiguredFeishuNotifier:
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+    )
+    credentials = IntegrationCredentials(async_sessionmaker(session.bind, expire_on_commit=False), settings)
     return ConfiguredFeishuNotifier(
-        async_sessionmaker(session.bind, expire_on_commit=False),
-        SECRET_BOX,
+        credentials,
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
     )
 

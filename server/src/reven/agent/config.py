@@ -1,21 +1,12 @@
-"""Agent 配置解析：优先读 integrations 表的 agent-llm，env/Settings 作为 fallback。"""
+"""Agent 配置解析：凭证由 IntegrationCredentials seam 提供，本模块只做 AgentConfig 映射。"""
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
-from reven.integrations.repository import IntegrationRepository
-from reven.integrations.service import public_config_without_hint
-from reven.security.secrets import SecretBox, SecretBoxError
-
-logger = logging.getLogger(__name__)
-
-AGENT_LLM_PROVIDER = "agent-llm"
-DEFAULT_PROVIDER = "deepseek-official"
-DEFAULT_MODEL = "deepseek-v4-flash"
+from reven.integrations.credentials import IntegrationCredentials
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,48 +45,19 @@ async def resolve_agent_config(
 ) -> AgentConfig | None:
     """解析 Agent 配置：integrations 表优先，env/Settings fallback；未配置返回 None。
 
-    任何读取/解密失败都只记日志并继续 fallback，绝不在 lifespan 阶段抛出——
+    读取/解密失败由 IntegrationCredentials 记日志并降级，绝不抛出——
     Agent 不可用不应阻止应用启动（已拍板降级策略）。
     """
-    if session_factory is not None:
-        config = await _config_from_integration(session_factory, settings)
-        if config is not None:
-            return config
-    return AgentConfig.from_settings(settings)
-
-
-async def _config_from_integration(
-    session_factory: async_sessionmaker[AsyncSession],
-    settings: Settings,
-) -> AgentConfig | None:
-    try:
-        async with session_factory() as session:
-            integration = await IntegrationRepository(session).get_by_provider(AGENT_LLM_PROVIDER)
-        if integration is None or integration.encrypted_secret is None:
-            return None
-        secrets = SecretBox.from_base64(settings.reven_master_key.get_secret_value()).decrypt(
-            integration.encrypted_secret
-        )
-    except SecretBoxError:
-        logger.error("agent-llm 集成 Secret 解密失败，请重新配置；Agent 按未配置降级")
+    if session_factory is None:
+        return AgentConfig.from_settings(settings)
+    credentials = await IntegrationCredentials(session_factory, settings).agent_llm()
+    if credentials is None:
         return None
-    except Exception as exc:
-        logger.error("agent-llm 集成配置读取失败（error_type=%s），回退 env 配置", type(exc).__name__)
-        return None
-    api_key = secrets.get("api_key")
-    if not api_key:
-        return None
-    public = public_config_without_hint(integration)
-    base_url = public.get("base_url")
     return AgentConfig(
-        provider=_str_or(public.get("provider"), DEFAULT_PROVIDER),
-        model=_str_or(public.get("model"), DEFAULT_MODEL),
-        base_url=base_url if isinstance(base_url, str) else None,
-        api_key=api_key,
+        provider=credentials.provider,
+        model=credentials.model,
+        base_url=credentials.base_url,
+        api_key=credentials.api_key,
         dsh_home=settings.dsh_home,
         cwd=settings.dsh_home,
     )
-
-
-def _str_or(value: object, default: str) -> str:
-    return value if isinstance(value, str) and value else default

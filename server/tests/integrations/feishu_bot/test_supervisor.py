@@ -8,6 +8,8 @@ from collections.abc import Callable
 from uuid import UUID
 
 import pytest
+from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.review_callback import ReviewActionOutcome
 from reven.integrations.feishu_bot.supervisor import FeishuBotCredentials, FeishuBotSupervisor, LarkWsConnection
 from reven.integrations.models import Integration
@@ -24,6 +26,15 @@ def _factory(session: AsyncSession) -> async_sessionmaker[AsyncSession]:
 
 def _secret_box() -> SecretBox:
     return SecretBox.from_base64(TEST_MASTER_KEY)
+
+
+def _credentials(session: AsyncSession) -> IntegrationCredentials:
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+    )
+    return IntegrationCredentials(_factory(session), settings)
 
 
 class FakeConnection:
@@ -88,7 +99,7 @@ async def _write_bot_config(
 @pytest.mark.anyio
 async def test_start_without_config_spawns_no_connection(db_session: AsyncSession) -> None:
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
 
@@ -100,7 +111,7 @@ async def test_start_without_config_spawns_no_connection(db_session: AsyncSessio
 async def test_start_with_disabled_config_spawns_no_connection(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=False)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
 
@@ -111,7 +122,7 @@ async def test_start_with_disabled_config_spawns_no_connection(db_session: Async
 async def test_start_with_incomplete_secret_spawns_no_connection(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True, secret={"app_id": "cli_test"})
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
 
@@ -122,7 +133,7 @@ async def test_start_with_incomplete_secret_spawns_no_connection(db_session: Asy
 async def test_start_with_config_spawns_thread_and_passes_credentials(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
 
@@ -137,7 +148,7 @@ async def test_start_with_config_spawns_thread_and_passes_credentials(db_session
 async def test_reload_replaces_connection_atomically(db_session: AsyncSession) -> None:
     integration = await _write_bot_config(db_session, enabled=True, secret={"app_id": "cli_old", "app_secret": "old"})
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
     await supervisor.start()
     assert await _wait_until(lambda: len(factory.connections) == 1)
 
@@ -156,7 +167,7 @@ async def test_reload_replaces_connection_atomically(db_session: AsyncSession) -
 async def test_reload_stops_connection_when_config_disabled(db_session: AsyncSession) -> None:
     integration = await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
     await supervisor.start()
     assert await _wait_until(lambda: len(factory.connections) == 1)
 
@@ -179,7 +190,7 @@ async def test_undecryptable_secret_is_logged_not_raised(db_session: AsyncSessio
     db_session.add(integration)
     await db_session.commit()
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()  # 解密失败只记日志，不阻断进程
 
@@ -198,9 +209,9 @@ async def test_config_read_exception_does_not_propagate(
         async def get_by_provider(self, provider: str) -> Integration | None:
             raise RuntimeError("database down")
 
-    monkeypatch.setattr("reven.integrations.feishu_bot.config.IntegrationRepository", BrokenRepository)
+    monkeypatch.setattr("reven.integrations.credentials.IntegrationRepository", BrokenRepository)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
 
@@ -211,7 +222,7 @@ async def test_config_read_exception_does_not_propagate(
 async def test_start_and_stop_are_idempotent(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), connection_factory=factory)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
 
     await supervisor.start()
     await supervisor.start()  # 已在运行：不重复建连接
@@ -243,9 +254,7 @@ class ReviewCallbackStub:
 async def test_start_binds_main_loop_to_review_callback(db_session: AsyncSession) -> None:
     callback = ReviewCallbackStub()
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(
-        _factory(db_session), _secret_box(), connection_factory=factory, review_callback=callback
-    )
+    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory, review_callback=callback)
 
     await supervisor.start()
 
@@ -257,7 +266,7 @@ async def test_default_connection_factory_wires_review_callback_into_event_handl
     db_session: AsyncSession,
 ) -> None:
     callback = ReviewCallbackStub()
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box(), review_callback=callback)
+    supervisor = FeishuBotSupervisor(_credentials(db_session), review_callback=callback)
 
     connection = supervisor._build_default_connection(FeishuBotCredentials(app_id="cli_test", app_secret="s"))
 
@@ -271,7 +280,7 @@ async def test_default_connection_factory_wires_review_callback_into_event_handl
 async def test_default_connection_factory_without_review_callback_registers_only_im(
     db_session: AsyncSession,
 ) -> None:
-    supervisor = FeishuBotSupervisor(_factory(db_session), _secret_box())
+    supervisor = FeishuBotSupervisor(_credentials(db_session))
 
     connection = supervisor._build_default_connection(FeishuBotCredentials(app_id="cli_test", app_secret="s"))
 

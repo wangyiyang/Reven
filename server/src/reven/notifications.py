@@ -7,9 +7,8 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.client import FeishuBotApiClient
-from reven.integrations.feishu_bot.config import load_feishu_bot_config
-from reven.security.secrets import SecretBox
 
 
 @dataclass(frozen=True)
@@ -27,17 +26,15 @@ class DeliveryNotifier(Protocol):
 class ConfiguredFeishuNotifier:
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
-        secret_box: SecretBox,
+        credentials: IntegrationCredentials,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.session_factory = session_factory
-        self.secret_box = secret_box
+        self.credentials = credentials
         self.transport = transport
 
     async def send(self, notification: Notification) -> None:
-        config = await load_feishu_bot_config(self.session_factory, self.secret_box)
+        config = await self.credentials.feishu_bot()
         if config is None:
             raise RuntimeError("飞书应用机器人未启用或凭证不可用")
         client = FeishuBotApiClient(config.app_id, config.app_secret, transport=self.transport)
@@ -50,5 +47,4 @@ def build_configured_notifier(
     session_factory: async_sessionmaker[AsyncSession],
     settings: Settings,
 ) -> ConfiguredFeishuNotifier:
-    secret_box = SecretBox.from_base64(settings.reven_master_key.get_secret_value())
-    return ConfiguredFeishuNotifier(session_factory, secret_box)
+    return ConfiguredFeishuNotifier(IntegrationCredentials(session_factory, settings))

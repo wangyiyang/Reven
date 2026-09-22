@@ -14,11 +14,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from reven.integrations.feishu_bot.config import PROVIDER, load_feishu_bot_config
+from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.feishu_bot.config import PROVIDER
 from reven.rss.review_service import CandidateReviewError
-from reven.security.secrets import SecretBox
 
 if TYPE_CHECKING:
     from reven.rss.models import RssItem
@@ -98,14 +96,12 @@ class ReviewCallbackDispatcher:
 
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
-        secret_box: SecretBox,
+        credentials: IntegrationCredentials,
         executor: ReviewActionExecutor,
         *,
         timeout_seconds: float = _CALLBACK_TIMEOUT_SECONDS,
     ) -> None:
-        self._session_factory = session_factory
-        self._secret_box = secret_box
+        self._credentials = credentials
         self._executor = executor
         self._timeout_seconds = timeout_seconds
         self._main_loop: asyncio.AbstractEventLoop | None = None
@@ -135,7 +131,7 @@ class ReviewCallbackDispatcher:
 
     async def _execute(self, action: str, item_id: UUID, operator_open_id: str | None) -> ReviewActionOutcome:
         """按最新配置取白名单后执行审核；配置缺失/禁用视为空白名单。"""
-        config = await load_feishu_bot_config(self._session_factory, self._secret_box)
+        config = await self._credentials.feishu_bot()
         whitelist = config.whitelist_open_ids if config is not None else ()
         return await run_review_action(
             self._executor,

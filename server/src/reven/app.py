@@ -31,6 +31,7 @@ from reven.api.routes.talents import router as talents_router
 from reven.background import build_background_runner
 from reven.config import Settings, get_settings
 from reven.db import create_session_factory
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.review_callback import ReviewCallbackDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
 from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher
@@ -38,7 +39,6 @@ from reven.rss.review_service import CandidateReviewService
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
 from reven.security.headers import SecurityHeadersMiddleware
-from reven.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
 
@@ -106,13 +106,12 @@ def _build_feishu_bot_supervisor(
     if factory is None:
         return None
     try:
-        secret_box = SecretBox.from_base64(get_settings().reven_master_key.get_secret_value())
+        credentials = IntegrationCredentials(factory, get_settings())
         review_callback = ReviewCallbackDispatcher(
-            factory,
-            secret_box,
+            credentials,
             CandidateReviewService(factory),
         )
-        supervisor = FeishuBotSupervisor(factory, secret_box, review_callback=review_callback)
+        supervisor = FeishuBotSupervisor(credentials, review_callback=review_callback)
     except Exception as exc:
         logger.warning("飞书机器人 supervisor 初始化失败，入站能力停用（error_type=%s）", type(exc).__name__)
         return None
