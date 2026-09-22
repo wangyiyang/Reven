@@ -40,7 +40,8 @@ export type TalentInput = {
 }
 
 export type TalentFilters = {
-  query: string
+  /** 列表接口的搜索参数名（后端约定为 q，seam 按 filters 键名直出查询参数） */
+  q: string
   status: TalentStatus | ""
   due: DueFilter | ""
   tag: string

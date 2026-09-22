@@ -145,7 +145,7 @@ describe("CrmPage", () => {
     )
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "编辑 星河科技" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 星河科技" }))[0])
     const nameInput = screen.getByLabelText("客户名称")
     await userEvent.clear(nameInput)
     await userEvent.type(nameInput, "星河科技有限公司")
@@ -154,7 +154,7 @@ describe("CrmPage", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("客户已更新"))
     expect(updatedBody).toMatchObject({ name: "星河科技有限公司", status: "跟进中" })
 
-    await userEvent.click(await screen.findByRole("button", { name: "删除 星河科技有限公司" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "删除 星河科技有限公司" }))[0])
     const dialog = await screen.findByRole("dialog")
     expect(deleted).toBe(false)
     await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))

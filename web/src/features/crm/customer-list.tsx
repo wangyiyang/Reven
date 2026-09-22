@@ -1,11 +1,11 @@
 import { AlertTriangle, CalendarClock } from "lucide-react"
 import { Link } from "react-router-dom"
 
+import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 import { CUSTOMER_STATUSES, type Customer, type CustomerFilters, type CustomerStatus, type DueFilter } from "./types"
 import { todayInShanghai } from "./date-utils"
@@ -28,8 +28,42 @@ export function CustomerList(props: CustomerListProps) {
     <div className="space-y-4">
       <CustomerFiltersBar filters={props.filters} onChange={props.onFiltersChange} />
       <CustomerListState {...props} />
-      {!props.loading && !props.failed ? <MobileCustomers {...props} /> : null}
-      {!props.loading && !props.failed ? <DesktopCustomers {...props} /> : null}
+      {!props.loading && !props.failed && (props.customers?.length ?? 0) > 0 ? (
+        <ResponsiveList
+          actions={[
+            { label: "编辑", ariaLabel: (customer) => `编辑 ${customer.name}`, onClick: props.onEdit },
+            { label: "删除", ariaLabel: (customer) => `删除 ${customer.name}`, onClick: props.onDelete },
+          ]}
+          card={(customer) => ({
+            title: <Link to={`/crm/customers/${customer.id}`}>{customer.name}</Link>,
+            status: <Badge>{customer.status}</Badge>,
+            body: (
+              <>
+                <p className="mt-2 text-sm text-[var(--muted)]">{customer.next_action ?? "尚未安排下一步"}</p>
+                <FollowUpState dueOn={customer.next_follow_up_on} />
+              </>
+            ),
+          })}
+          cardLabel={(customer) => `${customer.name} 客户摘要`}
+          columns={[
+            {
+              header: "客户",
+              cell: (customer) => <Link className="font-medium" to={`/crm/customers/${customer.id}`}>{customer.name}</Link>,
+            },
+            { header: "状态", cell: (customer) => <Badge>{customer.status}</Badge> },
+            { header: "来源", cell: (customer) => customer.source ?? "—" },
+            {
+              header: "下一步",
+              className: "max-w-72",
+              cell: (customer) => <span className="line-clamp-2">{customer.next_action ?? "—"}</span>,
+            },
+            { header: "跟进日期", cell: (customer) => <FollowUpState dueOn={customer.next_follow_up_on} /> },
+          ]}
+          emptyText="暂无匹配客户。"
+          items={props.customers}
+          keyOf={(customer) => customer.id}
+        />
+      ) : null}
     </div>
   )
 }
@@ -101,49 +135,6 @@ function CustomerListState({ customers, loading, failed, onRetry }: CustomerList
   }
   if (customers?.length === 0) return <p className="py-8 text-center text-sm text-[var(--muted)]">暂无匹配客户。</p>
   return null
-}
-
-function MobileCustomers({ customers, onEdit, onDelete }: CustomerListProps) {
-  return (
-    <div className="grid gap-3 lg:hidden">
-      {(customers ?? []).map((customer) => (
-        <article aria-label={`${customer.name} 客户摘要`} className="rounded-lg border border-[var(--line)] p-4" key={customer.id}>
-          <div className="flex items-start justify-between gap-3">
-            <Link className="font-semibold" to={`/crm/customers/${customer.id}`}>{customer.name}</Link>
-            <Badge>{customer.status}</Badge>
-          </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">{customer.next_action ?? "尚未安排下一步"}</p>
-          <FollowUpState dueOn={customer.next_follow_up_on} />
-          <div className="mt-3 flex justify-end gap-1">
-            <Button aria-label={`编辑 ${customer.name}`} onClick={() => onEdit(customer)} size="sm" type="button" variant="ghost">编辑</Button>
-            <Button aria-label={`删除 ${customer.name}`} onClick={() => onDelete(customer)} size="sm" type="button" variant="ghost">删除</Button>
-          </div>
-        </article>
-      ))}
-    </div>
-  )
-}
-
-function DesktopCustomers({ customers, onEdit, onDelete }: CustomerListProps) {
-  return (
-    <div className="hidden lg:block">
-      <Table>
-        <TableHeader><TableRow><TableHead>客户</TableHead><TableHead>状态</TableHead><TableHead>来源</TableHead><TableHead>下一步</TableHead><TableHead>跟进日期</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
-        <TableBody>
-          {(customers ?? []).map((customer) => (
-            <TableRow key={customer.id}>
-              <TableCell><Link className="font-medium" to={`/crm/customers/${customer.id}`}>{customer.name}</Link></TableCell>
-              <TableCell><Badge>{customer.status}</Badge></TableCell>
-              <TableCell>{customer.source ?? "—"}</TableCell>
-              <TableCell className="max-w-72"><span className="line-clamp-2">{customer.next_action ?? "—"}</span></TableCell>
-              <TableCell><FollowUpState dueOn={customer.next_follow_up_on} /></TableCell>
-              <TableCell><div className="flex gap-1"><Button onClick={() => onEdit(customer)} size="sm" type="button" variant="ghost">编辑</Button><Button onClick={() => onDelete(customer)} size="sm" type="button" variant="ghost">删除</Button></div></TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
 }
 
 function FollowUpState({ dueOn }: { dueOn: string | null }) {

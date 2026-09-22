@@ -108,7 +108,7 @@ describe("FinanceLedgerPage", () => {
     )
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "编辑" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 OLL 项目预付款" }))[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("编辑财务记录")
@@ -133,7 +133,7 @@ describe("FinanceLedgerPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("OLL 项目预付款"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 OLL 项目预付款" })[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("删除财务记录")

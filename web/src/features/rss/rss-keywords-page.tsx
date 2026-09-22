@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ErrorPanel } from "@/components/ui/error-panel"
 import type { RssKeywordInput } from "./rss-api"
-import { ErrorPanel, StatusBadge } from "./rss-shared"
+import { StatusBadge } from "./rss-shared"
 import type { RssKeyword, RssKeywordKind } from "./types"
 import { useRssSettingsController } from "./use-rss-settings-controller"
 
@@ -24,7 +25,7 @@ export function RssKeywordsPage() {
         </p>
       </header>
       {loading && <p aria-busy="true" className="text-sm text-[var(--muted)]">正在读取 RSS 关键词…</p>}
-      {error && <ErrorPanel message={error.message} retry={() => void controller.keywords.refetch()} />}
+      {error && <ErrorPanel message={error.message} retry={() => void controller.keywords.refetch()} title="RSS 配置读取失败" />}
       {controller.keywords.isSuccess && (
         <KeywordSettings
           busy={controller.isActionLocked}

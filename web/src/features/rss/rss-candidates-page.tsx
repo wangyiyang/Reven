@@ -3,6 +3,7 @@ import { useState } from "react"
 import { useSearchParams } from "react-router-dom"
 
 import { Badge } from "@/components/ui/badge"
+import { ErrorPanel } from "@/components/ui/error-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import type { RssCandidate } from "./types"
@@ -29,10 +30,11 @@ export function RssCandidatesPage() {
         <TabsContent value={view}>
           {controller.candidates.isLoading && <p aria-busy="true" className="text-sm text-[var(--muted)]">正在读取内容…</p>}
           {controller.candidates.isError && (
-            <div className="border border-[var(--danger)] bg-[var(--faint)] p-5 text-sm text-[var(--danger)]" role="alert">
-              <p>RSS 内容读取失败：{controller.candidates.error.message}</p>
-              <Button className="mt-4" onClick={() => controller.candidates.refetch()} size="sm" variant="outline">重新读取</Button>
-            </div>
+            <ErrorPanel
+              message={controller.candidates.error.message}
+              retry={() => void controller.candidates.refetch()}
+              title="RSS 内容读取失败"
+            />
           )}
           {controller.total === 0 && <EmptyQueue saved={view === "saved"} />}
           <ol className="grid gap-6">

@@ -122,7 +122,7 @@ describe("SopsPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("客户首次沟通 SOP"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 客户首次沟通 SOP" })[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("删除 SOP")
@@ -133,7 +133,7 @@ describe("SopsPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect(screen.getAllByText("客户首次沟通 SOP")[0]).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 客户首次沟通 SOP" })[0])
     const dialog2 = await screen.findByRole("dialog")
     await userEvent.click(within(dialog2).getByRole("button", { name: /确认删除/ }))
 
@@ -148,14 +148,14 @@ describe("SopsPage", () => {
     expect(card).toHaveTextContent("试行")
     expect(card).toHaveTextContent("CRM、销售")
 
-    await userEvent.click(screen.getByRole("button", { name: "查看 客户首次沟通 SOP" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "查看 客户首次沟通 SOP" })[0])
     expect(await screen.findByRole("dialog")).toHaveTextContent("1. 确认背景")
     await userEvent.click(screen.getByRole("button", { name: "关闭" }))
 
-    await userEvent.click(screen.getByRole("button", { name: "编辑 客户首次沟通 SOP" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "编辑 客户首次沟通 SOP" })[0])
     expect(screen.getByLabelText("标题")).toHaveValue("客户首次沟通 SOP")
 
-    await userEvent.click(screen.getByRole("button", { name: "删除 客户首次沟通 SOP" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 客户首次沟通 SOP" })[0])
     expect(await screen.findByRole("dialog")).toHaveTextContent("删除 SOP")
   })
 
@@ -209,7 +209,7 @@ describe("SopsPage", () => {
     )
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "编辑" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 客户首次沟通 SOP" }))[0])
 
     const titleInput = await screen.findByLabelText("标题")
     await userEvent.clear(titleInput)
@@ -227,7 +227,7 @@ describe("SopsPage", () => {
     Object.defineProperty(window, "isSecureContext", { value: true, configurable: true })
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "查看" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "查看 客户首次沟通 SOP" }))[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toBeInTheDocument()

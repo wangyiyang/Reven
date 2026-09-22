@@ -1,11 +1,11 @@
 import { AlertTriangle, CalendarClock } from "lucide-react"
 import { Link } from "react-router-dom"
 
+import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 import { TALENT_STATUSES, type DueFilter, type Talent, type TalentFilters, type TalentStatus } from "./types"
 
@@ -29,8 +29,55 @@ export function TalentList(props: TalentListProps) {
     <div className="space-y-4">
       <TalentFiltersBar filters={props.filters} onChange={props.onFiltersChange} tagOptions={tagOptions} />
       <TalentListState {...props} />
-      {!props.loading && !props.failed ? <MobileTalents {...props} /> : null}
-      {!props.loading && !props.failed ? <DesktopTalents {...props} /> : null}
+      {!props.loading && !props.failed ? (
+        <ResponsiveList
+          actions={[
+            { label: "编辑", ariaLabel: (talent) => `编辑 ${talent.name}`, onClick: props.onEdit },
+            { label: "删除", ariaLabel: (talent) => `删除 ${talent.name}`, onClick: props.onDelete },
+          ]}
+          card={(talent) => ({
+            title: <Link to={`/talents/${talent.id}`}>{talent.name}</Link>,
+            status: <Badge>{talent.status}</Badge>,
+            body: <p className="mt-2 text-sm text-[var(--muted)]">{talent.organization ?? "未记录机构"}</p>,
+            meta: (
+              <>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <TagBadges tags={talent.tags} />
+                  <DueFilterBadge due={props.filters.due} />
+                </div>
+                <p className="mt-2 text-sm"><RateText talent={talent} /> · <RatingText rating={talent.rating} /></p>
+              </>
+            ),
+          })}
+          cardLabel={(talent) => `${talent.name} 人才摘要`}
+          columns={[
+            {
+              header: "人才",
+              cell: (talent) => (
+                <>
+                  <Link className="font-medium" to={`/talents/${talent.id}`}>{talent.name}</Link>
+                  <p className="text-xs text-[var(--muted)]">{talent.organization ?? "—"}</p>
+                </>
+              ),
+            },
+            {
+              header: "状态",
+              cell: (talent) => (
+                <div className="flex items-center gap-2">
+                  <Badge>{talent.status}</Badge>
+                  <DueFilterBadge due={props.filters.due} />
+                </div>
+              ),
+            },
+            { header: "标签", className: "max-w-64", cell: (talent) => <TagBadges tags={talent.tags} /> },
+            { header: "费率", cell: (talent) => <RateText talent={talent} /> },
+            { header: "评分", cell: (talent) => <RatingText rating={talent.rating} /> },
+          ]}
+          emptyText={emptyTalentsMessage}
+          items={props.talents}
+          keyOf={(talent) => talent.id}
+        />
+      ) : null}
     </div>
   )
 }
@@ -42,9 +89,9 @@ function TalentFiltersBar({ filters, onChange, tagOptions }: { filters: TalentFi
         <Label htmlFor="talents-search">搜索</Label>
         <Input
           id="talents-search"
-          onChange={(event) => onChange({ ...filters, query: event.target.value })}
+          onChange={(event) => onChange({ ...filters, q: event.target.value })}
           placeholder="姓名或机构"
-          value={filters.query}
+          value={filters.q}
         />
       </div>
       <div className="space-y-2">
@@ -127,68 +174,4 @@ function RateText({ talent }: { talent: Talent }) {
 function RatingText({ rating }: { rating: number | null }) {
   if (rating === null) return <span className="text-[var(--muted)]">—</span>
   return <span>★ {rating}/5</span>
-}
-
-function TalentActions({ talent, labeled, onEdit, onDelete }: { talent: Talent; labeled?: boolean } & Pick<TalentListProps, "onEdit" | "onDelete">) {
-  return (
-    <div className="flex justify-end gap-1 lg:justify-start">
-      <Button aria-label={labeled ? `编辑 ${talent.name}` : undefined} onClick={() => onEdit(talent)} size="sm" type="button" variant="ghost">编辑</Button>
-      <Button aria-label={labeled ? `删除 ${talent.name}` : undefined} onClick={() => onDelete(talent)} size="sm" type="button" variant="ghost">删除</Button>
-    </div>
-  )
-}
-
-function MobileTalents(props: TalentListProps) {
-  const talents = props.talents ?? []
-  return (
-    <div className="grid gap-3 lg:hidden">
-      {talents.length === 0 ? (
-        <p className="py-8 text-center text-sm text-[var(--muted)]">{emptyTalentsMessage}</p>
-      ) : talents.map((talent) => (
-        <article aria-label={`${talent.name} 人才摘要`} className="rounded-lg border border-[var(--line)] p-4" key={talent.id}>
-          <div className="flex items-start justify-between gap-3">
-            <Link className="font-semibold" to={`/talents/${talent.id}`}>{talent.name}</Link>
-            <Badge>{talent.status}</Badge>
-          </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">{talent.organization ?? "未记录机构"}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <TagBadges tags={talent.tags} />
-            <DueFilterBadge due={props.filters.due} />
-          </div>
-          <p className="mt-2 text-sm"><RateText talent={talent} /> · <RatingText rating={talent.rating} /></p>
-          <div className="mt-3"><TalentActions labeled talent={talent} onEdit={props.onEdit} onDelete={props.onDelete} /></div>
-        </article>
-      ))}
-    </div>
-  )
-}
-
-function DesktopTalents(props: TalentListProps) {
-  const talents = props.talents ?? []
-  return (
-    <div className="hidden lg:block">
-      <Table>
-        <TableHeader><TableRow><TableHead>人才</TableHead><TableHead>状态</TableHead><TableHead>标签</TableHead><TableHead>费率</TableHead><TableHead>评分</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
-        <TableBody>
-          {talents.length === 0 ? (
-            <TableRow>
-              <TableCell className="py-8 text-center text-sm text-[var(--muted)]" colSpan={6}>{emptyTalentsMessage}</TableCell>
-            </TableRow>
-          ) : talents.map((talent) => (
-            <TableRow key={talent.id}>
-              <TableCell>
-                <Link className="font-medium" to={`/talents/${talent.id}`}>{talent.name}</Link>
-                <p className="text-xs text-[var(--muted)]">{talent.organization ?? "—"}</p>
-              </TableCell>
-              <TableCell><div className="flex items-center gap-2"><Badge>{talent.status}</Badge><DueFilterBadge due={props.filters.due} /></div></TableCell>
-              <TableCell className="max-w-64"><TagBadges tags={talent.tags} /></TableCell>
-              <TableCell><RateText talent={talent} /></TableCell>
-              <TableCell><RatingText rating={talent.rating} /></TableCell>
-              <TableCell><TalentActions talent={talent} onEdit={props.onEdit} onDelete={props.onDelete} /></TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
 }
