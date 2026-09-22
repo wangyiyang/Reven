@@ -6,12 +6,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export type ResponsiveListColumn<T> = {
   header: ReactNode
   cell: (item: T) => ReactNode
+  /** 同时作用于桌面表格的 th/td（如金额列 text-right、标签列 max-w-64） */
+  className?: string
 }
 
 export type ResponsiveListAction<T> = {
   label: string
   ariaLabel: (item: T) => string
   onClick: (item: T) => void
+  /** 按钮变体，默认 ghost；主操作（如确认收款）可用 outline */
+  variant?: "ghost" | "outline"
 }
 
 export type ResponsiveListCard = {
@@ -62,7 +66,7 @@ export function ResponsiveList<T>({ items, keyOf, emptyText, columns, card, card
           <TableHeader>
             <TableRow>
               {columns.map((column, index) => (
-                <TableHead key={index}>{column.header}</TableHead>
+                <TableHead className={column.className} key={index}>{column.header}</TableHead>
               ))}
               <TableHead>操作</TableHead>
             </TableRow>
@@ -78,7 +82,7 @@ export function ResponsiveList<T>({ items, keyOf, emptyText, columns, card, card
             {(items ?? []).map((item) => (
               <TableRow key={keyOf(item)}>
                 {columns.map((column, index) => (
-                  <TableCell key={index}>{column.cell(item)}</TableCell>
+                  <TableCell className={column.className} key={index}>{column.cell(item)}</TableCell>
                 ))}
                 <TableCell>
                   <div className="flex gap-1">{renderActions(actions, item)}</div>
@@ -94,7 +98,14 @@ export function ResponsiveList<T>({ items, keyOf, emptyText, columns, card, card
 
 function renderActions<T>(actions: ResponsiveListAction<T>[], item: T) {
   return actions.map((action) => (
-    <Button aria-label={action.ariaLabel(item)} key={action.label} onClick={() => action.onClick(item)} size="sm" type="button" variant="ghost">
+    <Button
+      aria-label={action.ariaLabel(item)}
+      key={action.label}
+      onClick={() => action.onClick(item)}
+      size="sm"
+      type="button"
+      variant={action.variant ?? "ghost"}
+    >
       {action.label}
     </Button>
   ))

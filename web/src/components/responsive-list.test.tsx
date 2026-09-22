@@ -92,4 +92,45 @@ describe("ResponsiveList", () => {
     await userEvent.click(screen.getAllByRole("button", { name: "删除 Beta" })[1])
     expect(remove).toHaveBeenCalledWith(rows[1])
   })
+
+  it("applies column className to both the header and the cells", () => {
+    render(
+      <ResponsiveList
+        actions={[]}
+        card={(row: Row) => ({ title: row.name })}
+        cardLabel={(row: Row) => `${row.name} 移动摘要`}
+        columns={[{ header: "金额", className: "text-right", cell: (row: Row) => row.name }]}
+        emptyText="暂无数据。"
+        items={rows}
+        keyOf={(row: Row) => row.id}
+      />,
+    )
+
+    expect(screen.getByRole("columnheader", { name: "金额" })).toHaveClass("text-right")
+    for (const cell of screen.getAllByRole("cell", { name: /Alpha|Beta/ })) {
+      expect(cell).toHaveClass("text-right")
+    }
+  })
+
+  it("renders an outline action variant for primary actions", async () => {
+    const confirm = vi.fn()
+    render(
+      <ResponsiveList
+        actions={[{ label: "确认", ariaLabel: (row: Row) => `确认 ${row.name}`, onClick: confirm, variant: "outline" }]}
+        card={(row: Row) => ({ title: row.name })}
+        cardLabel={(row: Row) => `${row.name} 移动摘要`}
+        columns={columns}
+        emptyText="暂无数据。"
+        items={rows}
+        keyOf={(row: Row) => row.id}
+      />,
+    )
+
+    const buttons = screen.getAllByRole("button", { name: "确认 Alpha" })
+    expect(buttons).toHaveLength(2)
+    // ghost 变体带 border-transparent，outline 带 border-[var(--line)]
+    expect(buttons[0]).toHaveClass("border-[var(--line)]")
+    await userEvent.click(buttons[0])
+    expect(confirm).toHaveBeenCalledWith(rows[0])
+  })
 })

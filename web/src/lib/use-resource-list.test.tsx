@@ -32,10 +32,13 @@ const messages = {
 }
 
 function setup(options?: {
+  key?: string | readonly string[]
+  updateMethod?: "PUT" | "PATCH"
   initialFilters?: Record<string, string>
   validate?: (form: ThingForm) => string | null
   onSaved?: (entity: Thing) => void
   onDeleted?: (id: string) => void
+  detailKeyOf?: (entity: Thing) => readonly unknown[]
 }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -44,8 +47,9 @@ function setup(options?: {
   const hook = renderHook(
     () =>
       useResourceList<Thing, ThingForm>({
-        key: "things",
+        key: options?.key ?? "things",
         path: "/things",
+        updateMethod: options?.updateMethod,
         initialForm: { name: "" },
         initialFilters: options?.initialFilters,
         toPayload: (form) => ({ name: form.name }),
@@ -53,6 +57,7 @@ function setup(options?: {
         validate: options?.validate,
         onSaved: options?.onSaved,
         onDeleted: options?.onDeleted,
+        detailKeyOf: options?.detailKeyOf,
         messages,
       }),
     { wrapper },
@@ -202,6 +207,67 @@ describe("useResourceList", () => {
     await act(async () => resolveDelete())
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已删除"))
     await waitFor(() => expect(hook.result.current.deleting).toBeNull())
+  })
+
+  it("supports a tuple query key prefix and scopes optimistic delete to it", async () => {
+    server.use(http.delete("/api/things/:id", () => new HttpResponse(null, { status: 204 })))
+
+    const { queryClient, hook } = setup({ key: ["crm", "customers"] as const })
+    await waitFor(() => expect(hook.result.current.itemsQuery.data).toEqual([thing]))
+    // 列表缓存挂在元组前缀下
+    expect(queryClient.getQueryData(["crm", "customers", {}])).toEqual([thing])
+
+    // 相邻分支缓存（如 ["crm", "contacts", id]）不在删除前缀内
+    const contacts = [{ id: "c-1", name: "联系人" }]
+    queryClient.setQueryData(["crm", "contacts", "t-1"], contacts)
+
+    act(() => hook.result.current.requestRemove(thing))
+    act(() => hook.result.current.confirmRemove())
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已删除"))
+    expect(queryClient.getQueryData(["crm", "contacts", "t-1"])).toEqual(contacts)
+  })
+
+  it("sends updates with PATCH when updateMethod is PATCH and submits without an event", async () => {
+    let requestBody: unknown = null
+    server.use(http.patch("/api/things/:id", async ({ request }) => {
+      requestBody = await request.json()
+      return HttpResponse.json({ id: "t-1", name: "Alpha v2" })
+    }))
+
+    const { hook } = setup({ updateMethod: "PATCH" })
+    await waitFor(() => expect(hook.result.current.itemsQuery.data).toEqual([thing]))
+
+    act(() => hook.result.current.startEdit(thing))
+    // 整对象写回表单（TalentForm/CustomerForm 的 onChange 形态）
+    act(() => hook.result.current.setForm({ name: "Alpha v2" }))
+    // 调用方已自行 preventDefault 时无需事件对象
+    act(() => hook.result.current.submit())
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已更新"))
+    expect(requestBody).toEqual({ name: "Alpha v2" })
+  })
+
+  it("writes the detail cache via detailKeyOf on update but not on create", async () => {
+    server.use(
+      http.put("/api/things/:id", () => HttpResponse.json({ id: "t-1", name: "Alpha v2" })),
+      http.post("/api/things", () => HttpResponse.json({ id: "t-2", name: "Beta" }, { status: 201 })),
+    )
+    const detailKey = (entity: Thing) => ["things", "thing", entity.id] as const
+
+    const { queryClient, hook } = setup({ detailKeyOf: detailKey })
+    await waitFor(() => expect(hook.result.current.itemsQuery.data).toEqual([thing]))
+
+    act(() => hook.result.current.setField("name", "Beta"))
+    act(() => hook.result.current.submit())
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已添加"))
+    expect(queryClient.getQueryData(detailKey({ id: "t-2", name: "Beta" }))).toBeUndefined()
+
+    act(() => hook.result.current.startEdit(thing))
+    act(() => hook.result.current.setField("name", "Alpha v2"))
+    act(() => hook.result.current.submit())
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已更新"))
+    expect(queryClient.getQueryData(["things", "thing", "t-1"])).toEqual({ id: "t-1", name: "Alpha v2" })
   })
 
   it("passes the saved entity to onSaved and the deleted id to onDeleted", async () => {

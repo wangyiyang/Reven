@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/api"
 
-import type { Talent, TalentFilters, TalentInput, TalentInteraction, TalentInteractionInput } from "./types"
+import type { Talent, TalentInteraction, TalentInteractionInput } from "./types"
 
 export const talentsKeys = {
   talents: ["talents"] as const,
@@ -8,30 +8,8 @@ export const talentsKeys = {
   interactions: (talentId: string) => ["talents", "interactions", talentId] as const,
 }
 
-export function listTalents(filters: TalentFilters): Promise<Talent[]> {
-  const params = new URLSearchParams()
-  if (filters.query.trim()) params.set("q", filters.query.trim())
-  if (filters.status) params.set("status", filters.status)
-  if (filters.due) params.set("due", filters.due)
-  if (filters.tag.trim()) params.set("tag", filters.tag.trim())
-  const suffix = params.size ? `?${params.toString()}` : ""
-  return apiRequest<Talent[]>(`/talents${suffix}`)
-}
-
 export function getTalent(talentId: string): Promise<Talent> {
   return apiRequest<Talent>(`/talents/${talentId}`)
-}
-
-export function createTalent(input: TalentInput): Promise<Talent> {
-  return apiRequest<Talent>("/talents", jsonRequest("POST", input))
-}
-
-export function updateTalent(talentId: string, input: TalentInput): Promise<Talent> {
-  return apiRequest<Talent>(`/talents/${talentId}`, jsonRequest("PATCH", input))
-}
-
-export function deleteTalent(talentId: string): Promise<void> {
-  return apiRequest<void>(`/talents/${talentId}`, { method: "DELETE" })
 }
 
 export function listInteractions(talentId: string): Promise<TalentInteraction[]> {

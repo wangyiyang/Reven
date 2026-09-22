@@ -1,11 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
-import { toast } from "sonner"
+import { useMemo } from "react"
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
+import { useResourceList } from "@/lib/use-resource-list"
 
-import { listTalents, talentsKeys } from "./talents-api"
+import { talentsKeys } from "./talents-api"
 import { TalentForm } from "./talent-form"
 import {
   EMPTY_TALENT_FORM,
@@ -16,64 +15,65 @@ import {
 } from "./talent-form-model"
 import { TalentList } from "./talent-list"
 import type { Talent, TalentFilters } from "./types"
-import { useCreateTalent, useDeleteTalent, useUpdateTalent } from "./use-talent-mutations"
 
-const EMPTY_FILTERS: TalentFilters = { query: "", status: "", due: "", tag: "" }
+const EMPTY_FILTERS: TalentFilters = { q: "", status: "", due: "", tag: "" }
 
 export function TalentsPage() {
-  const [form, setForm] = useState<TalentFormValues>(EMPTY_TALENT_FORM)
-  const [editing, setEditing] = useState<Talent | null>(null)
-  const [deleting, setDeleting] = useState<Talent | null>(null)
-  const [filters, setFilters] = useState<TalentFilters>(EMPTY_FILTERS)
-  const talentsQuery = useQuery({
-    queryKey: [...talentsKeys.talents, filters],
-    queryFn: () => listTalents(filters),
+  const list = useResourceList<Talent, TalentFormValues, TalentFilters>({
+    key: "talents",
+    path: "/talents",
+    updateMethod: "PATCH",
+    initialForm: EMPTY_TALENT_FORM,
+    initialFilters: EMPTY_FILTERS,
+    toPayload: talentFormToInput,
+    toForm: talentToForm,
+    validate: validateTalentForm,
+    detailKeyOf: (talent) => talentsKeys.talent(talent.id),
+    messages: {
+      created: "人才已添加",
+      updated: "人才已更新",
+      deleted: "人才已删除",
+      saveFailed: "请求失败",
+      updateFailed: "请求失败",
+      deleteFailed: "请求失败",
+    },
   })
-  const resetForm = () => { setForm(EMPTY_TALENT_FORM); setEditing(null) }
-  const createMutation = useCreateTalent(resetForm)
-  const updateMutation = useUpdateTalent(resetForm)
-  const deleteMutation = useDeleteTalent(() => setDeleting(null))
   const tagSuggestions = useMemo(
-    () => [...new Set((talentsQuery.data ?? []).flatMap((talent) => talent.tags))].sort(),
-    [talentsQuery.data],
+    () => [...new Set((list.itemsQuery.data ?? []).flatMap((talent) => talent.tags))].sort(),
+    [list.itemsQuery.data],
   )
-
-  function submitTalent() {
-    const error = validateTalentForm(form)
-    if (error) return toast.error(error)
-    const input = talentFormToInput(form)
-    if (editing) updateMutation.mutate({ talentId: editing.id, input })
-    else createMutation.mutate(input)
-  }
-
-  function startEdit(talent: Talent) {
-    setEditing(talent)
-    setForm(talentToForm(talent))
-  }
 
   return (
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <PageHeading />
       <TalentEditorCard
-        busy={createMutation.isPending || updateMutation.isPending}
-        editing={editing !== null}
-        form={form}
-        onCancel={resetForm}
-        onChange={setForm}
-        onSubmit={submitTalent}
+        busy={list.isSaving}
+        editing={list.editingId !== null}
+        form={list.form}
+        onCancel={list.cancelEdit}
+        onChange={list.setForm}
+        onSubmit={list.submit}
         tagSuggestions={tagSuggestions}
       />
       <TalentListCard
-        failed={talentsQuery.isError}
-        filters={filters}
-        loading={talentsQuery.isLoading}
-        onDelete={setDeleting}
-        onEdit={startEdit}
-        onFiltersChange={setFilters}
-        onRetry={() => void talentsQuery.refetch()}
-        talents={talentsQuery.data}
+        failed={list.itemsQuery.isError}
+        filters={list.filters}
+        loading={list.itemsQuery.isLoading}
+        onDelete={list.requestRemove}
+        onEdit={list.startEdit}
+        onFiltersChange={list.setFilters}
+        onRetry={() => void list.itemsQuery.refetch()}
+        talents={list.itemsQuery.data}
       />
-      <TalentDeleteDialog mutation={deleteMutation} onClose={() => setDeleting(null)} talent={deleting} />
+      <ConfirmDialog
+        busy={list.isRemoving}
+        confirmLabel={`确认删除「${list.deleting?.name ?? ""}」`}
+        description="该人才的跟进记录也会被删除，且无法恢复。"
+        onClose={list.cancelRemove}
+        onConfirm={list.confirmRemove}
+        open={list.deleting !== null}
+        title="删除人才"
+      />
     </main>
   )
 }
@@ -113,21 +113,5 @@ function TalentListCard(props: Parameters<typeof TalentList>[0]) {
       <CardHeader><h2 className="text-lg font-medium text-[var(--ink)]">人才列表</h2></CardHeader>
       <CardContent><TalentList {...props} /></CardContent>
     </Card>
-  )
-}
-
-type DeleteMutation = ReturnType<typeof useDeleteTalent>
-
-function TalentDeleteDialog({ talent, mutation, onClose }: { talent: Talent | null; mutation: DeleteMutation; onClose: () => void }) {
-  return (
-    <ConfirmDialog
-      busy={mutation.isPending}
-      confirmLabel={`确认删除「${talent?.name ?? ""}」`}
-      description="该人才的跟进记录也会被删除，且无法恢复。"
-      onClose={onClose}
-      onConfirm={() => { if (talent) mutation.mutate(talent.id) }}
-      open={talent !== null}
-      title="删除人才"
-    />
   )
 }

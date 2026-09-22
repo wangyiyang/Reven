@@ -140,7 +140,7 @@ describe("FinancePendingPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("逾期尾款"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "确认收款" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "确认收款 逾期尾款" })[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("逾期尾款 · ¥500.00")
@@ -161,7 +161,7 @@ describe("FinancePendingPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("逾期尾款"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "确认收款" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "确认收款 逾期尾款" })[0])
     const dialog = await screen.findByRole("dialog")
     await userEvent.click(within(dialog).getByRole("button", { name: "确认收款" }))
 
@@ -182,7 +182,7 @@ describe("FinancePendingPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("未定款项"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "编辑" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "编辑 未定款项" })[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("编辑财务记录")

@@ -18,10 +18,12 @@ export type ResourceListMessages = {
 }
 
 export type UseResourceListOptions<TEntity extends ResourceEntity, TForm, TFilters extends ResourceFilters = ResourceFilters> = {
-  /** 资源名，同时作为 query key 前缀（如 "projects"），前缀命中该资源全部缓存变体 */
-  key: string
-  /** API 路径（如 "/projects"），PUT/DELETE 自动拼接 /:id */
+  /** 资源 query key 前缀（字符串或元组，如 ["crm", "customers"]），前缀命中该资源全部缓存变体 */
+  key: string | readonly string[]
+  /** API 路径（如 "/projects"），PUT/PATCH/DELETE 自动拼接 /:id */
   path: string
+  /** 更新请求的方法，默认 PUT；仅支持 PATCH 的后端（如 talents）传 "PATCH" */
+  updateMethod?: "PUT" | "PATCH"
   initialForm: TForm
   initialFilters?: TFilters
   toPayload: (form: TForm) => unknown
@@ -29,10 +31,12 @@ export type UseResourceListOptions<TEntity extends ResourceEntity, TForm, TFilte
   /** 返回错误文案则阻断提交并 toast；返回 null 放行 */
   validate?: (form: TForm) => string | null
   messages: ResourceListMessages
-  /** create/update 成功后回调，携带服务端返回实体（供详情缓存写入、关闭抽屉等扩展） */
+  /** create/update 成功后回调，携带服务端返回实体（供关闭抽屉等扩展） */
   onSaved?: (entity: TEntity) => void
   /** delete 成功后回调 */
   onDeleted?: (id: string) => void
+  /** update 成功后把服务端实体写入该详情缓存 key（如 ["talents", "talent", id]），调用方无需接触 queryClient */
+  detailKeyOf?: (entity: TEntity) => readonly unknown[]
 }
 
 export function normalizeErrorMessage(error: unknown, fallback: string): string {
@@ -42,7 +46,8 @@ export function normalizeErrorMessage(error: unknown, fallback: string): string 
 export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters extends ResourceFilters = ResourceFilters>(
   options: UseResourceListOptions<TEntity, TForm, TFilters>,
 ) {
-  const { key, path, initialForm, toPayload, toForm, validate, messages, onSaved, onDeleted } = options
+  const { key, path, initialForm, toPayload, toForm, validate, messages, onSaved, onDeleted, updateMethod = "PUT", detailKeyOf } = options
+  const baseKey = typeof key === "string" ? [key] : key
   const queryClient = useQueryClient()
   const [form, setForm] = useState<TForm>(initialForm)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -50,7 +55,7 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
   const [filters, setFilters] = useState<TFilters>(options.initialFilters ?? ({} as TFilters))
 
   const itemsQuery = useQuery({
-    queryKey: [key, filters],
+    queryKey: [...baseKey, filters],
     queryFn: () => {
       const params = new URLSearchParams()
       for (const [name, value] of Object.entries(filters)) {
@@ -63,7 +68,7 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
   })
 
   async function invalidateList() {
-    await queryClient.invalidateQueries({ queryKey: [key] })
+    await queryClient.invalidateQueries({ queryKey: baseKey })
   }
 
   const createMutation = useMutation({
@@ -80,10 +85,11 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
 
   const updateMutation = useMutation({
     mutationFn: ({ id, input }: { id: string; input: TForm }) =>
-      apiRequest<TEntity>(`${path}/${id}`, { method: "PUT", body: JSON.stringify(toPayload(input)) }),
+      apiRequest<TEntity>(`${path}/${id}`, { method: updateMethod, body: JSON.stringify(toPayload(input)) }),
     onSuccess: async (entity) => {
       setForm(initialForm)
       setEditingId(null)
+      if (detailKeyOf) queryClient.setQueryData(detailKeyOf(entity), entity)
       await invalidateList()
       onSaved?.(entity)
       toast.success(messages.updated)
@@ -95,10 +101,10 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
     mutationFn: (id: string) => apiRequest(`${path}/${id}`, { method: "DELETE" }),
     onMutate: async (id: string) => {
       // 乐观删除：远端库延迟高，先移除行再给服务端对账
-      await queryClient.cancelQueries({ queryKey: [key] })
-      const previous = queryClient.getQueriesData<TEntity[]>({ queryKey: [key] })
+      await queryClient.cancelQueries({ queryKey: baseKey })
+      const previous = queryClient.getQueriesData<TEntity[]>({ queryKey: baseKey })
       // 前缀可能命中同资源的非列表缓存（如 talents 的详情/交互条目），只过滤数组
-      queryClient.setQueriesData<TEntity[]>({ queryKey: [key] }, (old) =>
+      queryClient.setQueriesData<TEntity[]>({ queryKey: baseKey }, (old) =>
         Array.isArray(old) ? old.filter((item) => item.id !== id) : old,
       )
       return { previous }
@@ -130,8 +136,8 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
     setForm(initialForm)
   }
 
-  function submit(event: Pick<FormEvent<HTMLFormElement>, "preventDefault">) {
-    event.preventDefault()
+  function submit(event?: Pick<FormEvent<HTMLFormElement>, "preventDefault">) {
+    event?.preventDefault()
     const validationError = validate?.(form)
     if (validationError) {
       toast.error(validationError)
@@ -154,6 +160,7 @@ export function useResourceList<TEntity extends ResourceEntity, TForm, TFilters 
     filters,
     setFilters,
     form,
+    setForm,
     setField,
     editingId,
     startEdit,

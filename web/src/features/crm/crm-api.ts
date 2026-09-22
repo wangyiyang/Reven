@@ -4,8 +4,6 @@ import type {
   Contact,
   ContactInput,
   Customer,
-  CustomerFilters,
-  CustomerInput,
   FollowUp,
   FollowUpInput,
 } from "./types"
@@ -17,29 +15,8 @@ export const crmKeys = {
   followUps: (customerId: string) => ["crm", "follow-ups", customerId] as const,
 }
 
-export function listCustomers(filters: CustomerFilters): Promise<Customer[]> {
-  const params = new URLSearchParams()
-  if (filters.query.trim()) params.set("query", filters.query.trim())
-  if (filters.status) params.set("status", filters.status)
-  if (filters.due) params.set("due", filters.due)
-  const suffix = params.size ? `?${params.toString()}` : ""
-  return apiRequest<Customer[]>(`/crm/customers${suffix}`)
-}
-
 export function getCustomer(customerId: string): Promise<Customer> {
   return apiRequest<Customer>(`/crm/customers/${customerId}`)
-}
-
-export function createCustomer(input: CustomerInput): Promise<Customer> {
-  return apiRequest<Customer>("/crm/customers", jsonRequest("POST", input))
-}
-
-export function updateCustomer(customerId: string, input: CustomerInput): Promise<Customer> {
-  return apiRequest<Customer>(`/crm/customers/${customerId}`, jsonRequest("PUT", input))
-}
-
-export function deleteCustomer(customerId: string): Promise<void> {
-  return apiRequest<void>(`/crm/customers/${customerId}`, { method: "DELETE" })
 }
 
 export function listContacts(customerId: string): Promise<Contact[]> {
