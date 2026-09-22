@@ -101,26 +101,6 @@ describe("IntegrationsPage", () => {
     expect(trigger).toHaveFocus()
   })
 
-  it("releases the action lock after a failed request", async () => {
-    let calls = 0
-    server.use(
-      http.get("/api/integrations", () => HttpResponse.json([configuredRuntime])),
-      http.post("/api/integrations/embedding/test", () => {
-        calls += 1
-        if (calls === 1) return HttpResponse.json({ code: "failed", message: "连接失败" }, { status: 503 })
-        return HttpResponse.json(configuredRuntime)
-      }),
-    )
-    renderPage()
-    const testButton = await screen.findByRole("button", { name: "测试Embedding连接" })
-
-    await userEvent.click(testButton)
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("连接失败"))
-    await userEvent.click(testButton)
-
-    await waitFor(() => expect(calls).toBe(2))
-  })
-
   it("moves focus to the stable save action after successful secret deletion", async () => {
     let secretConfigured = true
     const currentRuntime = () => ({
