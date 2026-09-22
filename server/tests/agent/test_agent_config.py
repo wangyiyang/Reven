@@ -156,3 +156,15 @@ async def test_no_session_factory_uses_env_only(tmp_path: Path) -> None:
 
     assert config is not None
     assert config.api_key == "sk-env"
+
+
+@pytest.mark.anyio
+async def test_invalid_master_key_falls_back_to_env_without_raising(tmp_path: Path) -> None:
+    """master key 非法（seam 构造即抛 ValueError）时按 env 兼容降级，绝不抛出。"""
+    invalid_key = base64.urlsafe_b64encode(b"short").decode()
+    settings = _make_settings(dsh_home=tmp_path / "dsh", reven_master_key=invalid_key, agent_api_key="sk-env")
+
+    config = await resolve_agent_config(async_sessionmaker(), settings)
+
+    assert config is not None
+    assert config.api_key == "sk-env"

@@ -1,5 +1,6 @@
 """Agent 配置解析：凭证由 IntegrationCredentials seam 提供，本模块只做 AgentConfig 映射。"""
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +53,12 @@ async def resolve_agent_config(
     """
     if session_factory is None:
         return AgentConfig.from_settings(settings)
-    credentials = await IntegrationCredentials(session_factory, settings).agent_llm()
+    try:
+        credentials = await IntegrationCredentials(session_factory, settings).agent_llm()
+    except Exception as exc:
+        # seam 构造即失败（如 master key 非法）：记日志后回退 env，绝不抛出
+        logger.error("agent-llm 凭证解析失败（error_type=%s），回退 env 配置", type(exc).__name__)
+        return AgentConfig.from_settings(settings)
     if credentials is None:
         return None
     return AgentConfig(
