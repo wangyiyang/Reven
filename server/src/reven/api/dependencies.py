@@ -6,6 +6,7 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from reven.config import Settings
 from reven.rss.review_service import CandidateReviewService
 
 
@@ -41,6 +42,17 @@ async def get_session(
 
 SessionFactoryDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def get_app_settings(request: Request) -> Settings:
+    """组合根装配的 Settings 单例（app.state.settings）；未初始化（无配置降级启动）时显式失败。"""
+    settings = getattr(request.app.state, "settings", None)
+    if not isinstance(settings, Settings):
+        raise RuntimeError("app.state.settings 未初始化")
+    return settings
+
+
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
 def get_candidate_review_service(request: Request) -> CandidateReviewService:

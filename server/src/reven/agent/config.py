@@ -1,15 +1,10 @@
 """Agent 配置解析：凭证由 IntegrationCredentials seam 提供，本模块只做 AgentConfig 映射。"""
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,29 +38,25 @@ class AgentConfig:
 
 
 async def resolve_agent_config(
-    session_factory: async_sessionmaker[AsyncSession] | None,
+    credentials: IntegrationCredentials | None,
     settings: Settings,
 ) -> AgentConfig | None:
     """解析 Agent 配置：integrations 表优先，env/Settings fallback；未配置返回 None。
 
+    credentials 为 None（无库或 seam 构造失败降级）时只走 env fallback；
     读取/解密失败由 IntegrationCredentials 记日志并降级，绝不抛出——
     Agent 不可用不应阻止应用启动（已拍板降级策略）。
     """
-    if session_factory is None:
-        return AgentConfig.from_settings(settings)
-    try:
-        credentials = await IntegrationCredentials(session_factory, settings).agent_llm()
-    except Exception as exc:
-        # seam 构造即失败（如 master key 非法）：记日志后回退 env，绝不抛出
-        logger.error("agent-llm 凭证解析失败（error_type=%s），回退 env 配置", type(exc).__name__)
-        return AgentConfig.from_settings(settings)
     if credentials is None:
+        return AgentConfig.from_settings(settings)
+    resolved = await credentials.agent_llm()
+    if resolved is None:
         return None
     return AgentConfig(
-        provider=credentials.provider,
-        model=credentials.model,
-        base_url=credentials.base_url,
-        api_key=credentials.api_key,
+        provider=resolved.provider,
+        model=resolved.model,
+        base_url=resolved.base_url,
+        api_key=resolved.api_key,
         dsh_home=settings.dsh_home,
         cwd=settings.dsh_home,
     )

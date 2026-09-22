@@ -4,7 +4,6 @@ embedding/chat 客户端装配与默认值语义由 tests/test_provider_clients.
 """
 
 import base64
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from urllib.parse import parse_qsl
 from uuid import uuid4
@@ -12,7 +11,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import respx
-from reven.config import get_settings
+from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.models import Integration
 from reven.provider_clients import ProviderClients
@@ -34,19 +33,20 @@ TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 
 
 @pytest.fixture
-def settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://reven:reven@localhost/reven")
-    monkeypatch.setenv("REVEN_MASTER_KEY", TEST_MASTER_KEY)
-    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
-    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
+def settings() -> Settings:
+    """显式构造测试 Settings：不读进程 env（含 .env），SiliconFlow/Agent env 显式为空。"""
+    return Settings(
+        database_url="postgresql+asyncpg://reven:reven@localhost/reven",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        siliconflow_api_key=None,
+        agent_api_key=None,
+        _env_file=None,
+    )
 
 
-def _clients(db_session: AsyncSession) -> ProviderClients:
+def _clients(db_session: AsyncSession, settings: Settings) -> ProviderClients:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    settings = get_settings()
     return ProviderClients(IntegrationCredentials(factory, settings), settings)
 
 
@@ -83,11 +83,11 @@ async def test_record_backfill_error_ignores_missing_run(db_session: AsyncSessio
 
 
 @pytest.mark.anyio
-async def test_refresher_raises_when_nothing_configured(db_session: AsyncSession, settings_env: None) -> None:
+async def test_refresher_raises_when_nothing_configured(db_session: AsyncSession, settings: Settings) -> None:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
 
     with pytest.raises(RuntimeError, match="SILICONFLOW_API_KEY_NOT_CONFIGURED"):
-        await KeywordEmbeddingRefresher(factory, _clients(db_session)).refresh()
+        await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).refresh()
 
 
 @pytest.mark.anyio
@@ -100,7 +100,7 @@ async def test_refresher_raises_when_clients_degraded(db_session: AsyncSession) 
 
 @pytest.mark.anyio
 @respx.mock
-async def test_refresher_embeds_keywords_via_seam(db_session: AsyncSession, settings_env: None) -> None:
+async def test_refresher_embeds_keywords_via_seam(db_session: AsyncSession, settings: Settings) -> None:
     db_session.add(
         Integration(
             provider="embedding",
@@ -122,7 +122,7 @@ async def test_refresher_embeds_keywords_via_seam(db_session: AsyncSession, sett
         )
     )
 
-    assert await KeywordEmbeddingRefresher(factory, _clients(db_session)).refresh() == 1
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).refresh() == 1
     assert route.calls[0].request.headers["authorization"] == "Bearer sk-db"
 
 
@@ -152,7 +152,7 @@ class _RecordingNotifier:
 @respx.mock
 async def test_discovery_tick_uses_db_translation_without_qwen(
     db_session: AsyncSession,
-    settings_env: None,
+    settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_session.add_all(
@@ -180,7 +180,7 @@ async def test_discovery_tick_uses_db_translation_without_qwen(
     route = respx.get("https://fanyi-api.baidu.com/api/trans/vip/translate").mock(side_effect=handler)
     notifier = _RecordingNotifier()
 
-    await RssDiscoveryJob(factory, _clients(db_session), get_settings(), notifier).run(date(2026, 8, 25))
+    await RssDiscoveryJob(factory, _clients(db_session, settings), settings, notifier).run(date(2026, 8, 25))
 
     async with factory() as session:
         item = await session.scalar(select(RssItem))

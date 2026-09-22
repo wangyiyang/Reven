@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Query, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from reven.api.dependencies import SessionDep
+from reven.api.dependencies import SessionDep, SettingsDep
 from reven.api.schemas.brand import (
     BlogTemplatePayload,
     BrandAssetCreatedResponse,
@@ -25,7 +25,6 @@ from reven.brand.images import sniff_image_mime
 from reven.brand.models import BrandVersion, ChannelTemplateVersion
 from reven.brand.repository import BrandRepository
 from reven.brand.service import BrandError, BrandService, parse_channel_key
-from reven.config import get_settings
 from reven.domain import TargetChannel
 from reven.integrations.tencent_cos.configuration import TencentCosConfigurationError
 from reven.integrations.tencent_cos.store import build_tencent_cos_asset_store
@@ -99,6 +98,7 @@ async def list_assets(
 @router.post("/assets", response_model=BrandAssetCreatedResponse)
 async def upload_asset(
     session: SessionDep,
+    settings: SettingsDep,
     response: Response,
     purpose: Annotated[str, Query(max_length=32)],
     label: Annotated[str, Query(min_length=1, max_length=200)],
@@ -112,7 +112,7 @@ async def upload_asset(
     if mime_type is None:
         return _error(status.HTTP_422_UNPROCESSABLE_ENTITY, "upload_not_image", "仅支持 PNG/JPEG/GIF/WebP 图片")
     try:
-        store = build_tencent_cos_asset_store(get_settings())
+        store = build_tencent_cos_asset_store(settings)
     except TencentCosConfigurationError as exc:
         return _error(status.HTTP_503_SERVICE_UNAVAILABLE, "cos_not_configured", str(exc))
     try:

@@ -5,7 +5,7 @@ import base64
 import pytest
 from fastapi.testclient import TestClient
 from reven.app import create_app
-from reven.config import get_settings
+from reven.config import Settings
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -34,15 +34,18 @@ def _factory() -> tuple[AsyncEngine, async_sessionmaker]:
 
 
 def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", DUMMY_DATABASE_URL)
-    monkeypatch.setenv("REVEN_MASTER_KEY", TEST_MASTER_KEY)
-    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
-    get_settings.cache_clear()
+    settings = Settings(
+        database_url=DUMMY_DATABASE_URL,
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        agent_api_key=None,
+        _env_file=None,
+    )
     FakeSupervisor.instances = []
     monkeypatch.setattr("reven.app.FeishuBotSupervisor", FakeSupervisor)
     engine, factory = _factory()
 
-    with TestClient(create_app(start_background_tasks=False, session_factory=factory)) as client:
+    with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
         assert client.get("/api/health").status_code == 200
         assert len(FakeSupervisor.instances) == 1
         supervisor = FakeSupervisor.instances[0]
@@ -50,17 +53,13 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
         assert client.app.state.feishu_bot_supervisor is supervisor
 
     assert supervisor.stopped == 1
-    get_settings.cache_clear()
 
 
 def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    for variable in ("DATABASE_URL", "REVEN_MASTER_KEY", "REVEN_ADMIN_PASSWORD"):
-        monkeypatch.delenv(variable, raising=False)
-    get_settings.cache_clear()
+    # 模拟组合根解析失败：model_validate({}) 不读进程 env，缺必填字段必抛 ValidationError
+    monkeypatch.setattr("reven.app.get_settings", lambda: Settings.model_validate({}))
     engine, factory = _factory()
 
     with TestClient(create_app(start_background_tasks=False, session_factory=factory)) as client:
         assert client.get("/api/health").status_code == 200
         assert getattr(client.app.state, "feishu_bot_supervisor", None) is None
-
-    get_settings.cache_clear()
