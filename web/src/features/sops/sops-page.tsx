@@ -1,19 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import * as Dialog from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
-import type { FormEvent } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { apiRequest } from "@/lib/api"
 import { copyPlainText } from "@/lib/clipboard"
+import { useResourceList } from "@/lib/use-resource-list"
 
 type Sop = {
   id: string
@@ -60,91 +58,36 @@ function toPayload(input: SopForm) {
   }
 }
 
+function toForm(sop: Sop): SopForm {
+  return {
+    title: sop.title,
+    kind: sop.kind,
+    status: sop.status,
+    tags: sop.tags.join(", "),
+    body: sop.body,
+  }
+}
+
 export function SopsPage() {
-  const queryClient = useQueryClient()
-  const [form, setForm] = useState(initialForm)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<Sop | null>(null)
-  const [filters, setFilters] = useState({ kind: "", status: "", query: "" })
+  const list = useResourceList<Sop, SopForm>({
+    key: "sops",
+    path: "/sops",
+    initialForm,
+    initialFilters: { kind: "", status: "", query: "" },
+    toPayload,
+    toForm,
+    validate: (form) => (form.title.trim() && form.body.trim() ? null : "请填写标题和内容"),
+    messages: {
+      created: "SOP 已添加",
+      updated: "SOP 已更新",
+      deleted: "SOP 已删除",
+      saveFailed: "保存失败",
+      updateFailed: "更新失败",
+      deleteFailed: "删除失败",
+    },
+  })
+  const { form, filters } = list
   const [viewing, setViewing] = useState<Sop | null>(null)
-
-  const sopsQuery = useQuery({
-    queryKey: ["sops", filters],
-    queryFn: () => {
-      const params = new URLSearchParams()
-      if (filters.kind) params.set("kind", filters.kind)
-      if (filters.status) params.set("status", filters.status)
-      if (filters.query.trim()) params.set("query", filters.query.trim())
-      const suffix = params.size ? `?${params.toString()}` : ""
-      return apiRequest<Sop[]>(`/sops${suffix}`)
-    },
-  })
-
-  async function invalidateSops() {
-    await queryClient.invalidateQueries({ queryKey: ["sops"] })
-  }
-
-  const createMutation = useMutation({
-    mutationFn: (input: SopForm) =>
-      apiRequest<Sop>("/sops", { method: "POST", body: JSON.stringify(toPayload(input)) }),
-    onSuccess: async () => {
-      setForm(initialForm)
-      await invalidateSops()
-      toast.success("SOP 已添加")
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "保存失败"),
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: SopForm }) =>
-      apiRequest<Sop>(`/sops/${id}`, { method: "PUT", body: JSON.stringify(toPayload(input)) }),
-    onSuccess: async () => {
-      setForm(initialForm)
-      setEditingId(null)
-      await invalidateSops()
-      toast.success("SOP 已更新")
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "更新失败"),
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/sops/${id}`, { method: "DELETE" }),
-    onMutate: async (id: string) => {
-      // 乐观删除：远端库延迟高，先移除行再给服务端对账
-      await queryClient.cancelQueries({ queryKey: ["sops"] })
-      const previous = queryClient.getQueriesData<Sop[]>({ queryKey: ["sops"] })
-      queryClient.setQueriesData<Sop[]>({ queryKey: ["sops"] }, (old) => old?.filter((sop) => sop.id !== id))
-      return { previous }
-    },
-    onSuccess: () => toast.success("SOP 已删除"),
-    onError: (error, _id, context) => {
-      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
-      toast.error(error instanceof Error ? error.message : "删除失败")
-    },
-    onSettled: async () => {
-      await invalidateSops()
-    },
-  })
-
-  function updateField<K extends keyof SopForm>(key: K, value: SopForm[K]) {
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-
-  function startEdit(sop: Sop) {
-    setEditingId(sop.id)
-    setForm({
-      title: sop.title,
-      kind: sop.kind,
-      status: sop.status,
-      tags: sop.tags.join(", "),
-      body: sop.body,
-    })
-  }
-
-  function cancelEdit() {
-    setEditingId(null)
-    setForm(initialForm)
-  }
 
   async function copyViewingBody() {
     if (!viewing) return
@@ -156,19 +99,6 @@ export function SopsPage() {
     }
   }
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!form.title.trim() || !form.body.trim()) {
-      toast.error("请填写标题和内容")
-      return
-    }
-    if (editingId) {
-      updateMutation.mutate({ id: editingId, input: form })
-      return
-    }
-    createMutation.mutate(form)
-  }
-
   return (
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <div className="space-y-2">
@@ -178,13 +108,13 @@ export function SopsPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">{editingId ? "编辑 SOP" : "添加 SOP"}</h2>
+          <h2 className="text-lg font-medium text-[var(--ink)]">{list.editingId ? "编辑 SOP" : "添加 SOP"}</h2>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 md:grid-cols-4" onSubmit={onSubmit}>
+          <form className="grid gap-4 md:grid-cols-4" onSubmit={list.submit}>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="sop-title">标题</Label>
-              <Input id="sop-title" onChange={(event) => updateField("title", event.target.value)} required value={form.title} />
+              <Input id="sop-title" onChange={(event) => list.setField("title", event.target.value)} required value={form.title} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="sop-kind">类型</Label>
@@ -192,7 +122,7 @@ export function SopsPage() {
                 aria-label="类型"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
                 id="sop-kind"
-                onChange={(event) => updateField("kind", event.target.value as Sop["kind"])}
+                onChange={(event) => list.setField("kind", event.target.value as Sop["kind"])}
                 value={form.kind}
               >
                 <option value="procedure">程序</option>
@@ -207,7 +137,7 @@ export function SopsPage() {
                 aria-label="状态"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
                 id="sop-status"
-                onChange={(event) => updateField("status", event.target.value as Sop["status"])}
+                onChange={(event) => list.setField("status", event.target.value as Sop["status"])}
                 value={form.status}
               >
                 <option value="草稿">草稿</option>
@@ -217,7 +147,7 @@ export function SopsPage() {
             </div>
             <div className="space-y-2 md:col-span-4">
               <Label htmlFor="sop-tags">标签</Label>
-              <Input id="sop-tags" onChange={(event) => updateField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
+              <Input id="sop-tags" onChange={(event) => list.setField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
               <p className="text-xs text-[var(--muted)]">多个标签用逗号分隔。</p>
             </div>
             <div className="space-y-2 md:col-span-4">
@@ -225,16 +155,16 @@ export function SopsPage() {
               <textarea
                 className="min-h-32 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm"
                 id="sop-body"
-                onChange={(event) => updateField("body", event.target.value)}
+                onChange={(event) => list.setField("body", event.target.value)}
                 value={form.body}
               />
             </div>
             <div className="flex items-end gap-2 md:col-span-4">
-              <Button disabled={createMutation.isPending || updateMutation.isPending} type="submit">
-                {editingId ? "保存修改" : "添加 SOP"}
+              <Button disabled={list.isSaving} type="submit">
+                {list.editingId ? "保存修改" : "添加 SOP"}
               </Button>
-              {editingId ? (
-                <Button onClick={cancelEdit} type="button" variant="ghost">
+              {list.editingId ? (
+                <Button onClick={list.cancelEdit} type="button" variant="ghost">
                   取消编辑
                 </Button>
               ) : null}
@@ -255,7 +185,7 @@ export function SopsPage() {
                 aria-label="类型筛选"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
                 id="sops-filter-kind"
-                onChange={(event) => setFilters((current) => ({ ...current, kind: event.target.value }))}
+                onChange={(event) => list.setFilters((current) => ({ ...current, kind: event.target.value }))}
                 value={filters.kind}
               >
                 <option value="">全部</option>
@@ -271,7 +201,7 @@ export function SopsPage() {
                 aria-label="状态筛选"
                 className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
                 id="sops-filter-status"
-                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                onChange={(event) => list.setFilters((current) => ({ ...current, status: event.target.value }))}
                 value={filters.status}
               >
                 <option value="">全部</option>
@@ -285,96 +215,48 @@ export function SopsPage() {
               <Input
                 aria-label="搜索 SOP"
                 id="sops-filter-query"
-                onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+                onChange={(event) => list.setFilters((current) => ({ ...current, query: event.target.value }))}
                 placeholder="按标题、内容或标签搜索"
                 value={filters.query}
               />
             </div>
           </div>
-          <div className="grid gap-3 lg:hidden">
-            {sopsQuery.data?.length === 0 ? (
-              <p className="py-6 text-center text-sm text-[var(--muted)]">暂无 SOP，先沉淀一条。</p>
-            ) : null}
-            {(sopsQuery.data ?? []).map((sop) => (
-              <article
-                aria-label={`${sop.title} 移动摘要`}
-                className="rounded-lg border border-[var(--line)] p-4"
-                key={sop.id}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 font-semibold text-[var(--ink)]">{sop.title}</p>
-                  <Badge>{sop.status}</Badge>
-                </div>
-                <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{sop.body}</p>
+          <ResponsiveList
+            actions={[
+              { label: "查看", ariaLabel: (sop) => `查看 ${sop.title}`, onClick: setViewing },
+              { label: "编辑", ariaLabel: (sop) => `编辑 ${sop.title}`, onClick: list.startEdit },
+              { label: "删除", ariaLabel: (sop) => `删除 ${sop.title}`, onClick: list.requestRemove },
+            ]}
+            card={(sop) => ({
+              title: sop.title,
+              status: <Badge>{sop.status}</Badge>,
+              body: <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{sop.body}</p>,
+              meta: (
                 <div className="mt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
                   <span>{kindLabels[sop.kind]}</span>
                   {sop.tags.length ? <span>{sop.tags.join("、")}</span> : null}
                 </div>
-                <div className="mt-3 flex justify-end gap-1">
-                  <Button aria-label={`查看 ${sop.title}`} onClick={() => setViewing(sop)} size="sm" type="button" variant="ghost">
-                    查看
-                  </Button>
-                  <Button aria-label={`编辑 ${sop.title}`} onClick={() => startEdit(sop)} size="sm" type="button" variant="ghost">
-                    编辑
-                  </Button>
-                  <Button aria-label={`删除 ${sop.title}`} onClick={() => setDeleting(sop)} size="sm" type="button" variant="ghost">
-                    删除
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="hidden lg:block">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>标题</TableHead>
-                <TableHead>类型</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>标签</TableHead>
-                <TableHead>操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sopsQuery.data?.length === 0 ? (
-                <TableRow>
-                  <TableCell className="py-10 text-center text-[var(--muted)]" colSpan={5}>
-                    暂无 SOP，先沉淀一条。
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {(sopsQuery.data ?? []).map((sop) => (
-                <TableRow key={sop.id}>
-                  <TableCell>
+              ),
+            })}
+            cardLabel={(sop) => `${sop.title} 移动摘要`}
+            columns={[
+              {
+                header: "标题",
+                cell: (sop) => (
+                  <>
                     <div className="font-medium text-[var(--ink)]">{sop.title}</div>
                     <div className="line-clamp-2 whitespace-pre-wrap text-xs text-[var(--muted)]">{sop.body}</div>
-                  </TableCell>
-                  <TableCell>{kindLabels[sop.kind]}</TableCell>
-                  <TableCell><Badge>{sop.status}</Badge></TableCell>
-                  <TableCell>{sop.tags.length ? sop.tags.join("、") : "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button onClick={() => setViewing(sop)} size="sm" type="button" variant="ghost">
-                        查看
-                      </Button>
-                      <Button onClick={() => startEdit(sop)} size="sm" type="button" variant="ghost">
-                        编辑
-                      </Button>
-                      <Button
-                        onClick={() => setDeleting(sop)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
+                  </>
+                ),
+              },
+              { header: "类型", cell: (sop) => kindLabels[sop.kind] },
+              { header: "状态", cell: (sop) => <Badge>{sop.status}</Badge> },
+              { header: "标签", cell: (sop) => (sop.tags.length ? sop.tags.join("、") : "—") },
+            ]}
+            emptyText="暂无 SOP，先沉淀一条。"
+            items={list.itemsQuery.data}
+            keyOf={(sop) => sop.id}
+          />
         </CardContent>
       </Card>
 
@@ -411,15 +293,12 @@ export function SopsPage() {
       </Dialog.Root>
 
       <ConfirmDialog
-        busy={deleteMutation.isPending}
-        confirmLabel={`确认删除「${deleting?.title ?? ""}」`}
+        busy={list.isRemoving}
+        confirmLabel={`确认删除「${list.deleting?.title ?? ""}」`}
         description="删除后无法恢复，请确认这条 SOP 已不再需要。"
-        onClose={() => setDeleting(null)}
-        onConfirm={() => {
-          if (!deleting) return
-          deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
-        }}
-        open={deleting !== null}
+        onClose={list.cancelRemove}
+        onConfirm={list.confirmRemove}
+        open={list.deleting !== null}
         title="删除 SOP"
       />
     </main>

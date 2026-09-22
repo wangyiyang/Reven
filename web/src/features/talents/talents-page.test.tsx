@@ -87,19 +87,13 @@ describe("TalentsPage", () => {
     expect(screen.getAllByText("已逾期")[0]).toBeInTheDocument()
   })
 
-  it("在桌面表格和移动端容器内分别展示空态", async () => {
+  it("空态时展示空态文案且不渲染摘要卡片", async () => {
     server.use(http.get("/api/talents", () => HttpResponse.json([])))
 
     renderPage()
 
-    const emptyMessages = await screen.findAllByText("暂无匹配人才。")
-    const table = screen.getByRole("table")
-    const desktopEmptyMessage = within(table).getByText("暂无匹配人才。")
-    const desktopEmptyCell = desktopEmptyMessage.closest("td")
-
-    expect(screen.getAllByRole("columnheader")).toHaveLength(6)
-    expect(desktopEmptyCell).toHaveAttribute("colspan", "6")
-    expect(emptyMessages.filter((message) => message.closest("table") === null)).toHaveLength(1)
+    // 移动/桌面双视口各渲染一份空态（结构由 ResponsiveList 单测覆盖）
+    expect(await screen.findAllByText("暂无匹配人才。")).toHaveLength(2)
     expect(screen.queryAllByRole("article")).toHaveLength(0)
   })
 
@@ -187,7 +181,7 @@ describe("TalentsPage", () => {
     )
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "编辑 林晚" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 林晚" }))[0])
     const nameInput = screen.getByLabelText("姓名")
     expect(nameInput).toHaveValue("林晚")
     expect(screen.getByLabelText("费率金额")).toHaveValue(500)
@@ -198,7 +192,7 @@ describe("TalentsPage", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("人才已更新"))
     expect(updatedBody).toMatchObject({ name: "林晚（更新）", status: "接洽中", rate_amount: "500.00", rate_unit: "按天", rating: 4 })
 
-    await userEvent.click(await screen.findByRole("button", { name: "删除 林晚（更新）" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "删除 林晚（更新）" }))[0])
     const dialog = await screen.findByRole("dialog")
     expect(deleted).toBe(false)
     await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))

@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ErrorPanel } from "@/components/ui/error-panel"
 import type { RssSourceInput } from "./rss-api"
-import { ErrorPanel, StatusBadge } from "./rss-shared"
+import { StatusBadge } from "./rss-shared"
 import type { RssSource } from "./types"
 import { useRssSettingsController } from "./use-rss-settings-controller"
 
@@ -32,7 +33,7 @@ export function RssSourcesPage() {
         </p>
       </header>
       {loading && <p aria-busy="true" className="text-sm text-[var(--muted)]">正在读取 RSS 源…</p>}
-      {error && <ErrorPanel message={error.message} retry={() => void controller.sources.refetch()} />}
+      {error && <ErrorPanel message={error.message} retry={() => void controller.sources.refetch()} title="RSS 配置读取失败" />}
       {controller.sources.isSuccess && (
         <SourcesPanel
           busy={controller.isActionLocked}

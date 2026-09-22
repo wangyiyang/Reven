@@ -3,10 +3,10 @@ import { useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
 import { ConfirmSettleDialog } from "./confirm-settle-dialog"
@@ -144,47 +144,33 @@ function PendingGroupSection(props: GroupSectionProps) {
       <h2 className="text-sm font-semibold text-[var(--ink)]">
         {PENDING_GROUP_LABELS[group]}（{entries.length}）
       </h2>
-      <div className="grid gap-3 lg:hidden">
-        {entries.map((entry) => (
-          <article aria-label={`${entry.name} 移动摘要`} className="rounded-lg border border-[var(--line)] p-4" key={entry.id}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-semibold text-[var(--ink)]">{entry.name}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{entry.source ?? "未填写收付款对象"}</p>
-                <DueMeta entry={entry} group={group} today={props.today} />
-              </div>
-              <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>
-            </div>
-            <div className="mt-3">
-              <PendingActions {...props} entry={entry} labeled />
-            </div>
-          </article>
-        ))}
-      </div>
-      <div className="hidden lg:block">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>名称</TableHead>
-              <TableHead>收付款对象</TableHead>
-              <TableHead>预计收付日期</TableHead>
-              <TableHead className="text-right">金额</TableHead>
-              <TableHead>操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell>{entry.name}</TableCell>
-                <TableCell>{entry.source ?? "—"}</TableCell>
-                <TableCell><DueMeta entry={entry} group={group} today={props.today} /></TableCell>
-                <TableCell className="text-right">{formatMoney(entry.amount_cents)}</TableCell>
-                <TableCell><PendingActions {...props} entry={entry} /></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <ResponsiveList
+        actions={[
+          { label: props.confirmLabel, ariaLabel: (entry) => `${props.confirmLabel} ${entry.name}`, onClick: props.onConfirm, variant: "outline" },
+          { label: "编辑", ariaLabel: (entry) => `编辑 ${entry.name}`, onClick: props.onEdit },
+          { label: "删除", ariaLabel: (entry) => `删除 ${entry.name}`, onClick: props.onDelete },
+        ]}
+        card={(entry) => ({
+          title: entry.name,
+          status: <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>,
+          body: (
+            <>
+              <p className="mt-1 text-xs text-[var(--muted)]">{entry.source ?? "未填写收付款对象"}</p>
+              <DueMeta entry={entry} group={group} today={props.today} />
+            </>
+          ),
+        })}
+        cardLabel={(entry) => `${entry.name} 移动摘要`}
+        columns={[
+          { header: "名称", cell: (entry) => entry.name },
+          { header: "收付款对象", cell: (entry) => entry.source ?? "—" },
+          { header: "预计收付日期", cell: (entry) => <DueMeta entry={entry} group={group} today={props.today} /> },
+          { header: "金额", className: "text-right", cell: (entry) => formatMoney(entry.amount_cents) },
+        ]}
+        emptyText=""
+        items={entries}
+        keyOf={(entry) => entry.id}
+      />
     </section>
   )
 }
@@ -201,26 +187,6 @@ function DueMeta({ entry, group, today }: { entry: FinanceEntry; group: PendingG
     )
   }
   return <p className="mt-1 text-xs text-[var(--muted)]">{entry.due_on}</p>
-}
-
-function PendingActions({ entry, confirmLabel, onConfirm, onEdit, onDelete, labeled }: GroupSectionProps & {
-  entry: FinanceEntry
-  labeled?: boolean
-}) {
-  const label = (action: string) => (labeled ? `${action} ${entry.name}` : undefined)
-  return (
-    <div className="flex flex-wrap gap-1">
-      <Button aria-label={label(confirmLabel)} onClick={() => onConfirm(entry)} size="sm" type="button" variant="outline">
-        {confirmLabel}
-      </Button>
-      <Button aria-label={label("编辑")} onClick={() => onEdit(entry)} size="sm" type="button" variant="ghost">
-        编辑
-      </Button>
-      <Button aria-label={label("删除")} onClick={() => onDelete(entry)} size="sm" type="button" variant="ghost">
-        删除
-      </Button>
-    </div>
-  )
 }
 
 function overdueDays(dueOn: string, today: string): number {

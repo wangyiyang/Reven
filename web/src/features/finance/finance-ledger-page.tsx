@@ -2,12 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 import { deleteEntry, listEntries, type FinanceEntry, type FinanceEntryKind } from "./finance-api"
 import { EntryFormDrawer } from "./entry-form-drawer"
@@ -115,51 +114,29 @@ function LedgerList({ entries, onEdit, onDelete }: LedgerListProps) {
     return <p className="py-6 text-center text-sm text-[var(--muted)]">该月份暂无收支流水。</p>
   }
   return (
-    <>
-      <div className="grid gap-3 lg:hidden">
-        {entries.map((entry) => (
-          <article aria-label={`${entry.name} 移动摘要`} className="rounded-lg border border-[var(--line)] p-4" key={entry.id}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-semibold text-[var(--ink)]">{entry.name}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{entry.occurred_on} · {entry.category ?? "未分类"}</p>
-              </div>
-              <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <KindBadge kind={entry.kind} />
-              <RowActions entry={entry} onDelete={onDelete} onEdit={onEdit} labeled />
-            </div>
-          </article>
-        ))}
-      </div>
-      <div className="hidden lg:block">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>日期</TableHead>
-              <TableHead>名称</TableHead>
-              <TableHead>类型</TableHead>
-              <TableHead>分类</TableHead>
-              <TableHead className="text-right">金额</TableHead>
-              <TableHead>操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell>{entry.occurred_on}</TableCell>
-                <TableCell>{entry.name}</TableCell>
-                <TableCell><KindBadge kind={entry.kind} /></TableCell>
-                <TableCell>{entry.category ?? "—"}</TableCell>
-                <TableCell className="text-right">{formatMoney(entry.amount_cents)}</TableCell>
-                <TableCell><RowActions entry={entry} onDelete={onDelete} onEdit={onEdit} /></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </>
+    <ResponsiveList
+      actions={[
+        { label: "编辑", ariaLabel: (entry) => `编辑 ${entry.name}`, onClick: onEdit },
+        { label: "删除", ariaLabel: (entry) => `删除 ${entry.name}`, onClick: onDelete },
+      ]}
+      card={(entry) => ({
+        title: entry.name,
+        status: <p className="shrink-0 text-base font-semibold text-[var(--ink)]">{formatMoney(entry.amount_cents)}</p>,
+        body: <p className="mt-1 text-xs text-[var(--muted)]">{entry.occurred_on} · {entry.category ?? "未分类"}</p>,
+        links: <KindBadge kind={entry.kind} />,
+      })}
+      cardLabel={(entry) => `${entry.name} 移动摘要`}
+      columns={[
+        { header: "日期", cell: (entry) => entry.occurred_on },
+        { header: "名称", cell: (entry) => entry.name },
+        { header: "类型", cell: (entry) => <KindBadge kind={entry.kind} /> },
+        { header: "分类", cell: (entry) => entry.category ?? "—" },
+        { header: "金额", className: "text-right", cell: (entry) => formatMoney(entry.amount_cents) },
+      ]}
+      emptyText="该月份暂无收支流水。"
+      items={entries}
+      keyOf={(entry) => entry.id}
+    />
   )
 }
 
@@ -168,23 +145,5 @@ function KindBadge({ kind }: { kind: FinanceEntryKind }) {
     <Badge className={kind === "income" ? "text-[var(--signal)]" : "text-[var(--muted)]"}>
       {kind === "income" ? "收入" : "支出"}
     </Badge>
-  )
-}
-
-function RowActions({ entry, onEdit, onDelete, labeled }: {
-  entry: FinanceEntry
-  onEdit: (entry: FinanceEntry) => void
-  onDelete: (entry: FinanceEntry) => void
-  labeled?: boolean
-}) {
-  return (
-    <div className="flex gap-1">
-      <Button aria-label={labeled ? `编辑 ${entry.name}` : undefined} onClick={() => onEdit(entry)} size="sm" type="button" variant="ghost">
-        编辑
-      </Button>
-      <Button aria-label={labeled ? `删除 ${entry.name}` : undefined} onClick={() => onDelete(entry)} size="sm" type="button" variant="ghost">
-        删除
-      </Button>
-    </div>
   )
 }

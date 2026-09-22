@@ -126,7 +126,7 @@ describe("ProjectsPage", () => {
 
     renderPage()
     expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 OLL 交付" })[0])
 
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("删除项目")
@@ -137,27 +137,12 @@ describe("ProjectsPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect(screen.getAllByText("OLL 交付")[0]).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole("button", { name: "删除" }))
+    await userEvent.click(screen.getAllByRole("button", { name: "删除 OLL 交付" })[0])
     const dialog2 = await screen.findByRole("dialog")
     await userEvent.click(within(dialog2).getByRole("button", { name: /确认删除/ }))
 
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("项目已删除")
-  })
-
-  it("renders mobile cards with labeled edit and delete actions", async () => {
-    renderPage()
-
-    const card = await screen.findByRole("article", { name: "OLL 交付 移动摘要" })
-    expect(card).toHaveTextContent("进行中")
-    expect(card).toHaveTextContent("9 月底完成验收")
-    expect(card).toHaveTextContent("2026-09-30")
-
-    await userEvent.click(screen.getByRole("button", { name: "编辑 OLL 交付" }))
-    expect(screen.getByLabelText("名称")).toHaveValue("OLL 交付")
-
-    await userEvent.click(screen.getByRole("button", { name: "删除 OLL 交付" }))
-    expect(await screen.findByRole("dialog")).toHaveTextContent("删除项目")
   })
 
   it("filters projects by status", async () => {
@@ -205,7 +190,7 @@ describe("ProjectsPage", () => {
     )
 
     renderPage()
-    await userEvent.click(await screen.findByRole("button", { name: "编辑" }))
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 OLL 交付" }))[0])
 
     const nameInput = await screen.findByLabelText("名称")
     await userEvent.clear(nameInput)
