@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ChevronDown, ChevronRight, ContactRound, FolderKanban, LogOut, Moon, Palette, PlugZap, Rss, Sparkles, Sun, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
+import { ChevronDown, ChevronRight, LogOut, Moon, Sun, type LucideIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
@@ -6,25 +6,47 @@ import { Toaster } from "sonner"
 import { apiRequest } from "@/lib/api"
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
+import { routes, type RouteDef } from "@/routes"
 
-const RSS_NAV_OPEN_KEY = "reven:nav:rss-open"
+const GROUP_OPEN_KEY_PREFIX = "reven:nav:group-open:"
+// 旧版按 RSS 单例持久化的折叠偏好键，读取时一次性迁移到按 group id keyed 的新键
+const LEGACY_GROUP_OPEN_KEYS: Record<string, string> = { "/rss": "reven:nav:rss-open" }
 
-// 折叠偏好：null 表示用户未手动操作过，此时跟随路由（RSS 页面内展开、其余收起）；
-// 一旦手动 toggle 就持久化到 localStorage，之后一律以存储值为准
-type RssOpenPreference = boolean | null
+type NavEntry = RouteDef & { path: string; label: string; icon: LucideIcon }
 
-function loadRssOpenPreference(): RssOpenPreference {
+function isNavEntry(def: RouteDef): def is NavEntry {
+  return def.path !== undefined && def.label !== undefined && def.icon !== undefined
+}
+
+function navChildren(entry: NavEntry): NavEntry[] {
+  return entry.children?.filter(isNavEntry) ?? []
+}
+
+// 主导航与路由注册表同源：带 label + icon 的条目即导航项，带导航子项的条目即分组
+const NAV_ENTRIES = routes.filter(isNavEntry)
+const NAV_GROUPS = NAV_ENTRIES.filter((entry) => navChildren(entry).length > 0)
+
+// 折叠偏好：null 表示用户未手动操作过，此时跟随路由（分组内页面展开、其余收起）；
+// 一旦手动 toggle 就按 group id 持久化到 localStorage，之后一律以存储值为准
+function loadGroupOpenPreference(groupId: string): boolean | null {
   try {
-    const stored = localStorage.getItem(RSS_NAV_OPEN_KEY)
-    return stored === null ? null : stored === "true"
+    const stored = localStorage.getItem(GROUP_OPEN_KEY_PREFIX + groupId)
+    if (stored !== null) return stored === "true"
+    const legacyKey = LEGACY_GROUP_OPEN_KEYS[groupId]
+    const legacy = legacyKey ? localStorage.getItem(legacyKey) : null
+    if (legacy === null) return null
+    const migrated = legacy === "true"
+    saveGroupOpenPreference(groupId, migrated)
+    localStorage.removeItem(legacyKey!)
+    return migrated
   } catch {
     return null
   }
 }
 
-function saveRssOpenPreference(open: boolean) {
+function saveGroupOpenPreference(groupId: string, open: boolean) {
   try {
-    localStorage.setItem(RSS_NAV_OPEN_KEY, String(open))
+    localStorage.setItem(GROUP_OPEN_KEY_PREFIX + groupId, String(open))
   } catch {
     // 隐私模式等存储不可用场景：仅保持会话内状态
   }
@@ -39,42 +61,23 @@ async function logout() {
   window.location.assign("/login")
 }
 
-type NavLeaf = { to: string; label: string; icon: LucideIcon }
-type NavEntry = NavLeaf | { label: string; icon: LucideIcon; children: NavLeaf[] }
-
-const navigation: NavEntry[] = [
-  { to: "/crm", label: "CRM", icon: ContactRound },
-  { to: "/talents", label: "人才库", icon: Users },
-  { to: "/finance", label: "财务", icon: Wallet },
-  { to: "/projects", label: "项目", icon: FolderKanban },
-  { to: "/sops", label: "SOP（标准作业流程）", icon: BookOpenCheck },
-  {
-    label: "RSS",
-    icon: Rss,
-    children: [
-      { to: "/rss/candidates", label: "内容发现", icon: Sparkles },
-      { to: "/rss/sources", label: "RSS 源", icon: Rss },
-      { to: "/rss/keywords", label: "RSS 关键词", icon: Tags },
-    ],
-  },
-  { to: "/brand", label: "品牌管理", icon: Palette },
-  { to: "/integrations", label: "集成设置", icon: PlugZap },
-  { to: "/system", label: "系统状态", icon: Activity },
-]
-
 export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getTheme)
   const location = useLocation()
   const navRef = useRef<HTMLElement>(null)
   const [canScrollRight, setCanScrollRight] = useState(false)
-  const inRss = location.pathname.startsWith("/rss")
-  const [rssPreference, setRssPreference] = useState(loadRssOpenPreference)
-  const rssOpen = rssPreference ?? inRss
+  const [openPreferences, setOpenPreferences] = useState<Record<string, boolean | null>>(() =>
+    Object.fromEntries(NAV_GROUPS.map((group) => [group.path, loadGroupOpenPreference(group.path)])),
+  )
 
-  const toggleRss = () => {
-    const next = !rssOpen
-    saveRssOpenPreference(next)
-    setRssPreference(next)
+  const isGroupActive = (group: NavEntry) =>
+    navChildren(group).some((child) => location.pathname.startsWith(child.path))
+  const groupOpen = (group: NavEntry) => openPreferences[group.path] ?? isGroupActive(group)
+
+  const toggleGroup = (group: NavEntry) => {
+    const next = !groupOpen(group)
+    saveGroupOpenPreference(group.path, next)
+    setOpenPreferences((current) => ({ ...current, [group.path]: next }))
   }
 
   // 路由切换后把激活的 tab 滚动进可视区（移动端横向 tab 条；只看可见的链接，跳过桌面端分组按钮）
@@ -115,30 +118,33 @@ export function AppShell({ children }: { children: ReactNode }) {
               ref={navRef}
             >
               <ul className="flex gap-1 lg:flex-col lg:gap-2">
-                {navigation.map((entry) => (
-                  <li className="shrink-0" key={"to" in entry ? entry.to : entry.label}>
-                    {"to" in entry ? (
-                      <NavLink
-                        aria-label={entry.label}
-                        className={({ isActive }) => cn(
-                          "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
-                          isActive && "active",
-                        )}
-                        to={entry.to}
-                      >
-                        <entry.icon aria-hidden size={17} />
-                        <span>{entry.label}</span>
-                      </NavLink>
-                    ) : (
-                      <NavGroup
-                        active={entry.children.some((child) => location.pathname.startsWith(child.to))}
-                        entry={entry}
-                        onToggle={toggleRss}
-                        open={rssOpen}
-                      />
-                    )}
-                  </li>
-                ))}
+                {NAV_ENTRIES.map((entry) => {
+                  const children = navChildren(entry)
+                  return (
+                    <li className="shrink-0" key={entry.path}>
+                      {children.length > 0 ? (
+                        <NavGroup
+                          active={children.some((child) => location.pathname.startsWith(child.path))}
+                          entry={{ ...entry, children }}
+                          onToggle={() => toggleGroup(entry)}
+                          open={groupOpen(entry)}
+                        />
+                      ) : (
+                        <NavLink
+                          aria-label={entry.label}
+                          className={({ isActive }) => cn(
+                            "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
+                            isActive && "active",
+                          )}
+                          to={entry.path}
+                        >
+                          <entry.icon aria-hidden size={17} />
+                          <span>{entry.label}</span>
+                        </NavLink>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </nav>
             {/* 移动端右缘渐隐 + 箭头：仅当 tab 条还能右滑时显示，提示后面还有模块 */}
@@ -188,7 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function NavGroup(props: {
-  entry: { label: string; icon: LucideIcon; children: NavLeaf[] }
+  entry: { label: string; icon: LucideIcon; children: NavEntry[] }
   open: boolean
   active: boolean
   onToggle: () => void
@@ -215,18 +221,18 @@ function NavGroup(props: {
         "flex gap-1 lg:ml-3 lg:flex-col lg:gap-2 lg:border-l lg:border-[var(--line)] lg:pl-3",
         !props.open && "lg:hidden",
       )}>
-        {entry.children.map(({ to, label, icon: Icon }) => (
-          <li className="shrink-0" key={to}>
+        {entry.children.map((child) => (
+          <li className="shrink-0" key={child.path}>
             <NavLink
-              aria-label={label}
+              aria-label={child.label}
               className={({ isActive }) => cn(
                 "nav-link flex min-h-11 items-center gap-2 whitespace-nowrap px-3 text-sm font-semibold lg:gap-3",
                 isActive && "active",
               )}
-              to={to}
+              to={child.path}
             >
-              <Icon aria-hidden size={17} />
-              <span>{label}</span>
+              <child.icon aria-hidden size={17} />
+              <span>{child.label}</span>
             </NavLink>
           </li>
         ))}

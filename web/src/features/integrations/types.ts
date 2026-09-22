@@ -1,6 +1,11 @@
+import type { RssRunHealth } from "./integration-api"
+
 export type Provider =
   | "feishu_bot"
   | "translate_baidu" | "translate_aliyun" | "embedding" | "agent-llm"
+
+/** 集成动作种类，与 integration-api 的 IntegrationAction.action 对齐 */
+export type IntegrationActionKind = "save" | "delete" | "test"
 
 export interface Integration {
   provider: Provider
@@ -104,3 +109,25 @@ export const PROVIDERS: ProviderDefinition[] = [
     secretFields: [{ key: "api_key", label: "API Key", type: "password", placeholder: "输入 API Key" }],
   },
 ]
+
+/**
+ * 单个 provider 的卡片控制器：IntegrationCard 只消费 {definition, controller}。
+ * 动作锁与 busy 判定收敛在 useIntegrationsController 内部，不向外泄漏。
+ */
+export interface ProviderController {
+  state: {
+    integration?: Integration
+    runHealth?: RssRunHealth | null
+    /** 全局动作锁：任一集成操作进行中时禁用全部卡片动作 */
+    disabled: boolean
+    /** 当前 provider 正在执行的动作；null 表示空闲 */
+    busy: IntegrationActionKind | null
+  }
+  actions: {
+    save: (publicConfig: Record<string, unknown>) => void
+    replace: (publicConfig: Record<string, unknown>, secret: Record<string, string>) => void
+    /** 删除密钥；resolve 为是否成功，供卡片做焦点恢复 */
+    remove: () => Promise<boolean>
+    test: () => void
+  }
+}

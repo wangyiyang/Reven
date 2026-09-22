@@ -9,52 +9,114 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import type { RssRunHealth } from "./integration-api"
-import type { FieldDefinition, Integration, Provider, ProviderDefinition } from "./types"
+import type { FieldDefinition, Integration, Provider, ProviderController, ProviderDefinition } from "./types"
 
 interface IntegrationCardProps {
   definition: ProviderDefinition
-  integration?: Integration
-  runHealth?: RssRunHealth | null
-  actionsDisabled: boolean
-  busyAction?: string
-  onSave: (provider: Provider, publicConfig: Record<string, unknown>) => void
-  onReplace: (provider: Provider, publicConfig: Record<string, unknown>, secret: Record<string, string>) => void
-  onDelete: (provider: Provider) => Promise<boolean>
-  onTest: (provider: Provider) => void
+  controller: ProviderController
 }
 
-export function IntegrationCard(props: IntegrationCardProps) {
-  const form = useIntegrationForm(props.definition, props.integration)
+export function IntegrationCard({ definition, controller }: IntegrationCardProps) {
+  const { integration, runHealth, disabled, busy } = controller.state
+  const form = useIntegrationForm(definition, integration)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const saveButtonRef = useRef<HTMLButtonElement>(null)
-  const busy = props.busyAction?.startsWith(props.definition.provider)
-  const deleteLabel = `删除${props.definition.title}密钥`
+  const feishu = definition.provider === "feishu_bot"
+  const deleteLabel = `删除${definition.title}密钥`
+
+  const secretPayload = Object.fromEntries(definition.secretFields.map((field) => [field.key, form.secrets[field.key] ?? ""]))
+  const secretComplete = definition.secretFields.every((field) => form.secrets[field.key]?.trim())
+  const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
+  const publicConfig = publicConfigForSave(definition, form.publicConfig)
+  const runHealthSummary = RUN_HEALTH_PROVIDERS.includes(definition.provider) && runHealth !== undefined
+    ? describeRunHealth(runHealth)
+    : null
+
   return (
     <article className="integration-card group relative mb-6 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-6 shadow-sm">
-      <CardHeader definition={props.definition} integration={props.integration} />
-      <ConfigFields definition={props.definition} form={form} integration={props.integration} />
-      <StatusNotices definition={props.definition} integration={props.integration} />
-      <RunHealthNotice definition={props.definition} run={props.runHealth} />
-      <CardActions
-        actionsDisabled={props.actionsDisabled}
-        busy={busy}
-        definition={props.definition}
-        form={form}
-        integration={props.integration}
-        onDelete={() => setConfirmOpen(true)}
-        deleteButtonRef={deleteButtonRef}
-        onReplace={props.onReplace}
-        onSave={props.onSave}
-        onTest={props.onTest}
-        saveButtonRef={saveButtonRef}
-      />
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">{definition.title}</h2>
+          <p className="mt-1 max-w-xl text-sm text-[var(--muted)]">{definition.description}</p>
+        </div>
+        <ConnectionBadge integration={integration} />
+      </header>
+
+      <div className="mt-8 grid gap-x-10 gap-y-6 lg:grid-cols-2">
+        {definition.publicFields.map((field) => (
+          <PublicField field={field} form={form} key={field.key} />
+        ))}
+        {definition.secretFields.map((field, index) => (
+          <div key={field.key}>
+            <Label htmlFor={`${form.formId}-secret-${field.key}`}>{field.label}</Label>
+            <Input
+              autoComplete="new-password"
+              id={`${form.formId}-secret-${field.key}`}
+              onChange={(event) => form.setSecret(field.key, event.target.value)}
+              placeholder={integration?.secret_configured ? "留空则保留当前密钥" : field.placeholder}
+              type="password"
+              value={form.secrets[field.key] ?? ""}
+            />
+            {index === definition.secretFields.length - 1 && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
+                <ShieldAlert aria-hidden size={13} />{integration?.secret_hint ?? "尚未配置 · 保存后不可回看"}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {integration?.last_error && (
+        <p className="mt-6 rounded-md border-l-2 border-[var(--danger)] bg-[var(--faint)] px-4 py-3 text-sm text-[var(--danger)]" role="alert">
+          {integration.last_error}
+        </p>
+      )}
+      {feishu && (
+        <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
+          <Send aria-hidden size={14} />将向已保存的接收人发送一条测试消息，请先保存接收人配置。
+        </p>
+      )}
+      {runHealthSummary && (
+        <p className={`mt-5 text-xs ${runHealthSummary.degraded ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+          {runHealthSummary.text}
+        </p>
+      )}
+
+      <footer className="mt-7">
+        {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--danger)]">{`请填写 ${formatFieldLabels(definition.publicFields.filter((field) => !field.optional))}后保存配置。`}</p>}
+        {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${formatFieldLabels(definition.secretFields)} 后${feishu ? "发送测试消息" : "测试连接"}。`}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+        <Button aria-label={`保存${definition.title}配置`} disabled={disabled || !publicConfigComplete} onClick={() => controller.actions.save(publicConfig)} ref={saveButtonRef}>
+          <Save aria-hidden size={15} />保存配置
+        </Button>
+        <Button
+          aria-label={`${integration?.secret_configured ? "替换" : "保存"}${definition.title}密钥`}
+          disabled={disabled || !publicConfigComplete || !secretComplete}
+          onClick={() => controller.actions.replace(publicConfig, secretPayload)}
+          variant="outline"
+        >
+          <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
+        </Button>
+        <Button
+          aria-label={feishu ? "发送飞书测试消息" : `测试${definition.title}连接`}
+          disabled={disabled || !integration?.secret_configured}
+          onClick={() => controller.actions.test()}
+          variant="outline"
+        >
+          <Radio aria-hidden size={15} />{feishu ? "发送测试消息" : "测试连接"}
+        </Button>
+        {integration?.secret_configured && <Button aria-label={deleteLabel} disabled={disabled} onClick={() => setConfirmOpen(true)} ref={deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
+        {busy !== null && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--muted)]" size={18} />}
+        </div>
+      </footer>
+
       <ConfirmDialog
-        busy={busy}
+        busy={busy !== null}
         confirmLabel={`确认${deleteLabel}`}
         description="删除后，依赖此密钥的集成将无法运行。公共配置仍会保留。"
         onClose={() => setConfirmOpen(false)}
-        onConfirm={() => handleDeleteConfirm(props, () => setConfirmOpen(false), deleteButtonRef, saveButtonRef)}
+        onConfirm={() => handleDeleteConfirm(controller.actions.remove, () => setConfirmOpen(false), deleteButtonRef, saveButtonRef)}
         open={confirmOpen}
         returnFocusRef={deleteButtonRef}
         title={`确认${deleteLabel}？`}
@@ -63,15 +125,16 @@ export function IntegrationCard(props: IntegrationCardProps) {
   )
 }
 
+// 删除成功后：触发按钮即将卸载，把焦点还给稳定的“保存配置”按钮
 async function handleDeleteConfirm(
-  props: IntegrationCardProps,
+  remove: () => Promise<boolean>,
   close: () => void,
   triggerRef: RefObject<HTMLButtonElement | null>,
   stableRef: RefObject<HTMLButtonElement | null>,
 ) {
   const trigger = triggerRef.current
   close()
-  if (!await props.onDelete(props.definition.provider)) return
+  if (!await remove()) return
   window.setTimeout(() => {
     const active = document.activeElement
     if (active === document.body || active === trigger || !active?.isConnected) {
@@ -111,34 +174,6 @@ function useIntegrationForm(definition: ProviderDefinition, integration?: Integr
     setField: (key, value) => setPublicConfig((current) => ({ ...current, [key]: value })),
     setSecret: (key, value) => setSecrets((current) => ({ ...current, [key]: value })),
   }
-}
-
-function CardHeader({ definition, integration }: { definition: ProviderDefinition; integration?: Integration }) {
-  return (
-    <header className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h2 className="text-lg font-semibold">{definition.title}</h2>
-        <p className="mt-1 max-w-xl text-sm text-[var(--muted)]">{definition.description}</p>
-      </div>
-      <ConnectionBadge integration={integration} />
-    </header>
-  )
-}
-
-function ConfigFields(props: {
-  definition: ProviderDefinition
-  integration?: Integration
-  form: IntegrationForm
-}) {
-  return (
-    <div className="mt-8 grid gap-x-10 gap-y-6 lg:grid-cols-2">
-      {props.definition.publicFields.map((field) => (
-        <PublicField field={field} form={props.form} key={field.key} />
-      ))}
-      <SecretFields definition={props.definition} form={props.form} integration={props.integration} />
-
-    </div>
-  )
 }
 
 function PublicField({ field, form }: { field: FieldDefinition; form: IntegrationForm }) {
@@ -185,111 +220,14 @@ function PublicField({ field, form }: { field: FieldDefinition; form: Integratio
   )
 }
 
-function SecretFields(props: {
-  definition: ProviderDefinition
-  integration?: Integration
-  form: IntegrationForm
-}) {
-  const fields = props.definition.secretFields
-  return (
-    <>
-      {fields.map((field, index) => (
-        <div key={field.key}>
-          <Label htmlFor={`${props.form.formId}-secret-${field.key}`}>{field.label}</Label>
-          <Input
-            autoComplete="new-password"
-            id={`${props.form.formId}-secret-${field.key}`}
-            onChange={(event) => props.form.setSecret(field.key, event.target.value)}
-            placeholder={props.integration?.secret_configured ? "留空则保留当前密钥" : field.placeholder}
-            type="password"
-            value={props.form.secrets[field.key] ?? ""}
-          />
-          {index === fields.length - 1 && (
-            <p className="mt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
-              <ShieldAlert aria-hidden size={13} />{props.integration?.secret_hint ?? "尚未配置 · 保存后不可回看"}
-            </p>
-          )}
-        </div>
-      ))}
-    </>
-  )
-}
-
-function StatusNotices({ definition, integration }: { definition: ProviderDefinition; integration?: Integration }) {
-  return (
-    <>
-      {integration?.last_error && (
-        <p className="mt-6 rounded-md border-l-2 border-[var(--danger)] bg-[var(--faint)] px-4 py-3 text-sm text-[var(--danger)]" role="alert">
-          {integration.last_error}
-        </p>
-      )}
-      {definition.provider === "feishu_bot" && (
-        <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
-          <Send aria-hidden size={14} />将向已保存的接收人发送一条测试消息，请先保存接收人配置。
-        </p>
-      )}
-    </>
-  )
-}
-
 const RUN_HEALTH_PROVIDERS: Provider[] = ["translate_baidu", "translate_aliyun", "embedding"]
 
-function RunHealthNotice({ definition, run }: { definition: ProviderDefinition; run?: RssRunHealth | null }) {
-  if (!RUN_HEALTH_PROVIDERS.includes(definition.provider) || run === undefined) return null
-  if (run === null) return <p className="mt-5 text-xs text-[var(--muted)]">最近每日任务：暂无运行记录</p>
+function describeRunHealth(run: RssRunHealth | null): { text: string; degraded: boolean } {
+  if (run === null) return { text: "最近每日任务：暂无运行记录", degraded: false }
   const statusText = { completed: "成功", partial: "降级", running: "进行中", screening: "进行中" }[run.status]
-  const degraded = run.status === "partial"
   const errorTypes = [...new Set(run.errors.map((error) => error.error_type))]
-  return (
-    <p className={`mt-5 text-xs ${degraded ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
-      最近每日任务：{statusText}
-      {degraded && errorTypes.length > 0 && ` · ${errorTypes.join("、")}`}
-    </p>
-  )
-}
-
-interface CardActionsProps {
-  actionsDisabled: boolean
-  busy?: boolean
-  definition: ProviderDefinition
-  form: IntegrationForm
-  integration?: Integration
-  onSave: IntegrationCardProps["onSave"]
-  onReplace: IntegrationCardProps["onReplace"]
-  onTest: IntegrationCardProps["onTest"]
-  onDelete: () => void
-  deleteButtonRef: RefObject<HTMLButtonElement | null>
-  saveButtonRef: RefObject<HTMLButtonElement | null>
-}
-
-function CardActions(props: CardActionsProps) {
-  const { definition, form, integration } = props
-  const secretPayload = Object.fromEntries(definition.secretFields.map((field) => [field.key, form.secrets[field.key] ?? ""]))
-  const secretComplete = definition.secretFields.every((field) => form.secrets[field.key]?.trim())
-  const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
-  const publicConfig = publicConfigForSave(definition, form.publicConfig)
-  return (
-    <footer className="mt-7">
-      {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--danger)]">{`请填写 ${formatFieldLabels(definition.publicFields.filter((field) => !field.optional))}后保存配置。`}</p>}
-      {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${formatFieldLabels(definition.secretFields)} 后${definition.provider === "feishu_bot" ? "发送测试消息" : "测试连接"}。`}</p>}
-      <div className="flex flex-wrap items-center gap-3">
-      <Button aria-label={`保存${definition.title}配置`} disabled={props.actionsDisabled || !publicConfigComplete} onClick={() => props.onSave(definition.provider, publicConfig)} ref={props.saveButtonRef}>
-        <Save aria-hidden size={15} />保存配置
-      </Button>
-      <Button
-        aria-label={`${integration?.secret_configured ? "替换" : "保存"}${definition.title}密钥`}
-        disabled={props.actionsDisabled || !publicConfigComplete || !secretComplete}
-        onClick={() => props.onReplace(definition.provider, publicConfig, secretPayload)}
-        variant="outline"
-      >
-        <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}
-      </Button>
-      <TestButton actionsDisabled={props.actionsDisabled} definition={definition} integration={integration} onTest={props.onTest} />
-      {integration?.secret_configured && <Button aria-label={`删除${definition.title}密钥`} disabled={props.actionsDisabled} onClick={props.onDelete} ref={props.deleteButtonRef} variant="danger"><Trash2 aria-hidden size={15} />删除密钥</Button>}
-      {props.busy && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--muted)]" size={18} />}
-      </div>
-    </footer>
-  )
+  const suffix = run.status === "partial" && errorTypes.length > 0 ? ` · ${errorTypes.join("、")}` : ""
+  return { text: `最近每日任务：${statusText}${suffix}`, degraded: run.status === "partial" }
 }
 
 function hasCompletePublicConfig(definition: ProviderDefinition, publicConfig: Record<string, string>) {
@@ -318,20 +256,6 @@ function parseStringList(value: string | undefined): string[] {
 function formatFieldLabels(fields: FieldDefinition[]) {
   const labels = fields.map((field) => field.label)
   return labels.length > 1 ? `${labels.slice(0, -1).join("、")} 和${labels.at(-1)}` : labels[0]
-}
-
-function TestButton(props: Pick<CardActionsProps, "actionsDisabled" | "definition" | "integration" | "onTest">) {
-  const feishu = props.definition.provider === "feishu_bot"
-  return (
-    <Button
-      aria-label={feishu ? "发送飞书测试消息" : `测试${props.definition.title}连接`}
-      disabled={props.actionsDisabled || !props.integration?.secret_configured}
-      onClick={() => props.onTest(props.definition.provider)}
-      variant="outline"
-    >
-      <Radio aria-hidden size={15} />{feishu ? "发送测试消息" : "测试连接"}
-    </Button>
-  )
 }
 
 function ConnectionBadge({ integration }: { integration?: Integration }) {

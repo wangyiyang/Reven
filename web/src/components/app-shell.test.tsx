@@ -4,8 +4,11 @@ import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "./app-shell"
+import { routes } from "@/routes"
 
-const RSS_NAV_OPEN_KEY = "reven:nav:rss-open"
+// 折叠偏好按 group id（分组 path）keyed 持久化；旧版 RSS 单例键读取时迁移
+const GROUP_OPEN_KEY = "reven:nav:group-open:/rss"
+const LEGACY_RSS_OPEN_KEY = "reven:nav:rss-open"
 
 function renderShell(initialEntries = ["/"]) {
   return render(
@@ -94,7 +97,7 @@ describe("AppShell 移动端布局", () => {
     await userEvent.click(toggle)
     expect(toggle).toHaveAttribute("aria-expanded", "true")
     expect(sublist()?.className).not.toContain("lg:hidden")
-    expect(localStorage.getItem(RSS_NAV_OPEN_KEY)).toBe("true")
+    expect(localStorage.getItem(GROUP_OPEN_KEY)).toBe("true")
   })
 
   it("无存储偏好时，RSS 路由下分组自动展开", () => {
@@ -103,13 +106,13 @@ describe("AppShell 移动端布局", () => {
   })
 
   it("存储的收起偏好优先于路由：RSS 页面内也保持收起", () => {
-    localStorage.setItem(RSS_NAV_OPEN_KEY, "false")
+    localStorage.setItem(GROUP_OPEN_KEY, "false")
     renderShell(["/rss/sources"])
     expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "false")
   })
 
   it("存储的展开偏好在非 RSS 页面同样生效", () => {
-    localStorage.setItem(RSS_NAV_OPEN_KEY, "true")
+    localStorage.setItem(GROUP_OPEN_KEY, "true")
     renderShell()
     expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "true")
   })
@@ -126,5 +129,41 @@ describe("AppShell 移动端布局", () => {
       expect(label?.className).toContain("hidden")
       expect(label?.className).toContain("lg:inline")
     }
+  })
+})
+
+describe("AppShell 导航与路由注册表", () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it("主导航由路由注册表驱动：带 label 的注册项全部渲染，分组子项一一对应", () => {
+    renderShell()
+    const navRoutes = routes.filter((route) => route.path && route.label && route.icon)
+    for (const route of navRoutes) {
+      const children = route.children?.filter((child) => child.path && child.label && child.icon) ?? []
+      if (children.length === 0) {
+        expect(screen.getByRole("link", { name: route.label })).toHaveAttribute("href", route.path)
+        continue
+      }
+      expect(screen.getByRole("button", { name: route.label })).toBeInTheDocument()
+      for (const child of children) {
+        expect(screen.getByRole("link", { name: child.label })).toHaveAttribute("href", child.path)
+      }
+    }
+  })
+
+  it("折叠偏好按 group id keyed 持久化", async () => {
+    renderShell()
+    await userEvent.click(screen.getByRole("button", { name: "RSS" }))
+    expect(localStorage.getItem(GROUP_OPEN_KEY)).toBe("true")
+  })
+
+  it("读取旧版 RSS 折叠偏好键并一次性迁移到新键", () => {
+    localStorage.setItem(LEGACY_RSS_OPEN_KEY, "true")
+    renderShell()
+    expect(screen.getByRole("button", { name: "RSS" })).toHaveAttribute("aria-expanded", "true")
+    expect(localStorage.getItem(LEGACY_RSS_OPEN_KEY)).toBeNull()
+    expect(localStorage.getItem(GROUP_OPEN_KEY)).toBe("true")
   })
 })

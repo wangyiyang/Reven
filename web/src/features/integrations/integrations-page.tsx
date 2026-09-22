@@ -25,16 +25,9 @@ export function IntegrationsPage() {
           </p>
           {PROVIDERS.map((definition) => (
             <IntegrationCard
-              actionsDisabled={controller.isActionLocked}
-              busyAction={controller.busyAction}
+              controller={controller.forProvider(definition.provider)}
               definition={definition}
-              integration={controller.byProvider.get(definition.provider)}
               key={definition.provider}
-              onDelete={(provider) => controller.execute({ action: "delete", provider })}
-              onReplace={(provider, publicConfig, secret) => controller.execute({ action: "save", provider, publicConfig, secret })}
-              onSave={(provider, publicConfig) => controller.execute({ action: "save", provider, publicConfig })}
-              onTest={(provider) => controller.execute({ action: "test", provider })}
-              runHealth={controller.latestRun.data}
             />
           ))}
         </section>

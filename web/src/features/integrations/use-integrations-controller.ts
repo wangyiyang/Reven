@@ -8,7 +8,7 @@ import {
   runIntegrationAction,
   type IntegrationAction,
 } from "./integration-api"
-import type { Integration, Provider } from "./types"
+import type { Provider, ProviderController } from "./types"
 
 export function useIntegrationsController() {
   const queryClient = useQueryClient()
@@ -45,12 +45,22 @@ export function useIntegrationsController() {
       setIsActionLocked(false)
     }
   }, [mutation])
-  return {
-    integrations,
-    latestRun,
-    execute,
-    isActionLocked,
-    busyAction: mutation.isPending ? `${mutation.variables.provider}:${mutation.variables.action}` : undefined,
-    byProvider: new Map<Provider, Integration>(integrations.data?.map((item) => [item.provider, item])),
-  }
+
+  const pendingAction = mutation.isPending ? mutation.variables : undefined
+  const forProvider = useCallback((provider: Provider): ProviderController => ({
+    state: {
+      integration: integrations.data?.find((item) => item.provider === provider),
+      runHealth: latestRun.data,
+      disabled: isActionLocked,
+      busy: pendingAction && pendingAction.provider === provider ? pendingAction.action : null,
+    },
+    actions: {
+      save: (publicConfig) => void execute({ action: "save", provider, publicConfig }),
+      replace: (publicConfig, secret) => void execute({ action: "save", provider, publicConfig, secret }),
+      remove: () => execute({ action: "delete", provider }),
+      test: () => void execute({ action: "test", provider }),
+    },
+  }), [integrations.data, latestRun.data, isActionLocked, pendingAction, execute])
+
+  return { integrations, isActionLocked, forProvider }
 }
