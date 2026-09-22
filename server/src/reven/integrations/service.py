@@ -2,7 +2,7 @@
 
 Secrets are write/replace/delete only — this module never exposes plaintext
 through its return values; decryption happens solely to hand credentials to
-registered connection-test adapters inside the backend process.
+connection-test adapters inside the backend process.
 """
 
 from collections.abc import Awaitable, Callable
@@ -54,16 +54,6 @@ ConnectionTestAdapter = Callable[
     Awaitable[ConnectionTestResult],
 ]
 
-_CONNECTION_TEST_ADAPTERS: dict[str, ConnectionTestAdapter] = {}
-
-
-def register_connection_test_adapter(provider: str, adapter: ConnectionTestAdapter) -> None:
-    _CONNECTION_TEST_ADAPTERS[provider] = adapter
-
-
-def unregister_connection_test_adapter(provider: str) -> None:
-    _CONNECTION_TEST_ADAPTERS.pop(provider, None)
-
 
 def compute_secret_hint(provider: str, secret: dict[str, str]) -> str:
     value = secret[SECRET_HINT_FIELDS[provider]]
@@ -84,9 +74,15 @@ def secret_hint_of(integration: Integration) -> str | None:
 
 
 class IntegrationService:
-    def __init__(self, session: AsyncSession, secret_box: SecretBox) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        secret_box: SecretBox,
+        adapters: dict[str, ConnectionTestAdapter],
+    ) -> None:
         self.repository = IntegrationRepository(session)
         self.secret_box = secret_box
+        self.adapters = adapters
 
     async def list_integrations(self) -> list[Integration]:
         return await self.repository.list_all()
@@ -151,7 +147,7 @@ class IntegrationService:
 
     async def run_connection_test(self, provider: str) -> Integration:
         integration = await self.get_integration(provider)
-        adapter = _CONNECTION_TEST_ADAPTERS.get(provider)
+        adapter = self.adapters.get(provider)
         if adapter is None:
             raise IntegrationError(
                 status_code=503,

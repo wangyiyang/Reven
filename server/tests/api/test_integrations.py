@@ -1,17 +1,23 @@
 import asyncio
+import base64
 import os
 
 import pytest
 from fastapi.testclient import TestClient
+from reven.api.routes.integrations import CONNECTION_TEST_ADAPTERS
 from reven.integrations.models import Integration
+from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
 from reven.integrations.service import (
+    ConnectionTestAdapter,
     ConnectionTestResult,
-    register_connection_test_adapter,
-    unregister_connection_test_adapter,
+    IntegrationError,
+    IntegrationService,
 )
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from reven.security.secrets import SecretBox
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 EMBEDDING_CONFIG = {"base_url": "https://api.siliconflow.cn", "model": "BAAI/bge-m3"}
 
 
@@ -22,6 +28,25 @@ def _embedding_payload(token: str | None = None) -> dict[str, object]:
     if token is not None:
         payload["secret"] = {"api_key": token}
     return payload
+
+
+def _secret_box() -> SecretBox:
+    return SecretBox.from_base64(TEST_MASTER_KEY)
+
+
+async def _seed_embedding_integration(db_session: AsyncSession) -> None:
+    db_session.add(
+        Integration(
+            provider="embedding",
+            public_config=dict(EMBEDDING_CONFIG),
+            encrypted_secret=_secret_box().encrypt({"api_key": "embed_0000aaaa"}),
+        )
+    )
+    await db_session.commit()
+
+
+def _service(db_session: AsyncSession, adapters: dict[str, ConnectionTestAdapter]) -> IntegrationService:
+    return IntegrationService(db_session, _secret_box(), adapters)
 
 
 def _fetch_integration(provider: str) -> Integration | None:
@@ -35,21 +60,6 @@ def _fetch_integration(provider: str) -> Integration | None:
             await engine.dispose()
 
     return asyncio.run(_query())
-
-
-def _corrupt_encrypted_secret(provider: str) -> None:
-    async def _update() -> None:
-        engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
-        try:
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text("UPDATE integrations SET encrypted_secret = 'v1:corrupted' WHERE provider = :provider"),
-                    {"provider": provider},
-                )
-        finally:
-            await engine.dispose()
-
-    asyncio.run(_update())
 
 
 def _insert_legacy_integration(provider: str, encrypted_secret: str) -> None:
@@ -248,55 +258,50 @@ def test_invalid_public_config_is_rejected(client: TestClient) -> None:
     assert invalid_origin.status_code == 422
 
 
-def test_connection_test_without_adapter_returns_503(client: TestClient) -> None:
-    client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-    unregister_connection_test_adapter("embedding")
+@pytest.mark.anyio
+async def test_connection_test_without_adapter_returns_503(db_session: AsyncSession) -> None:
+    await _seed_embedding_integration(db_session)
+    service = _service(db_session, {})
 
-    response = client.post("/api/integrations/embedding/test")
+    with pytest.raises(IntegrationError) as caught:
+        await service.run_connection_test("embedding")
 
-    assert response.status_code == 503
-    assert response.json()["code"] == "CONNECTION_TEST_UNAVAILABLE"
+    assert caught.value.status_code == 503
+    assert caught.value.code == "CONNECTION_TEST_UNAVAILABLE"
 
 
-def test_connection_test_with_adapter_updates_status(client: TestClient) -> None:
+@pytest.mark.anyio
+async def test_connection_test_with_adapter_updates_status(db_session: AsyncSession) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         assert secrets == {"api_key": "embed_0000aaaa"}
         return ConnectionTestResult(success=True)
 
-    register_connection_test_adapter("embedding", ok_adapter)
-    try:
-        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-        response = client.post("/api/integrations/embedding/test")
+    await _seed_embedding_integration(db_session)
+    service = _service(db_session, {"embedding": ok_adapter})
 
-        assert response.status_code == 200
-        body = response.json()
-        assert body["connection_status"] == "连接正常"
-        assert body["last_tested_at"] is not None
+    integration = await service.run_connection_test("embedding")
 
-        updated = client.put("/api/integrations/embedding", json=_embedding_payload())
-        assert updated.json()["connection_status"] == "未测试"
-        assert updated.json()["last_tested_at"] is None
-    finally:
-        unregister_connection_test_adapter("embedding")
+    assert integration.connection_status == "连接正常"
+    assert integration.last_tested_at is not None
+
+    updated = await service.upsert_integration(provider="embedding", public_config=dict(EMBEDDING_CONFIG), secret=None)
+    assert updated.connection_status == "未测试"
+    assert updated.last_tested_at is None
 
 
-def test_connection_test_failure_is_redacted(client: TestClient) -> None:
+@pytest.mark.anyio
+async def test_connection_test_failure_is_redacted(db_session: AsyncSession) -> None:
     async def failing_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         raise RuntimeError("鉴权失败：token embed_0000aaaa 无效")
 
-    register_connection_test_adapter("embedding", failing_adapter)
-    try:
-        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-        response = client.post("/api/integrations/embedding/test")
+    await _seed_embedding_integration(db_session)
+    service = _service(db_session, {"embedding": failing_adapter})
 
-        assert response.status_code == 200
-        body = response.json()
-        assert body["connection_status"] == "连接失败"
-        assert body["last_error"] is not None
-        assert "embed_0000aaaa" not in body["last_error"]
-        assert "embed_0000aaaa" not in response.text
-    finally:
-        unregister_connection_test_adapter("embedding")
+    integration = await service.run_connection_test("embedding")
+
+    assert integration.connection_status == "连接失败"
+    assert integration.last_error is not None
+    assert "embed_0000aaaa" not in integration.last_error
 
 
 def test_connection_test_missing_integration_returns_404(client: TestClient) -> None:
@@ -306,65 +311,64 @@ def test_connection_test_missing_integration_returns_404(client: TestClient) -> 
     assert response.json()["code"] == "INTEGRATION_NOT_FOUND"
 
 
-def test_connection_test_with_corrupted_secret_returns_domain_error(client: TestClient) -> None:
+def test_connection_test_adapters_cover_all_supported_providers() -> None:
+    assert set(CONNECTION_TEST_ADAPTERS) == set(SUPPORTED_INTEGRATION_PROVIDERS)
+
+
+@pytest.mark.anyio
+async def test_connection_test_with_corrupted_secret_returns_domain_error(db_session: AsyncSession) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=True)
 
-    register_connection_test_adapter("embedding", ok_adapter)
-    try:
-        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-        _corrupt_encrypted_secret("embedding")
+    db_session.add(
+        Integration(
+            provider="embedding",
+            public_config=dict(EMBEDDING_CONFIG),
+            encrypted_secret="v1:corrupted",
+        )
+    )
+    await db_session.commit()
+    service = _service(db_session, {"embedding": ok_adapter})
 
-        response = client.post("/api/integrations/embedding/test")
+    with pytest.raises(IntegrationError) as caught:
+        await service.run_connection_test("embedding")
 
-        assert response.status_code == 500
-        assert response.json()["code"] == "INTEGRATION_SECRET_INVALID"
-        assert "embed_0000aaaa" not in response.text
-    finally:
-        unregister_connection_test_adapter("embedding")
+    assert caught.value.status_code == 500
+    assert caught.value.code == "INTEGRATION_SECRET_INVALID"
+    assert "embed_0000aaaa" not in caught.value.message
 
 
-def test_connection_test_persists_latency_and_response_exposes_it(client: TestClient) -> None:
+@pytest.mark.anyio
+async def test_connection_test_persists_latency_and_upsert_resets_it(db_session: AsyncSession) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=True, latency_ms=87)
 
-    register_connection_test_adapter("embedding", ok_adapter)
-    try:
-        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-        assert client.get("/api/integrations/embedding").json()["last_latency_ms"] is None
+    await _seed_embedding_integration(db_session)
+    service = _service(db_session, {"embedding": ok_adapter})
+    assert (await service.get_integration("embedding")).last_latency_ms is None
 
-        response = client.post("/api/integrations/embedding/test")
+    integration = await service.run_connection_test("embedding")
 
-        assert response.status_code == 200
-        assert response.json()["last_latency_ms"] == 87
-        stored = _fetch_integration("embedding")
-        assert stored is not None
-        assert stored.last_latency_ms == 87
+    assert integration.last_latency_ms == 87
 
-        updated = client.put("/api/integrations/embedding", json=_embedding_payload())
-        assert updated.json()["last_latency_ms"] is None
-    finally:
-        unregister_connection_test_adapter("embedding")
+    updated = await service.upsert_integration(provider="embedding", public_config=dict(EMBEDDING_CONFIG), secret=None)
+    assert updated.last_latency_ms is None
 
 
-def test_connection_test_failure_clears_latency(client: TestClient) -> None:
+@pytest.mark.anyio
+async def test_connection_test_failure_clears_latency(db_session: AsyncSession) -> None:
     async def ok_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=True, latency_ms=87)
 
     async def failing_adapter(public_config: dict[str, object], secrets: dict[str, str] | None) -> ConnectionTestResult:
         return ConnectionTestResult(success=False, message="网络不可达")
 
-    register_connection_test_adapter("embedding", ok_adapter)
-    try:
-        client.put("/api/integrations/embedding", json=_embedding_payload("embed_0000aaaa"))
-        assert client.post("/api/integrations/embedding/test").json()["last_latency_ms"] == 87
-        register_connection_test_adapter("embedding", failing_adapter)
+    await _seed_embedding_integration(db_session)
+    ok_service = _service(db_session, {"embedding": ok_adapter})
+    assert (await ok_service.run_connection_test("embedding")).last_latency_ms == 87
 
-        response = client.post("/api/integrations/embedding/test")
+    failing_service = _service(db_session, {"embedding": failing_adapter})
+    integration = await failing_service.run_connection_test("embedding")
 
-        assert response.status_code == 200
-        body = response.json()
-        assert body["connection_status"] == "连接失败"
-        assert body["last_latency_ms"] is None
-    finally:
-        unregister_connection_test_adapter("embedding")
+    assert integration.connection_status == "连接失败"
+    assert integration.last_latency_ms is None

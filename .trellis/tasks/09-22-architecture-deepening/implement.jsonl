@@ -1,0 +1,14 @@
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"R1/R3 直接改写集成 provider 凭证与连接测试装配，必须保持既有契约"}
+{"file":".trellis/spec/reven-server/backend/error-handling.md","reason":"R1 统一 log-and-degrade 时必须保持错误语义与状态码"}
+{"file":".trellis/spec/reven-server/backend/quality-guidelines.md","reason":"server 侧 ruff/mypy strict/pytest 门禁与测试约定"}
+{"file":".trellis/spec/reven-server/backend/directory-structure.md","reason":"新 module（credentials/provider clients）落位规范"}
+{"file":".trellis/spec/reven-server/backend/agent-dsh-contract.md","reason":"R1 迁移 agent/config.py 时保持 dsh 嵌入式核心的既定决策与降级语义"}
+{"file":".trellis/spec/reven-server/backend/feishu-app-notification-contract.md","reason":"R1 迁移 feishu_bot 凭证时保持 9b60c9c 后的通知契约"}
+{"file":".trellis/spec/web/frontend/hook-guidelines.md","reason":"R4 useResourceList hook 设计规范"}
+{"file":".trellis/spec/web/frontend/state-management.md","reason":"R4/R5 QueryClient 缓存纪律与组开关状态设计"}
+{"file":".trellis/spec/web/frontend/component-guidelines.md","reason":"R4 ResponsiveList 与 R5 IntegrationCard 组件规范"}
+{"file":".trellis/spec/web/frontend/type-safety.md","reason":"R4/R5 泛型 seam 与注册表的类型规范"}
+{"file":".trellis/spec/web/frontend/directory-structure.md","reason":"前端新 module 落位规范"}
+{"file":".trellis/spec/web/frontend/quality-guidelines.md","reason":"web 侧 vitest/eslint/build 门禁"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"深化合并浅 module 时的复用判断标准"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"凭证、配置、路由等跨层改动的同步检查"}

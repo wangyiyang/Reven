@@ -7,7 +7,7 @@ import time
 
 import httpx
 
-from reven.integrations.service import ConnectionTestResult, register_connection_test_adapter
+from reven.integrations.service import ConnectionTestResult
 from reven.integrations.translation import TranslationError
 
 BAIDU_TRANSLATE_BASE_URL = "https://fanyi-api.baidu.com"
@@ -66,7 +66,3 @@ async def test_baidu_translation(
     except Exception as exc:
         return ConnectionTestResult(False, f"百度翻译连接失败（{type(exc).__name__}）")
     return ConnectionTestResult(True, latency_ms=int((time.monotonic() - started) * 1000))
-
-
-def register_baidu_adapter() -> None:
-    register_connection_test_adapter("translate_baidu", test_baidu_translation)
