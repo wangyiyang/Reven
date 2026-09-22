@@ -7,27 +7,32 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 from reven.app import create_app
-from reven.config import get_settings
+from reven.config import Settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 ORIGIN = "http://dev.wangyiyang.cc:3001"
+TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def client() -> Iterator[TestClient]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("TEST_DATABASE_URL is not set")
-    monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setenv("REVEN_MASTER_KEY", base64.urlsafe_b64encode(b"t" * 32).decode())
-    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
-    get_settings.cache_clear()
+    settings = Settings(
+        database_url=database_url,
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        agent_api_key=None,
+        _env_file=None,
+    )
     engine = create_async_engine(database_url, poolclass=NullPool)
     app = create_app(
         start_background_tasks=False,
         session_factory=async_sessionmaker(engine, expire_on_commit=False),
         public_base_url=ORIGIN,
+        settings=settings,
     )
     with TestClient(app) as test_client:
         yield test_client

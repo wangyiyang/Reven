@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from reven.app import create_app
-from reven.config import Settings, get_settings
+from reven.config import Settings
 from reven.scheduling import utc_now
 from reven.security.auth import SESSION_COOKIE, hash_token, reset_login_throttle
 from reven.security.models import AuthSession
@@ -29,17 +29,18 @@ def _reset_throttle() -> Iterator[None]:
 
 
 @pytest.fixture(params=[ORIGIN, "HTTPS://REVEN.EXAMPLE:443/"], ids=["http", "https"])
-def auth_client(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
-) -> Iterator[tuple[TestClient, async_sessionmaker]]:
+def auth_client(request: pytest.FixtureRequest) -> Iterator[tuple[TestClient, async_sessionmaker]]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("TEST_DATABASE_URL is not set")
-    monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setenv("REVEN_MASTER_KEY", base64.urlsafe_b64encode(b"t" * 32).decode())
-    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
-    monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", request.param)
-    get_settings.cache_clear()
+    settings = Settings(
+        database_url=database_url,
+        reven_master_key=base64.urlsafe_b64encode(b"t" * 32).decode(),
+        reven_admin_password=TEST_ADMIN_PASSWORD,
+        public_base_url=request.param,
+        agent_api_key=None,
+        _env_file=None,
+    )
     engine = create_async_engine(database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -48,16 +49,16 @@ def auth_client(
             await connection.execute(text("TRUNCATE auth_sessions RESTART IDENTITY CASCADE"))
 
     asyncio.run(reset())
-    origin = get_settings().public_base_url
+    origin = settings.public_base_url
     app = create_app(
         start_background_tasks=False,
         session_factory=factory,
         public_base_url=origin,
+        settings=settings,
     )
     with TestClient(app, base_url=origin, headers={"Origin": origin, "X-Reven-CSRF": "1"}) as client:
         yield client, factory
     asyncio.run(engine.dispose())
-    get_settings.cache_clear()
 
 
 def _login(client: TestClient, password: str = TEST_ADMIN_PASSWORD):

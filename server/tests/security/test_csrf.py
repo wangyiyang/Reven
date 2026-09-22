@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from reven.app import create_app
-from reven.config import get_settings
+from reven.config import Settings
 from reven.security.csrf import CsrfOriginMiddleware
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -16,19 +16,23 @@ TEST_ADMIN_PASSWORD = "test-admin-password"
 
 
 @pytest.fixture
-def csrf_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def csrf_client() -> Iterator[TestClient]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("TEST_DATABASE_URL is not set")
-    monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setenv("REVEN_MASTER_KEY", base64.urlsafe_b64encode(b"t" * 32).decode())
-    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
-    get_settings.cache_clear()
+    settings = Settings(
+        database_url=database_url,
+        reven_master_key=base64.urlsafe_b64encode(b"t" * 32).decode(),
+        reven_admin_password=TEST_ADMIN_PASSWORD,
+        agent_api_key=None,
+        _env_file=None,
+    )
     engine = create_async_engine(database_url, poolclass=NullPool)
     app = create_app(
         start_background_tasks=False,
         session_factory=async_sessionmaker(engine, expire_on_commit=False),
         public_base_url=ORIGIN,
+        settings=settings,
     )
 
     @app.post("/api/csrf-probe")
@@ -43,7 +47,6 @@ def csrf_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         )
         assert login.status_code == 200
         yield client
-    get_settings.cache_clear()
 
 
 def test_same_origin_write_with_csrf_header_succeeds(csrf_client: TestClient) -> None:

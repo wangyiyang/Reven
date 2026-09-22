@@ -1,4 +1,3 @@
-from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -46,6 +45,9 @@ class Settings(BaseSettings):
             raise ValueError("PUBLIC_BASE_URL 必须是 HTTP 或 HTTPS origin，域名请使用 ASCII 或 Punycode") from error
 
 
-@lru_cache
 def get_settings() -> Settings:
+    """全仓唯一 Settings 解析入口：仅组合根（app.py lifespan）调用，每进程一次。
+
+    不设缓存：组合根之外的重复调用是装配缺陷，应显式注入 Settings 而非依赖全局态。
+    """
     return Settings()  # type: ignore[call-arg]

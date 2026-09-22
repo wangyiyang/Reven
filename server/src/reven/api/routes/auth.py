@@ -8,8 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete
 from starlette.responses import JSONResponse
 
-from reven.api.dependencies import SessionDep
-from reven.config import get_settings
+from reven.api.dependencies import SessionDep, SettingsDep
 from reven.scheduling import utc_now
 from reven.security.auth import (
     SESSION_COOKIE,
@@ -35,14 +34,13 @@ def _client_key(request: Request) -> str:
 
 
 @router.post("/login")
-async def login(request: Request, body: LoginBody, session: SessionDep) -> Response:
+async def login(request: Request, body: LoginBody, session: SessionDep, settings: SettingsDep) -> Response:
     key = _client_key(request)
     if login_throttle.locked(key):
         return JSONResponse(
             status_code=429,
             content={"code": "login_locked", "message": "尝试次数过多，请稍后再试"},
         )
-    settings = get_settings()
     expected = settings.reven_admin_password.get_secret_value().encode("utf-8")
     if not hmac.compare_digest(body.password.encode("utf-8"), expected):
         login_throttle.record_failure(key)
@@ -77,7 +75,7 @@ async def login(request: Request, body: LoginBody, session: SessionDep) -> Respo
 
 
 @router.post("/logout", status_code=204)
-async def logout(request: Request, session: SessionDep) -> Response:
+async def logout(request: Request, session: SessionDep, settings: SettingsDep) -> Response:
     token = request.cookies.get(SESSION_COOKIE)
     if token is not None:
         await session.execute(delete(AuthSession).where(AuthSession.token_hash == hash_token(token)))
@@ -86,7 +84,7 @@ async def logout(request: Request, session: SessionDep) -> Response:
     response.delete_cookie(
         SESSION_COOKIE,
         path="/",
-        secure=get_settings().public_base_url.startswith("https://"),
+        secure=settings.public_base_url.startswith("https://"),
         httponly=True,
         samesite="lax",
     )

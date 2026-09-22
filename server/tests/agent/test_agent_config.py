@@ -1,4 +1,8 @@
-"""resolve_agent_config 测试：integrations 表优先，env fallback，失败显式降级。"""
+"""resolve_agent_config 测试：凭证 seam 映射，env fallback，失败显式降级。
+
+凭证解析语义（DB 优先/解密降级/构造失败抛错）由 tests/integrations/test_credentials.py 覆盖；
+本文件只打 resolve_agent_config 的 AgentConfig 映射与 credentials=None 降级路径。
+"""
 
 import base64
 import os
@@ -8,6 +12,7 @@ from pathlib import Path
 import pytest
 from reven.agent.config import AgentConfig, resolve_agent_config
 from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.models import Integration
 from reven.integrations.repository import IntegrationRepository
 from reven.integrations.service import HINT_KEY
@@ -74,7 +79,7 @@ async def test_resolves_config_from_integration_table(
     )
     settings = _make_settings(dsh_home=tmp_path / "dsh")
 
-    config = await resolve_agent_config(session_factory, settings)
+    config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
     assert config == AgentConfig(
         provider="deepseek-official",
@@ -93,7 +98,7 @@ async def test_db_config_wins_over_env(session_factory: async_sessionmaker[Async
     )
     settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env")
 
-    config = await resolve_agent_config(session_factory, settings)
+    config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
     assert config is not None
     assert config.api_key == "sk-db"
@@ -105,7 +110,7 @@ async def test_falls_back_to_env_when_db_empty(
 ) -> None:
     settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env", agent_model="env-model")
 
-    config = await resolve_agent_config(session_factory, settings)
+    config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
     assert config is not None
     assert config.api_key == "sk-env"
@@ -116,7 +121,8 @@ async def test_falls_back_to_env_when_db_empty(
 async def test_returns_none_when_unconfigured(
     session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
 ) -> None:
-    assert await resolve_agent_config(session_factory, _make_settings(dsh_home=tmp_path / "dsh")) is None
+    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    assert await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings) is None
 
 
 @pytest.mark.anyio
@@ -126,7 +132,7 @@ async def test_falls_back_when_integration_has_no_secret(
     await _save_integration(session_factory, public_config={"provider": "p", "model": "m"}, api_key=None)
     settings = _make_settings(dsh_home=tmp_path / "dsh")
 
-    assert await resolve_agent_config(session_factory, settings) is None
+    assert await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings) is None
 
 
 @pytest.mark.anyio
@@ -141,30 +147,19 @@ async def test_undecryptable_secret_degrades_to_none(
     )
     settings = _make_settings(dsh_home=tmp_path / "dsh")
 
-    with caplog.at_level("ERROR", logger="reven.agent.config"):
-        config = await resolve_agent_config(session_factory, settings)
+    with caplog.at_level("ERROR", logger="reven.integrations.credentials"):
+        config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
     assert config is None
     assert any("解密失败" in record.message for record in caplog.records)
 
 
 @pytest.mark.anyio
-async def test_no_session_factory_uses_env_only(tmp_path: Path) -> None:
+async def test_credentials_unavailable_uses_env_only(tmp_path: Path) -> None:
+    """credentials 为 None（无库或 seam 构造失败降级）时只走 env fallback，绝不抛出。"""
     settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env")
 
     config = await resolve_agent_config(None, settings)
-
-    assert config is not None
-    assert config.api_key == "sk-env"
-
-
-@pytest.mark.anyio
-async def test_invalid_master_key_falls_back_to_env_without_raising(tmp_path: Path) -> None:
-    """master key 非法（seam 构造即抛 ValueError）时按 env 兼容降级，绝不抛出。"""
-    invalid_key = base64.urlsafe_b64encode(b"short").decode()
-    settings = _make_settings(dsh_home=tmp_path / "dsh", reven_master_key=invalid_key, agent_api_key="sk-env")
-
-    config = await resolve_agent_config(async_sessionmaker(), settings)
 
     assert config is not None
     assert config.api_key == "sk-env"

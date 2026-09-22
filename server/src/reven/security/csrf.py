@@ -3,7 +3,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from reven.config import get_settings
+from reven.config import Settings
 from reven.security.origin import normalize_origin
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -29,13 +29,20 @@ class CsrfOriginMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         origin = request.headers.get("origin")
         csrf_header = request.headers.get("x-reven-csrf")
-        configured = self.public_base_url or get_settings().public_base_url
-        if csrf_header != "1" or origin is None or not _same_origin(origin, configured):
+        configured = self.public_base_url or _configured_base_url(request)
+        # fail-closed：组合根未提供 settings（无配置降级启动）时写请求来源无法校验，一律拒绝
+        if csrf_header != "1" or origin is None or configured is None or not _same_origin(origin, configured):
             return JSONResponse(
                 status_code=403,
                 content={"code": "csrf_validation_failed", "message": "写请求来源校验失败"},
             )
         return await call_next(request)
+
+
+def _configured_base_url(request: Request) -> str | None:
+    """装配时未显式传 public_base_url 的生产形态：从组合根写入的 app.state.settings 取。"""
+    settings = getattr(request.app.state, "settings", None)
+    return settings.public_base_url if isinstance(settings, Settings) else None
 
 
 def _same_origin(candidate: str, configured: str) -> bool:

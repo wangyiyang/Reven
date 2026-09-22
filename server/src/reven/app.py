@@ -50,28 +50,37 @@ class RunnerProtocol:
     async def stop(self) -> None: ...
 
 
-def _resolve_factory(
-    session_factory: async_sessionmaker[AsyncSession] | None,
+def _resolve_settings(
+    override: Settings | None,
     *,
+    session_factory: async_sessionmaker[AsyncSession] | None,
     start_background_tasks: bool,
     runner: RunnerProtocol | None,
-) -> async_sessionmaker[AsyncSession] | None:
-    if session_factory is not None:
-        return session_factory
+) -> Settings | None:
+    """组合根唯一 Settings 解析：显式注入优先，否则经 get_settings() 解析一次。
+
+    降级形态（注入 factory 或 runner）允许解析失败——集成/Agent 停用不阻断进程；
+    生产形态（自建 factory 且跑后台任务）保持启动期 ValidationError 报错不变。
+    """
+    if override is not None:
+        return override
     try:
-        return create_session_factory(get_settings())
+        return get_settings()
     except ValidationError:
-        if start_background_tasks and runner is None:
+        if session_factory is None and start_background_tasks and runner is None:
             raise
         return None
 
 
-def _load_settings_or_none() -> Settings | None:
-    # 直接构造 Settings（与 get_settings 同源 env），使测试替换 get_settings 时 agent 自然降级为未配置
-    try:
-        return Settings()  # type: ignore[call-arg]
-    except ValidationError:
+def _resolve_factory(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+    settings: Settings | None,
+) -> async_sessionmaker[AsyncSession] | None:
+    if session_factory is not None:
+        return session_factory
+    if settings is None:
         return None
+    return create_session_factory(settings)
 
 
 def _mount_agent_mcp(
@@ -89,13 +98,13 @@ def _mount_agent_mcp(
 
 
 async def _build_agent_runtime(
-    session_factory: async_sessionmaker[AsyncSession] | None,
+    credentials: IntegrationCredentials | None,
     settings: Settings | None,
     mcp: AgentMcpContext | None,
 ) -> AgentRuntime:
     if settings is None:
         return AgentRuntime(None)
-    config = await resolve_agent_config(session_factory, settings)
+    config = await resolve_agent_config(credentials, settings)
     return AgentRuntime(config, mcp=mcp)
 
 
@@ -181,14 +190,17 @@ async def _lifespan(
     start_background_tasks: bool,
     session_factory: async_sessionmaker[AsyncSession] | None,
     runner: RunnerProtocol | None,
+    settings_override: Settings | None,
 ) -> AsyncIterator[None]:
-    owns_factory = session_factory is None
-    factory = _resolve_factory(
-        session_factory,
+    settings = _resolve_settings(
+        settings_override,
+        session_factory=session_factory,
         start_background_tasks=start_background_tasks,
         runner=runner,
     )
-    settings = _load_settings_or_none()
+    owns_factory = session_factory is None
+    factory = _resolve_factory(session_factory, settings)
+    current_app.state.settings = settings
     clients = _build_provider_clients(factory, settings)
     current_app.state.integration_credentials = clients.credentials if clients is not None else None
     current_app.state.provider_clients = clients
@@ -196,7 +208,9 @@ async def _lifespan(
         current_app.state.session_factory = factory
         current_app.state.rss_embedding_refresher = KeywordEmbeddingRefresher(factory, clients)
     mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings)
-    agent_runtime = await _build_agent_runtime(factory, settings, mcp_context)
+    agent_runtime = await _build_agent_runtime(
+        clients.credentials if clients is not None else None, settings, mcp_context
+    )
     current_app.state.agent_runtime = agent_runtime
     feishu_bot_supervisor = _build_feishu_bot_supervisor(
         current_app, factory, clients.credentials if clients is not None else None
@@ -243,12 +257,15 @@ def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     runner: RunnerProtocol | None = None,
     public_base_url: str | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
+    """组合根：settings 为 None 时在 lifespan 内经 get_settings() 解析一次（全仓唯一调用点）。"""
     lifespan = partial(
         _lifespan,
         start_background_tasks=start_background_tasks,
         session_factory=session_factory,
         runner=runner,
+        settings_override=settings,
     )
     app = FastAPI(title="Reven", lifespan=lifespan)
     app.add_middleware(

@@ -1,11 +1,25 @@
 import asyncio
+import base64
 
 import pytest
 from fastapi.testclient import TestClient
 from reven.app import create_app
+from reven.config import Settings
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
+TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
+
+
+def _settings() -> Settings:
+    """显式构造测试 Settings：不读进程 env（含 .env），lifespan 不再依赖外部环境。"""
+    return Settings(
+        database_url=DUMMY_DATABASE_URL,
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        agent_api_key=None,
+        _env_file=None,
+    )
 
 
 class FakeRunner:
@@ -21,7 +35,7 @@ class FakeRunner:
 
 
 def test_health_returns_service_status() -> None:
-    with TestClient(create_app(start_background_tasks=False)) as client:
+    with TestClient(create_app(start_background_tasks=False, settings=_settings())) as client:
         response = client.get("/api/health")
 
     assert response.status_code == 200
@@ -31,7 +45,7 @@ def test_health_returns_service_status() -> None:
 def test_lifespan_starts_and_stops_injected_runner() -> None:
     runner = FakeRunner()
 
-    with TestClient(create_app(runner=runner)):
+    with TestClient(create_app(runner=runner, settings=_settings())):
         assert runner.started == 1
 
     assert runner.stopped == 1
@@ -51,7 +65,7 @@ def test_default_background_runner_is_built_started_and_stopped(
         return runner
 
     monkeypatch.setattr("reven.app.build_background_runner", fake_build)
-    with TestClient(create_app(session_factory=factory)):
+    with TestClient(create_app(session_factory=factory, settings=_settings())):
         assert runner.started == 1
 
     assert runner.stopped == 1
@@ -78,7 +92,7 @@ def test_runner_start_failure_does_not_dispose_injected_engine(monkeypatch) -> N
 
     monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
     with pytest.raises(RuntimeError, match="start failed"):
-        with TestClient(create_app(session_factory=factory, runner=StartFailure())):
+        with TestClient(create_app(session_factory=factory, runner=StartFailure(), settings=_settings())):
             pass
     assert disposed is False
     asyncio.run(engine.dispose())
@@ -100,12 +114,11 @@ def test_runner_stop_failure_propagates_after_disposing_internal_engine(monkeypa
             disposed = True
         await original_dispose(target)
 
-    monkeypatch.setattr("reven.app.get_settings", lambda: object())
     monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
     monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
 
     with pytest.raises(RuntimeError, match="stop failed"):
-        with TestClient(create_app(runner=StopFailure())):
+        with TestClient(create_app(runner=StopFailure(), settings=_settings())):
             pass
 
     assert disposed is True
@@ -123,7 +136,6 @@ def test_runner_build_failure_disposes_internal_engine(monkeypatch) -> None:  # 
             disposed = True
         await original_dispose(target)
 
-    monkeypatch.setattr("reven.app.get_settings", lambda: object())
     monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
     monkeypatch.setattr(
         "reven.app.build_background_runner",
@@ -132,7 +144,7 @@ def test_runner_build_failure_disposes_internal_engine(monkeypatch) -> None:  # 
     monkeypatch.setattr(AsyncEngine, "dispose", track_dispose)
 
     with pytest.raises(RuntimeError, match="build failed"):
-        with TestClient(create_app()):
+        with TestClient(create_app(settings=_settings())):
             pass
 
     assert disposed is True
@@ -147,7 +159,7 @@ def test_runner_build_failure_does_not_dispose_external_engine(monkeypatch) -> N
     )
 
     with pytest.raises(RuntimeError, match="build failed"):
-        with TestClient(create_app(session_factory=factory)):
+        with TestClient(create_app(session_factory=factory, settings=_settings())):
             pass
 
     asyncio.run(engine.dispose())
@@ -162,7 +174,7 @@ def test_start_error_has_priority_over_stop_error() -> None:
             raise RuntimeError("stop")
 
     with pytest.raises(ValueError, match="start"):
-        with TestClient(create_app(runner=BothFail())):
+        with TestClient(create_app(runner=BothFail(), settings=_settings())):
             pass
 
 
@@ -173,7 +185,7 @@ async def test_body_error_has_priority_over_stop_error() -> None:
             raise RuntimeError("stop")
 
     with pytest.raises(ValueError, match="body"):
-        app = create_app(runner=StopFailure())
+        app = create_app(runner=StopFailure(), settings=_settings())
         async with app.router.lifespan_context(app):
             raise ValueError("body")
 
@@ -190,10 +202,9 @@ def test_stop_error_has_priority_over_dispose_error(monkeypatch) -> None:  # typ
         if target is engine:
             raise OSError("dispose")
 
-    monkeypatch.setattr("reven.app.get_settings", lambda: object())
     monkeypatch.setattr("reven.app.create_session_factory", lambda settings: factory)
     monkeypatch.setattr(AsyncEngine, "dispose", dispose_failure)
 
     with pytest.raises(RuntimeError, match="stop"):
-        with TestClient(create_app(runner=StopFailure())):
+        with TestClient(create_app(runner=StopFailure(), settings=_settings())):
             pass
