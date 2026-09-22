@@ -1,30 +1,22 @@
 """Production adapters for the daily RSS discovery workflow."""
 
-import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import date
 from uuid import UUID
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
-from reven.integrations.credentials import IntegrationCredentials
-from reven.integrations.embedding.configuration import EmbeddingConfig, load_embedding_config
 from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
 from reven.notifications import DeliveryNotifier
-from reven.rss.ai import SiliconFlowChatClient
+from reven.provider_clients import ProviderClients
 from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, ReviewCardPush, RssDiscoveryService
 from reven.rss.embedding import (
     BGE_M3_DIMENSION,
     BGE_M3_MODEL,
-    Embedder,
     EmbeddingError,
     EmbedOutcome,
     KeywordEmbeddingService,
-    SiliconFlowEmbeddingClient,
 )
 from reven.rss.feed import SecureFeedReader
 from reven.rss.models import RssDiscoveryRun
@@ -33,11 +25,6 @@ from reven.rss.scheduler import RssScheduleTick
 from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from reven.rss.translation import configured_translation_localizer
-
-SILICONFLOW_BASE_URL = "https://api.siliconflow.cn"
-SILICONFLOW_TIMEOUT = httpx.Timeout(45.0)
-
-logger = logging.getLogger(__name__)
 
 
 class _UnavailableSiliconFlow:
@@ -49,16 +36,6 @@ class _UnavailableSiliconFlow:
 
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
         raise RuntimeError("SILICONFLOW_API_KEY_NOT_CONFIGURED")
-
-
-@asynccontextmanager
-async def configured_embedder(config: EmbeddingConfig | None) -> AsyncIterator[Embedder]:
-    """按入库配置（或环境变量回退）创建 embedder；未配置时降级为显式报错实现。"""
-    if config is None:
-        yield _UnavailableSiliconFlow()
-        return
-    async with httpx.AsyncClient(base_url=config.base_url, timeout=SILICONFLOW_TIMEOUT, trust_env=False) as http:
-        yield SiliconFlowEmbeddingClient(config.api_key, http=http, model=config.model)
 
 
 async def record_backfill_error(
@@ -76,32 +53,30 @@ async def record_backfill_error(
         run.status = "partial"
 
 
-class ConfiguredRssDiscoveryTick:
+class RssDiscoveryJob:
+    """每日 RSS 发现任务：外部客户端经 ProviderClients seam 获取，未配置时按既有语义降级。
+
+    同日完成缓存（notification_sent_at 为准）与 degraded 回填失败只记录的语义保持不变。
+    """
+
     def __init__(
         self,
         factory: async_sessionmaker[AsyncSession],
+        clients: ProviderClients,
         settings: Settings,
         notifier: DeliveryNotifier,
         *,
         review_pusher: ReviewCardPush | None = None,
     ) -> None:
         self._factory = factory
+        self._clients = clients
         self._settings = settings
         self._notifier = notifier
-        self._review_pusher = review_pusher if review_pusher is not None else self._build_review_pusher()
+        if review_pusher is not None:
+            self._review_pusher = review_pusher
+        else:
+            self._review_pusher = ReviewCardPusher(clients.credentials, CandidateReviewService(factory))
         self._completed_date: date | None = None
-
-    def _build_review_pusher(self) -> ReviewCardPusher | None:
-        """按 settings 组装默认审核卡片推送器；密钥不可用时降级停用，不影响 discovery 主流程。"""
-        try:
-            credentials = IntegrationCredentials(self._factory, self._settings)
-        except Exception as exc:
-            logger.warning("飞书机器人审核卡片推送停用：密钥不可用（error_type=%s）", type(exc).__name__)
-            return None
-        return ReviewCardPusher(
-            credentials,
-            CandidateReviewService(self._factory),
-        )
 
     async def __call__(self) -> None:
         await RssScheduleTick(self)()
@@ -110,45 +85,26 @@ class ConfiguredRssDiscoveryTick:
         if self._completed_date == run_date:
             return None
         if await self._finalized(run_date):
-            unavailable = _UnavailableSiliconFlow()
             result = await RssDiscoveryService(
                 self._factory,
                 SecureFeedReader(),
-                unavailable,
+                _UnavailableSiliconFlow(),
                 self._notifier,
                 candidate_url=f"{self._settings.public_base_url}/rss/candidates",
                 review_pusher=self._review_pusher,
             ).run(run_date)
             await self._remember_completion(run_date)
             return result
-        api_key = (
-            self._settings.siliconflow_api_key.get_secret_value()
-            if self._settings.siliconflow_api_key is not None
-            else None
-        )
-        embedding_config = await load_embedding_config(self._factory)
-        translation_configs = await IntegrationCredentials(self._factory, self._settings).translations()
-        async with httpx.AsyncClient(
-            base_url=SILICONFLOW_BASE_URL,
-            timeout=SILICONFLOW_TIMEOUT,
-            trust_env=False,
-        ) as chat_http:
-            fallback: EntryLocalizer
-            judge: BoundaryJudge | None
-            if api_key is None:
-                fallback = _UnavailableSiliconFlow()
-                judge = None
-            else:
-                chat = SiliconFlowChatClient(
-                    api_key,
-                    model=self._settings.siliconflow_chat_model,
-                    http=chat_http,
-                )
-                fallback = chat
-                judge = chat if self._settings.rss_model_review_enabled else None
+        translation_configs = await self._clients.credentials.translations()
+        async with self._clients.siliconflow_chat() as chat:
+            fallback: EntryLocalizer = chat if chat is not None else _UnavailableSiliconFlow()
+            judge: BoundaryJudge | None = chat if chat is not None and self._settings.rss_model_review_enabled else None
             async with configured_translation_localizer(translation_configs, fallback) as localizer:
-                async with configured_embedder(embedding_config) as embedder:
-                    embeddings = KeywordEmbeddingService(self._factory, embedder)
+                async with self._clients.embedding() as embedder:
+                    embeddings = KeywordEmbeddingService(
+                        self._factory,
+                        embedder if embedder is not None else _UnavailableSiliconFlow(),
+                    )
                     screening = RssScreeningService(
                         self._factory,
                         embeddings,
@@ -190,26 +146,17 @@ class ConfiguredRssDiscoveryTick:
             self._completed_date = run_date
 
 
-class ConfiguredKeywordEmbeddingRefresher:
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+class KeywordEmbeddingRefresher:
+    """关键词向量重建：embedding 客户端由 ProviderClients seam 提供；未配置时报错由路由映射 503。"""
+
+    def __init__(self, factory: async_sessionmaker[AsyncSession], clients: ProviderClients | None) -> None:
         self._factory = factory
+        self._clients = clients
 
     async def refresh(self, *, force: bool = False) -> int:
-        config = await load_embedding_config(self._factory)
-        if config is None:
+        if self._clients is None:
             raise RuntimeError("SILICONFLOW_API_KEY_NOT_CONFIGURED")
-        async with httpx.AsyncClient(
-            base_url=config.base_url,
-            timeout=SILICONFLOW_TIMEOUT,
-            trust_env=False,
-        ) as http:
-            embedder = SiliconFlowEmbeddingClient(config.api_key, http=http, model=config.model)
+        async with self._clients.embedding() as embedder:
+            if embedder is None:
+                raise RuntimeError("SILICONFLOW_API_KEY_NOT_CONFIGURED")
             return await KeywordEmbeddingService(self._factory, embedder).refresh(force=force)
-
-
-def build_configured_rss_tick(
-    factory: async_sessionmaker[AsyncSession],
-    settings: Settings,
-    notifier: DeliveryNotifier,
-) -> ConfiguredRssDiscoveryTick:
-    return ConfiguredRssDiscoveryTick(factory, settings, notifier)

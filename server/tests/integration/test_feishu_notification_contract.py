@@ -7,7 +7,8 @@ from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.client import FeishuBotApiError
 from reven.integrations.models import Integration
-from reven.notifications import ConfiguredFeishuNotifier, Notification
+from reven.notifications import Notification
+from reven.provider_clients import FeishuNotifier, ProviderClients
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -35,17 +36,19 @@ async def _configure(session: AsyncSession, *, enabled: bool = True, recipients:
     await session.commit()
 
 
-def _notifier(session: AsyncSession, handler: object) -> ConfiguredFeishuNotifier:
+def _notifier(session: AsyncSession, handler: object) -> FeishuNotifier:
     settings = Settings(
         database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
         reven_master_key=TEST_MASTER_KEY,
         reven_admin_password="test-admin-password",
     )
     credentials = IntegrationCredentials(async_sessionmaker(session.bind, expire_on_commit=False), settings)
-    return ConfiguredFeishuNotifier(
+    clients = ProviderClients(
         credentials,
-        transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+        settings,
+        feishu_transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
     )
+    return FeishuNotifier(clients)
 
 
 @pytest.mark.anyio

@@ -34,7 +34,8 @@ from reven.db import create_session_factory
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.review_callback import ReviewCallbackDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
-from reven.rss.factory import ConfiguredKeywordEmbeddingRefresher
+from reven.provider_clients import ProviderClients
+from reven.rss.factory import KeywordEmbeddingRefresher
 from reven.rss.review_service import CandidateReviewService
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
@@ -98,23 +99,34 @@ async def _build_agent_runtime(
     return AgentRuntime(config, mcp=mcp)
 
 
+def _build_provider_clients(
+    factory: async_sessionmaker[AsyncSession] | None,
+    settings: Settings | None,
+) -> ProviderClients | None:
+    """构建集成凭证/客户端单例；无库、无配置或密钥不可用时降级为 None（集成能力停用，不阻断进程）。"""
+    if factory is None or settings is None:
+        return None
+    try:
+        credentials = IntegrationCredentials(factory, settings)
+    except Exception as exc:
+        logger.warning("集成凭证不可用，集成相关能力降级（error_type=%s）", type(exc).__name__)
+        return None
+    return ProviderClients(credentials, settings)
+
+
 def _build_feishu_bot_supervisor(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
+    credentials: IntegrationCredentials | None,
 ) -> FeishuBotSupervisor | None:
-    """创建飞书机器人长连接 supervisor；配置缺失/初始化失败时降级为停用，不阻断进程。"""
-    if factory is None:
+    """创建飞书机器人长连接 supervisor；无库或凭证降级时停用，不阻断进程。"""
+    if factory is None or credentials is None:
         return None
-    try:
-        credentials = IntegrationCredentials(factory, get_settings())
-        review_callback = ReviewCallbackDispatcher(
-            credentials,
-            CandidateReviewService(factory),
-        )
-        supervisor = FeishuBotSupervisor(credentials, review_callback=review_callback)
-    except Exception as exc:
-        logger.warning("飞书机器人 supervisor 初始化失败，入站能力停用（error_type=%s）", type(exc).__name__)
-        return None
+    review_callback = ReviewCallbackDispatcher(
+        credentials,
+        CandidateReviewService(factory),
+    )
+    supervisor = FeishuBotSupervisor(credentials, review_callback=review_callback)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
 
@@ -126,6 +138,7 @@ async def _cleanup_resources(
     active_runner: RunnerProtocol | None,
     stop_runner: bool,
     owned_factory: async_sessionmaker[AsyncSession] | None,
+    clients: ProviderClients | None,
 ) -> BaseException | None:
     cleanup_error: BaseException | None = None
     if feishu_bot_supervisor is not None:
@@ -145,6 +158,12 @@ async def _cleanup_resources(
     except BaseException as exc:
         cleanup_error = cleanup_error or exc
         logger.error("后台 runner 清理失败（error_type=%s）", type(exc).__name__)
+    if clients is not None:
+        try:
+            await clients.aclose()
+        except BaseException as exc:
+            cleanup_error = cleanup_error or exc
+            logger.error("Provider 客户端清理失败（error_type=%s）", type(exc).__name__)
     engine = owned_factory.kw.get("bind") if owned_factory is not None else None
     if isinstance(engine, AsyncEngine):
         try:
@@ -169,14 +188,19 @@ async def _lifespan(
         start_background_tasks=start_background_tasks,
         runner=runner,
     )
+    settings = _load_settings_or_none()
+    clients = _build_provider_clients(factory, settings)
+    current_app.state.integration_credentials = clients.credentials if clients is not None else None
+    current_app.state.provider_clients = clients
     if factory is not None:
         current_app.state.session_factory = factory
-        current_app.state.rss_embedding_refresher = ConfiguredKeywordEmbeddingRefresher(factory)
-    settings = _load_settings_or_none()
+        current_app.state.rss_embedding_refresher = KeywordEmbeddingRefresher(factory, clients)
     mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings)
     agent_runtime = await _build_agent_runtime(factory, settings, mcp_context)
     current_app.state.agent_runtime = agent_runtime
-    feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory)
+    feishu_bot_supervisor = _build_feishu_bot_supervisor(
+        current_app, factory, clients.credentials if clients is not None else None
+    )
     active_runner = runner
     primary_error: BaseException | None = None
     mcp_stack = AsyncExitStack()
@@ -184,7 +208,7 @@ async def _lifespan(
         if mcp_app is not None:
             await mcp_stack.enter_async_context(mcp_app.lifespan(mcp_app))
         if start_background_tasks and active_runner is None and factory is not None:
-            active_runner = cast(RunnerProtocol, build_background_runner(factory))
+            active_runner = cast(RunnerProtocol, build_background_runner(factory, clients, settings))
         if start_background_tasks and active_runner is not None:
             await active_runner.start()
         await agent_runtime.start()
@@ -201,6 +225,7 @@ async def _lifespan(
             active_runner=active_runner,
             stop_runner=start_background_tasks,
             owned_factory=factory if owns_factory else None,
+            clients=clients,
         )
         if mcp_app is not None:
             try:

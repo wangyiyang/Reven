@@ -4,9 +4,10 @@ import time
 
 import httpx
 
-from reven.integrations.embedding.configuration import DEFAULT_EMBEDDING_BASE_URL
 from reven.integrations.service import ConnectionTestResult
 from reven.rss.embedding import BGE_M3_MODEL, EmbeddingError, SiliconFlowEmbeddingClient
+
+DEFAULT_EMBEDDING_BASE_URL = "https://api.siliconflow.cn"
 
 
 async def test_embedding_connection(

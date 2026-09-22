@@ -11,6 +11,7 @@ from reven.api.routes.integrations import router as integrations_router
 from reven.app import create_app
 from reven.config import get_settings
 from reven.db import create_session_factory
+from reven.integrations.credentials import IntegrationCredentials
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -43,6 +44,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         session_factory = create_session_factory(get_settings())
         app.state.session_factory = session_factory
+        app.state.integration_credentials = IntegrationCredentials(session_factory, get_settings())
         yield
         engine = session_factory.kw.get("bind")
         if isinstance(engine, AsyncEngine):

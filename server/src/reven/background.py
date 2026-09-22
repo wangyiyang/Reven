@@ -7,9 +7,9 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.config import get_settings
-from reven.notifications import build_configured_notifier
-from reven.rss.factory import build_configured_rss_tick
+from reven.config import Settings
+from reven.provider_clients import FeishuNotifier, ProviderClients
+from reven.rss.factory import RssDiscoveryJob
 from reven.scheduling import utc_now
 from reven.system.models import SystemState
 
@@ -34,10 +34,15 @@ class RssDiscoveryTick:
             )
 
 
-def build_background_runner(session_factory: async_sessionmaker[AsyncSession]) -> "BackgroundRunner":
-    settings = get_settings()
-    notifier = build_configured_notifier(session_factory, settings)
-    rss_tick = build_configured_rss_tick(session_factory, settings, notifier)
+def build_background_runner(
+    session_factory: async_sessionmaker[AsyncSession],
+    clients: ProviderClients | None,
+    settings: Settings | None,
+) -> "BackgroundRunner":
+    if clients is None or settings is None:
+        raise RuntimeError("后台 RSS 任务需要有效的 Settings 与集成凭证")
+    notifier = FeishuNotifier(clients)
+    rss_tick = RssDiscoveryJob(session_factory, clients, settings, notifier)
     return BackgroundRunner(
         RssDiscoveryTick(session_factory, rss_tick),
         rss_interval=settings.rss_scheduler_interval_seconds,

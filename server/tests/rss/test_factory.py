@@ -1,4 +1,7 @@
-"""rss/factory.py 的 embedder 装配、回填兜底与关键词刷新器测试。"""
+"""rss/factory.py 的回填兜底、发现任务装配与关键词刷新器测试。
+
+embedding/chat 客户端装配与默认值语义由 tests/test_provider_clients.py 在 seam 接口上覆盖。
+"""
 
 import base64
 from collections.abc import Iterator
@@ -10,15 +13,15 @@ import httpx
 import pytest
 import respx
 from reven.config import get_settings
-from reven.integrations.embedding.configuration import EmbeddingConfig
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.models import Integration
+from reven.provider_clients import ProviderClients
 from reven.rss.discovery import FeedEntry
-from reven.rss.embedding import BGE_M3_MODEL, EmbeddingError, SiliconFlowEmbeddingClient
+from reven.rss.embedding import BGE_M3_MODEL, EmbeddingError
 from reven.rss.factory import (
-    ConfiguredKeywordEmbeddingRefresher,
-    ConfiguredRssDiscoveryTick,
+    KeywordEmbeddingRefresher,
+    RssDiscoveryJob,
     _UnavailableSiliconFlow,
-    configured_embedder,
     record_backfill_error,
 )
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
@@ -41,22 +44,18 @@ def settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
+def _clients(db_session: AsyncSession) -> ProviderClients:
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    settings = get_settings()
+    return ProviderClients(IntegrationCredentials(factory, settings), settings)
+
+
 @pytest.mark.anyio
 async def test_unavailable_embedder_raises_concrete_code() -> None:
     unavailable = _UnavailableSiliconFlow()
     with pytest.raises(EmbeddingError) as caught:
         await unavailable.embed(("text",))
     assert caught.value.code == "EMBEDDING_NOT_CONFIGURED"
-
-
-@pytest.mark.anyio
-async def test_configured_embedder_uses_db_base_url_and_model() -> None:
-    config = EmbeddingConfig(base_url="https://embedding.example.com", model="custom/model", api_key="sk-test")
-    async with configured_embedder(config) as embedder:
-        assert isinstance(embedder, SiliconFlowEmbeddingClient)
-        assert embedder.model == "custom/model"
-    async with configured_embedder(None) as fallback:
-        assert isinstance(fallback, _UnavailableSiliconFlow)
 
 
 @pytest.mark.anyio
@@ -88,12 +87,20 @@ async def test_refresher_raises_when_nothing_configured(db_session: AsyncSession
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
 
     with pytest.raises(RuntimeError, match="SILICONFLOW_API_KEY_NOT_CONFIGURED"):
-        await ConfiguredKeywordEmbeddingRefresher(factory).refresh()
+        await KeywordEmbeddingRefresher(factory, _clients(db_session)).refresh()
+
+
+@pytest.mark.anyio
+async def test_refresher_raises_when_clients_degraded(db_session: AsyncSession) -> None:
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    with pytest.raises(RuntimeError, match="SILICONFLOW_API_KEY_NOT_CONFIGURED"):
+        await KeywordEmbeddingRefresher(factory, None).refresh()
 
 
 @pytest.mark.anyio
 @respx.mock
-async def test_refresher_uses_db_config(db_session: AsyncSession, settings_env: None) -> None:
+async def test_refresher_embeds_keywords_via_seam(db_session: AsyncSession, settings_env: None) -> None:
     db_session.add(
         Integration(
             provider="embedding",
@@ -115,7 +122,7 @@ async def test_refresher_uses_db_config(db_session: AsyncSession, settings_env: 
         )
     )
 
-    assert await ConfiguredKeywordEmbeddingRefresher(factory).refresh() == 1
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session)).refresh() == 1
     assert route.calls[0].request.headers["authorization"] == "Bearer sk-db"
 
 
@@ -173,7 +180,7 @@ async def test_discovery_tick_uses_db_translation_without_qwen(
     route = respx.get("https://fanyi-api.baidu.com/api/trans/vip/translate").mock(side_effect=handler)
     notifier = _RecordingNotifier()
 
-    await ConfiguredRssDiscoveryTick(factory, get_settings(), notifier).run(date(2026, 8, 25))
+    await RssDiscoveryJob(factory, _clients(db_session), get_settings(), notifier).run(date(2026, 8, 25))
 
     async with factory() as session:
         item = await session.scalar(select(RssItem))

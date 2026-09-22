@@ -10,8 +10,9 @@ from uuid import UUID
 import pytest
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.feishu_bot.config import FeishuBotConfig
 from reven.integrations.feishu_bot.review_callback import ReviewActionOutcome
-from reven.integrations.feishu_bot.supervisor import FeishuBotCredentials, FeishuBotSupervisor, LarkWsConnection
+from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor, LarkWsConnection
 from reven.integrations.models import Integration
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -59,11 +60,11 @@ class FakeConnection:
 
 class ConnectionFactoryStub:
     def __init__(self) -> None:
-        self.credentials: list[FeishuBotCredentials] = []
+        self.credentials: list[FeishuBotConfig] = []
         self.connections: list[FakeConnection] = []
         self.events: list[tuple[str, str]] = []
 
-    def __call__(self, credentials: FeishuBotCredentials) -> FakeConnection:
+    def __call__(self, credentials: FeishuBotConfig) -> FakeConnection:
         self.credentials.append(credentials)
         connection = FakeConnection(credentials.app_id, self.events)
         self.connections.append(connection)
@@ -137,7 +138,9 @@ async def test_start_with_config_spawns_thread_and_passes_credentials(db_session
 
     await supervisor.start()
 
-    assert factory.credentials == [FeishuBotCredentials(app_id="cli_test", app_secret="s3cret-bot-value")]
+    assert factory.credentials == [
+        FeishuBotConfig(app_id="cli_test", app_secret="s3cret-bot-value", whitelist_open_ids=("ou_boss",))
+    ]
     connection = factory.connections[0]
     assert connection.run_started.wait(timeout=2)  # 连接线程确实在运行
     supervisor.stop()
@@ -157,7 +160,9 @@ async def test_reload_replaces_connection_atomically(db_session: AsyncSession) -
     supervisor.reload()
 
     assert await _wait_until(lambda: len(factory.credentials) == 2)
-    assert factory.credentials[1] == FeishuBotCredentials(app_id="cli_new", app_secret="new")
+    assert factory.credentials[1] == FeishuBotConfig(
+        app_id="cli_new", app_secret="new", whitelist_open_ids=("ou_boss",)
+    )
     # 原子替换顺序：先停旧连接，再按新配置建新连接
     assert factory.events == [("create", "cli_old"), ("stop", "cli_old"), ("create", "cli_new")]
     supervisor.stop()
@@ -268,7 +273,9 @@ async def test_default_connection_factory_wires_review_callback_into_event_handl
     callback = ReviewCallbackStub()
     supervisor = FeishuBotSupervisor(_credentials(db_session), review_callback=callback)
 
-    connection = supervisor._build_default_connection(FeishuBotCredentials(app_id="cli_test", app_secret="s"))
+    connection = supervisor._build_default_connection(
+        FeishuBotConfig(app_id="cli_test", app_secret="s", whitelist_open_ids=())
+    )
 
     assert isinstance(connection, LarkWsConnection)
     event_handler = connection._client._event_handler
@@ -282,7 +289,9 @@ async def test_default_connection_factory_without_review_callback_registers_only
 ) -> None:
     supervisor = FeishuBotSupervisor(_credentials(db_session))
 
-    connection = supervisor._build_default_connection(FeishuBotCredentials(app_id="cli_test", app_secret="s"))
+    connection = supervisor._build_default_connection(
+        FeishuBotConfig(app_id="cli_test", app_secret="s", whitelist_open_ids=())
+    )
 
     event_handler = connection._client._event_handler
     assert "p2.im.message.receive_v1" in event_handler._processorMap
@@ -290,7 +299,7 @@ async def test_default_connection_factory_without_review_callback_registers_only
 
 
 def test_credentials_repr_hides_secrets() -> None:
-    credentials = FeishuBotCredentials(app_id="cli_test", app_secret="s3cret-bot-value")
+    credentials = FeishuBotConfig(app_id="cli_test", app_secret="s3cret-bot-value", whitelist_open_ids=())
 
     text = repr(credentials)
     assert "s3cret-bot-value" not in text

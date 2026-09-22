@@ -22,7 +22,6 @@ from reven.api.schemas.integrations import (
     IntegrationResponse,
     to_response,
 )
-from reven.config import get_settings
 from reven.integrations.agent_llm.service import test_agent_llm_connection
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.embedding.service import test_embedding_connection
@@ -50,6 +49,17 @@ def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
     return factory
 
 
+def get_integration_credentials(request: Request) -> IntegrationCredentials:
+    """lifespan 构建的集成凭证单例；未初始化（无库/密钥降级）时显式失败。"""
+    credentials = getattr(request.app.state, "integration_credentials", None)
+    if not isinstance(credentials, IntegrationCredentials):
+        raise RuntimeError("app.state.integration_credentials 未初始化")
+    return credentials
+
+
+CredentialsDep = Annotated[IntegrationCredentials, Depends(get_integration_credentials)]
+
+
 async def get_session(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
 ) -> AsyncIterator[AsyncSession]:
@@ -60,8 +70,7 @@ async def get_session(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-def _service(request: Request, session: AsyncSession) -> IntegrationService:
-    credentials = IntegrationCredentials(get_session_factory(request), get_settings())
+def _service(credentials: IntegrationCredentials, session: AsyncSession) -> IntegrationService:
     return IntegrationService(session, credentials.secret_box, CONNECTION_TEST_ADAPTERS)
 
 
@@ -102,30 +111,34 @@ async def _parse_put_body(provider: str, request: Request) -> IntegrationPut:
 
 
 @router.get("", response_model=list[IntegrationResponse])
-async def list_integrations(request: Request, session: SessionDep) -> list[IntegrationResponse]:
-    service = _service(request, session)
+async def list_integrations(credentials: CredentialsDep, session: SessionDep) -> list[IntegrationResponse]:
+    service = _service(credentials, session)
     integrations = await service.list_integrations()
     return [to_response(integration) for integration in integrations if integration.provider in PROVIDERS]
 
 
 @router.get("/{provider}", response_model=IntegrationResponse)
-async def get_integration(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def get_integration(
+    provider: str, credentials: CredentialsDep, session: SessionDep
+) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(request, session).get_integration(provider)
+        integration = await _service(credentials, session).get_integration(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     return to_response(integration)
 
 
 @router.put("/{provider}", response_model=IntegrationResponse)
-async def put_integration(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def put_integration(
+    provider: str, request: Request, credentials: CredentialsDep, session: SessionDep
+) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
         body = await _parse_put_body(provider, request)
     except IntegrationError as exc:
         return _error_response(exc)
-    service = _service(request, session)
+    service = _service(credentials, session)
     integration = await service.upsert_integration(
         provider=provider,
         public_config=body.public_config.model_dump(mode="json", exclude_none=True),
@@ -137,10 +150,12 @@ async def put_integration(provider: str, request: Request, session: SessionDep) 
 
 
 @router.delete("/{provider}/secret", response_model=IntegrationResponse)
-async def delete_secret(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def delete_secret(
+    provider: str, request: Request, credentials: CredentialsDep, session: SessionDep
+) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(request, session).delete_secret(provider)
+        integration = await _service(credentials, session).delete_secret(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     await session.commit()
@@ -149,10 +164,12 @@ async def delete_secret(provider: str, request: Request, session: SessionDep) ->
 
 
 @router.post("/{provider}/test", response_model=IntegrationResponse)
-async def test_connection(provider: str, request: Request, session: SessionDep) -> IntegrationResponse | JSONResponse:
+async def test_connection(
+    provider: str, credentials: CredentialsDep, session: SessionDep
+) -> IntegrationResponse | JSONResponse:
     try:
         _ensure_known_provider(provider)
-        integration = await _service(request, session).run_connection_test(provider)
+        integration = await _service(credentials, session).run_connection_test(provider)
     except IntegrationError as exc:
         return _error_response(exc)
     await session.commit()

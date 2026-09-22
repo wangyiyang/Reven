@@ -22,10 +22,12 @@ class FeishuBotApiClient:
         app_id: str,
         app_secret: str,
         *,
+        http: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
+        self._http = http
         self._transport = transport
         self._token: str | None = None
         self._token_expires_at = 0.0
@@ -92,21 +94,37 @@ class FeishuBotApiClient:
         token: str | None = None,
         error: str,
     ) -> dict[str, Any]:
+        # 注入的共享 client（ProviderClients 长驻实例）直接使用且不在这里关闭；
+        # 否则按请求自建造 client，保持 timeout=10s / trust_env=False 策略不变。
+        if self._http is not None:
+            return await self._request_via(self._http, method, url, body=body, token=token, error=error)
+        async with httpx.AsyncClient(timeout=10, trust_env=False, transport=self._transport) as http:
+            return await self._request_via(http, method, url, body=body, token=token, error=error)
+
+    async def _request_via(
+        self,
+        http: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        body: dict[str, Any] | None,
+        token: str | None,
+        error: str,
+    ) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
-            async with httpx.AsyncClient(timeout=10, trust_env=False, transport=self._transport) as http:
-                async with http.stream(method, url, json=body, headers=headers) as response:
-                    payload = await _read_payload(response)
-                    code = payload.get("code")
-                    if type(code) is not int:
-                        raise FeishuBotApiError("飞书应用响应格式无效")
-                    if code != 0:
-                        if code in {99991672, 99991679} and url.startswith(MESSAGES_URL):
-                            error = "飞书发消息权限不足，请开通 im:message:send_as_bot 并发布应用"
-                        raise FeishuBotApiError(f"{error}（code={code}）")
-                    if not response.is_success:
-                        raise FeishuBotApiError(f"{error}（HTTP {response.status_code}）")
-                    return payload
+            async with http.stream(method, url, json=body, headers=headers) as response:
+                payload = await _read_payload(response)
+                code = payload.get("code")
+                if type(code) is not int:
+                    raise FeishuBotApiError("飞书应用响应格式无效")
+                if code != 0:
+                    if code in {99991672, 99991679} and url.startswith(MESSAGES_URL):
+                        error = "飞书发消息权限不足，请开通 im:message:send_as_bot 并发布应用"
+                    raise FeishuBotApiError(f"{error}（code={code}）")
+                if not response.is_success:
+                    raise FeishuBotApiError(f"{error}（HTTP {response.status_code}）")
+                return payload
         except httpx.HTTPError as exc:
             raise FeishuBotApiError(f"飞书应用连接失败（{type(exc).__name__}）") from None
 

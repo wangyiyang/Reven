@@ -16,11 +16,10 @@ import logging
 import threading
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from reven.integrations.credentials import IntegrationCredentials
-from reven.integrations.feishu_bot.config import PROVIDER
+from reven.integrations.feishu_bot.config import PROVIDER, FeishuBotConfig
 from reven.integrations.feishu_bot.review_callback import ReviewActionDispatch, ReviewCallback
 
 logger = logging.getLogger(__name__)
@@ -38,13 +37,7 @@ class BotConnection(Protocol):
     def shutdown(self) -> None: ...
 
 
-@dataclass(frozen=True)
-class FeishuBotCredentials:
-    app_id: str = field(repr=False)
-    app_secret: str = field(repr=False)
-
-
-ConnectionFactory = Callable[[FeishuBotCredentials], BotConnection]
+ConnectionFactory = Callable[[FeishuBotConfig], BotConnection]
 
 
 class FeishuBotSupervisor:
@@ -65,7 +58,7 @@ class FeishuBotSupervisor:
         self._connection: BotConnection | None = None
         self._thread: threading.Thread | None = None
 
-    def _build_default_connection(self, credentials: FeishuBotCredentials) -> BotConnection:
+    def _build_default_connection(self, credentials: FeishuBotConfig) -> BotConnection:
         """默认连接工厂：建 LarkWsConnection 并把审核回调接进事件分发器。"""
         return LarkWsConnection(credentials, review_callback=self._review_callback)
 
@@ -101,7 +94,7 @@ class FeishuBotSupervisor:
             return
         self._replace_connection(credentials)
 
-    def _replace_connection(self, credentials: FeishuBotCredentials | None) -> None:
+    def _replace_connection(self, credentials: FeishuBotConfig | None) -> None:
         """原子替换：先停旧连接，再按给定配置建新连接；配置为 None 时仅停旧。"""
         with self._lock:
             self._stop_locked()
@@ -142,12 +135,9 @@ class FeishuBotSupervisor:
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=_THREAD_JOIN_TIMEOUT_SECONDS)
 
-    async def _load_credentials(self) -> FeishuBotCredentials | None:
+    async def _load_credentials(self) -> FeishuBotConfig | None:
         """读取 feishu_bot 配置；未配置/未启用/凭证不完整/读取失败均返回 None。"""
-        config = await self._credentials.feishu_bot()
-        if config is None:
-            return None
-        return FeishuBotCredentials(app_id=config.app_id, app_secret=config.app_secret)
+        return await self._credentials.feishu_bot()
 
 
 class LarkWsConnection:
@@ -162,7 +152,7 @@ class LarkWsConnection:
 
     def __init__(
         self,
-        credentials: FeishuBotCredentials,
+        credentials: FeishuBotConfig,
         *,
         review_callback: ReviewActionDispatch | None = None,
     ) -> None:
