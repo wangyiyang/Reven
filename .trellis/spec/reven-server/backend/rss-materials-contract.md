@@ -6,7 +6,7 @@
 - candidate 可忽略为 ignored；ignored 重复忽略幂等，其余状态不可忽略。
 - 采纳与忽略共享 CandidateReviewService，以行锁事务保证并发决策不互相覆盖。
 - 重筛必须在提交时重新确认状态，不能覆盖已保存或已忽略的人工决策。
-- review_pushed_at 仅表示飞书审核卡片已发送，不是素材保存时间。
+- review_pushed_at 已废弃：飞书审核卡片推送链路已删除（候选通知收敛为每日汇总），字段仅为兼容历史数据保留、不再有写入方，也不是素材保存时间。
 
 ## API 与交互
 - POST /api/rss/candidates/{id}/confirm 返回完整 RssCandidateResponse，网页与飞书共用领域服务。
