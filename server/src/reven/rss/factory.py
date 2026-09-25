@@ -7,10 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.config import Settings
-from reven.integrations.feishu_bot.review_pusher import ReviewCardPusher
 from reven.notifications import DeliveryNotifier
 from reven.provider_clients import ProviderClients
-from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, ReviewCardPush, RssDiscoveryService
+from reven.rss.discovery import EntryLocalizer, FeedEntry, LocalizedEntry, RssDiscoveryService
 from reven.rss.embedding import (
     BGE_M3_DIMENSION,
     BGE_M3_MODEL,
@@ -20,7 +19,6 @@ from reven.rss.embedding import (
 )
 from reven.rss.feed import SecureFeedReader
 from reven.rss.models import RssDiscoveryRun
-from reven.rss.review_service import CandidateReviewService
 from reven.rss.scheduler import RssScheduleTick
 from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
@@ -65,17 +63,11 @@ class RssDiscoveryJob:
         clients: ProviderClients,
         settings: Settings,
         notifier: DeliveryNotifier,
-        *,
-        review_pusher: ReviewCardPush | None = None,
     ) -> None:
         self._factory = factory
         self._clients = clients
         self._settings = settings
         self._notifier = notifier
-        if review_pusher is not None:
-            self._review_pusher = review_pusher
-        else:
-            self._review_pusher = ReviewCardPusher(clients.credentials, CandidateReviewService(factory))
         self._completed_date: date | None = None
 
     async def __call__(self) -> None:
@@ -91,7 +83,6 @@ class RssDiscoveryJob:
                 _UnavailableSiliconFlow(),
                 self._notifier,
                 candidate_url=f"{self._settings.public_base_url}/rss/candidates",
-                review_pusher=self._review_pusher,
             ).run(run_date)
             await self._remember_completion(run_date)
             return result
@@ -117,7 +108,6 @@ class RssDiscoveryJob:
                         self._notifier,
                         screener=screening,
                         candidate_url=f"{self._settings.public_base_url}/rss/candidates",
-                        review_pusher=self._review_pusher,
                     )
                     result = await discovery.run(run_date)
                     await self._backfill_degraded(screening, result.run_id)

@@ -13,20 +13,17 @@ def _mock_token(router: respx.MockRouter) -> None:
 
 
 @pytest.mark.anyio
-async def test_review_card_and_text_use_same_message_api_and_token() -> None:
-    card = {"header": {"title": {"tag": "plain_text", "content": "审核"}}, "elements": []}
+async def test_text_message_uses_message_api_and_token() -> None:
     with respx.mock(assert_all_called=True) as router:
         _mock_token(router)
         message = router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
         client = FeishuBotApiClient("cli_test", "secret")
-        await client.send_review_card("ou_owner", card)
         await client.send_text("ou_owner", "通知")
-        assert len(router.calls) == 3
-    payloads = [json.loads(call.request.content) for call in message.calls]
-    assert payloads[0]["msg_type"] == "interactive"
-    assert json.loads(payloads[0]["content"]) == card
-    assert payloads[1]["msg_type"] == "text"
-    assert json.loads(payloads[1]["content"]) == {"text": "通知"}
+        assert len(router.calls) == 2
+    payload = json.loads(message.calls[0].request.content)
+    assert message.calls[0].request.headers["authorization"] == "Bearer token"
+    assert payload["msg_type"] == "text"
+    assert json.loads(payload["content"]) == {"text": "通知"}
 
 
 @pytest.mark.anyio

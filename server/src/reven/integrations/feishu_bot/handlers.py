@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GUIDE_TEXT = "请在每日推送的候选审核卡片上完成操作。"
+GUIDE_TEXT = "请打开 Reven 候选工作台完成审核操作。"
 
 # (message_id, text) -> None；回复失败时抛出异常，由处理器捕获记日志
 MessageReplier = Callable[[str, str], None]

@@ -1,4 +1,4 @@
-"""CandidateReviewService：待审核查询筛选与排序、本地采纳、忽略状态机。"""
+"""CandidateReviewService：本地采纳、忽略状态机。"""
 
 import asyncio
 import hashlib
@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.review_service import CandidateReviewError, CandidateReviewService
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -22,7 +23,6 @@ def make_item(
     *,
     status: str = "candidate",
     published_at: datetime | None = datetime(2026, 8, 11, 1, tzinfo=UTC),
-    review_pushed_at: datetime | None = None,
 ) -> RssItem:
     return RssItem(
         source_id=source.id,
@@ -39,7 +39,6 @@ def make_item(
         summary_zh="摘要",
         published_at=published_at,
         status=status,
-        review_pushed_at=review_pushed_at,
     )
 
 
@@ -60,28 +59,6 @@ def build_service(db_session: AsyncSession) -> CandidateReviewService:
 
 
 @pytest.mark.anyio
-async def test_list_pending_review_filters_and_orders_by_published_at(db_session: AsyncSession) -> None:
-    seeded = await seed_items(
-        db_session,
-        ("old", {"published_at": datetime(2026, 8, 10, 1, tzinfo=UTC)}),
-        ("new", {"published_at": datetime(2026, 8, 11, 2, tzinfo=UTC)}),
-        ("no-date", {"published_at": None}),
-        ("already-pushed", {"review_pushed_at": datetime(2026, 8, 11, 3, tzinfo=UTC)}),
-        ("ignored", {"status": "ignored"}),
-        ("pending", {"status": "pending"}),
-    )
-
-    pending = await build_service(db_session).list_pending_review()
-
-    by_guid = {item.guid: item for item in seeded}
-    assert [item.id for item in pending] == [
-        by_guid["new"].id,
-        by_guid["old"].id,
-        by_guid["no-date"].id,
-    ]
-
-
-@pytest.mark.anyio
 async def test_approve_saves_locally_and_preserves_original_timestamp(db_session: AsyncSession) -> None:
     seeded = await seed_items(db_session, ("one", {}))
     service = build_service(db_session)
@@ -98,7 +75,8 @@ async def test_approve_saves_locally_and_preserves_original_timestamp(db_session
         assert stored is not None
         assert stored.status == "saved"
         assert stored.saved_at == first.saved_at
-    assert await service.list_pending_review() == []
+        remaining = await session.scalar(select(func.count()).select_from(RssItem).where(RssItem.status == "candidate"))
+        assert remaining == 0
 
 
 @pytest.mark.anyio
@@ -195,29 +173,3 @@ async def test_ignore_non_candidate_raises_conflict(db_session: AsyncSession) ->
 
     assert caught.value.code == "RSS_CANDIDATE_NOT_IGNORABLE"
     assert caught.value.status_code == 409
-
-
-@pytest.mark.anyio
-async def test_mark_review_pushed_updates_timestamp_in_one_transaction(db_session: AsyncSession) -> None:
-    seeded = await seed_items(db_session, ("one", {}), ("two", {}))
-    service = build_service(db_session)
-
-    await service.mark_review_pushed([item.id for item in seeded])
-
-    assert await service.list_pending_review() == []
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    async with factory() as session:
-        for item in seeded:
-            stored = await session.get(RssItem, item.id)
-            assert stored is not None
-            assert stored.review_pushed_at is not None
-
-
-@pytest.mark.anyio
-async def test_mark_review_pushed_with_empty_ids_is_noop(db_session: AsyncSession) -> None:
-    seeded = await seed_items(db_session, ("one", {}))
-    service = build_service(db_session)
-
-    await service.mark_review_pushed([])
-
-    assert [item.id for item in await service.list_pending_review()] == [seeded[0].id]

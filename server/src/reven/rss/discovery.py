@@ -1,22 +1,19 @@
 """Daily RSS discovery module with idempotent persistence and one summary."""
 
 import hashlib
-import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.notifications import DeliveryNotifier, Notification
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
 from reven.rss.normalization import normalize_keyword
 from reven.scheduling import utc_now
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,12 +67,6 @@ class RunScreener(Protocol):
     async def screen_run(self, run_id: UUID) -> int: ...
 
 
-class ReviewCardPush(Protocol):
-    """候选审核卡片推送口：run 结束后推送待审核候选；实现方自行吞错记日志。"""
-
-    async def push_pending_review(self) -> None: ...
-
-
 class RssDiscoveryService:
     def __init__(
         self,
@@ -86,7 +77,6 @@ class RssDiscoveryService:
         *,
         screener: RunScreener | None = None,
         candidate_url: str | None = None,
-        review_pusher: ReviewCardPush | None = None,
     ) -> None:
         self._factory = factory
         self._feed_reader = feed_reader
@@ -94,7 +84,6 @@ class RssDiscoveryService:
         self._notifier = notifier
         self._screener = screener
         self._candidate_url = candidate_url
-        self._review_pusher = review_pusher
 
     async def run(self, run_date: date) -> RssRunSummary:
         existing = await self._existing_run(run_date)
@@ -205,14 +194,12 @@ class RssDiscoveryService:
             if run is None or run.finished_at is None:
                 return summary
             needs_summary = run.notification_sent_at is None
-        try:
-            if needs_summary:
-                await self._send_summary(summary)
-        finally:
-            await self._push_review_cards()
+        if needs_summary:
+            await self._send_summary(summary)
         return summary
 
     async def _send_summary(self, summary: RssRunSummary) -> None:
+        pending_review = await self._pending_review_count()
         links = {"打开候选工作台": self._candidate_url} if self._candidate_url else {}
         notification = Notification(
             "Reven RSS 每日汇总",
@@ -220,6 +207,7 @@ class RssDiscoveryService:
             (
                 f"抓取 {summary.fetched_count} 条，新增 {summary.new_count} 条，"
                 f"候选 {summary.candidate_count} 条，异常 {summary.failure_count} 个。"
+                f"待审核共 {pending_review} 条。"
             ),
             links,
         )
@@ -237,15 +225,11 @@ class RssDiscoveryService:
                 run.notification_sent_at = utc_now()
                 run.notification_error = None
 
-    async def _push_review_cards(self) -> None:
-        """已完成运行独立推送候选审核卡片；任何失败只记日志，绝不影响 run 结果与通知标记。"""
-        pusher = self._review_pusher
-        if pusher is None:
-            return
-        try:
-            await pusher.push_pending_review()
-        except Exception as exc:
-            logger.warning("候选审核卡片推送失败（error_type=%s）", type(exc).__name__)
+    async def _pending_review_count(self) -> int:
+        """待审核候选总数（status=candidate，含历史积压，与当日 run 无关）。"""
+        async with self._factory() as session:
+            count = await session.scalar(select(func.count()).select_from(RssItem).where(RssItem.status == "candidate"))
+        return int(count or 0)
 
 
 async def _save_if_new(

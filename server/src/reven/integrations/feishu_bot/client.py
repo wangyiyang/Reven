@@ -1,4 +1,4 @@
-"""飞书应用 API：通知与审核卡片共用鉴权、消息发送及脱敏错误处理。"""
+"""飞书应用 API：通知消息发送共用鉴权与脱敏错误处理。"""
 
 import json
 import time
@@ -59,9 +59,6 @@ class FeishuBotApiClient:
 
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
-
-    async def send_review_card(self, open_id: str, card: dict[str, Any]) -> None:
-        await self._send_message(open_id, "interactive", card)
 
     async def send_text_to_recipients(self, recipients: tuple[str, ...], text: str) -> None:
         if not recipients:

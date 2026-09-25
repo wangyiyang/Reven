@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, date, datetime
 
 import pytest
@@ -46,17 +47,6 @@ class RecordingScreener:
 class FailingLocalizer:
     async def localize(self, entries: tuple[FeedEntry, ...]) -> tuple[LocalizedEntry, ...]:
         raise RuntimeError("translation unavailable")
-
-
-class RecordingReviewPusher:
-    def __init__(self, *, fail: bool = False) -> None:
-        self.calls = 0
-        self._fail = fail
-
-    async def push_pending_review(self) -> None:
-        self.calls += 1
-        if self._fail:
-            raise RuntimeError("review push unavailable")
 
 
 class PartiallyFailingLocalizer:
@@ -168,93 +158,110 @@ async def test_interrupted_running_task_resumes_instead_of_staying_stuck(
     assert len(notifier.notifications) == 1
 
 
-@pytest.mark.anyio
-async def test_review_card_pusher_runs_after_summary_notification(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/review-push.xml", enabled=True)
-    db_session.add(source)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    notifier = RecordingNotifier()
-    review_pusher = RecordingReviewPusher()
+class FlakyNotifier:
+    """记录成功投递；fail=True 时抛错（不计投递），模拟发送失败后的重试。"""
 
-    result = await RssDiscoveryService(
-        factory,
-        StubFeedReader(),
-        StubLocalizer(),
-        notifier,
-        review_pusher=review_pusher,
-    ).run(date(2026, 8, 15))
+    def __init__(self) -> None:
+        self.fail = False
+        self.attempts = 0
+        self.delivered: list[object] = []
 
-    assert result.status == "completed"
-    assert len(notifier.notifications) == 1
-    assert review_pusher.calls == 1
-
-
-@pytest.mark.anyio
-async def test_review_card_pusher_failure_does_not_affect_run_or_notification(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/review-push-fail.xml", enabled=True)
-    db_session.add(source)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    notifier = RecordingNotifier()
-    review_pusher = RecordingReviewPusher(fail=True)
-
-    result = await RssDiscoveryService(
-        factory,
-        StubFeedReader(),
-        StubLocalizer(),
-        notifier,
-        review_pusher=review_pusher,
-    ).run(date(2026, 8, 16))
-
-    assert result.status == "completed"
-    assert review_pusher.calls == 1
-    assert len(notifier.notifications) == 1
-    async with factory() as session:
-        run = await session.get(RssDiscoveryRun, result.run_id)
-        assert run is not None
-        assert run.notification_sent_at is not None  # 推送失败不影响汇总通知标记
-        assert run.notification_error is None
-
-
-class FailingNotifier:
     async def send(self, notification: object) -> None:
-        raise RuntimeError("notification unavailable")
+        self.attempts += 1
+        if self.fail:
+            raise RuntimeError("notification unavailable")
+        self.delivered.append(notification)
 
 
 @pytest.mark.anyio
-async def test_summary_failure_does_not_skip_review_cards(db_session: AsyncSession) -> None:
+async def test_failed_summary_is_retried_on_rerun_without_duplicate_delivery(db_session: AsyncSession) -> None:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    review_pusher = RecordingReviewPusher()
-    service = RssDiscoveryService(
-        factory, StubFeedReader(), StubLocalizer(), FailingNotifier(), review_pusher=review_pusher
-    )
+    notifier = FlakyNotifier()
+    notifier.fail = True
+    service = RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier)
 
-    result = await service.run(date(2026, 8, 17))
+    first = await service.run(date(2026, 8, 17))
 
-    assert review_pusher.calls == 1
-    assert result.status == "completed"
+    assert first.status == "completed"
+    assert notifier.attempts == 1
+    assert notifier.delivered == []
     async with factory() as session:
-        run = await session.get(RssDiscoveryRun, result.run_id)
+        run = await session.get(RssDiscoveryRun, first.run_id)
         assert run is not None
         assert run.notification_sent_at is None
         assert run.notification_error == "RuntimeError"
 
+    notifier.fail = False
+    second = await service.run(date(2026, 8, 17))
+
+    assert second.run_id == first.run_id
+    assert notifier.attempts == 2
+    assert len(notifier.delivered) == 1  # 失败重试补发一次，接收人不重复收到
+    async with factory() as session:
+        run = await session.get(RssDiscoveryRun, first.run_id)
+        assert run is not None
+        assert run.notification_sent_at is not None
+        assert run.notification_error is None
+
 
 @pytest.mark.anyio
-async def test_already_sent_summary_still_attempts_pending_review_cards(db_session: AsyncSession) -> None:
+async def test_sent_summary_is_not_resent_on_same_day_rerun(db_session: AsyncSession) -> None:
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    review_pusher = RecordingReviewPusher(fail=True)
-    notifier = RecordingNotifier()
-    service = RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier, review_pusher=review_pusher)
+    notifier = FlakyNotifier()
+    service = RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier)
 
     await service.run(date(2026, 8, 18))
-    review_pusher._fail = False
     await service.run(date(2026, 8, 18))
 
-    assert len(notifier.notifications) == 1
-    assert review_pusher.calls == 2
+    assert notifier.attempts == 1  # notification_sent_at 去重：同日重跑不重发
+    assert len(notifier.delivered) == 1
+
+
+def _backlog_candidate(source: RssSource, run: RssDiscoveryRun, marker: str) -> RssItem:
+    return RssItem(
+        source_id=source.id,
+        first_seen_run_id=run.id,
+        source_name=source.name,
+        guid=marker,
+        url=f"https://example.com/{marker}",
+        url_key=hashlib.sha256(f"url-{marker}".encode()).hexdigest(),
+        guid_key=hashlib.sha256(f"guid-{marker}".encode()).hexdigest(),
+        title_key=hashlib.sha256(f"title-{marker}".encode()).hexdigest(),
+        title=f"Title {marker}",
+        summary="summary",
+        title_zh=f"标题{marker}",
+        summary_zh="摘要",
+        published_at=datetime(2026, 8, 10, 1, tzinfo=UTC),
+        status="candidate",
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("backlog", [1, 100, 1000])
+async def test_summary_reports_pending_backlog_and_stays_single_message(db_session: AsyncSession, backlog: int) -> None:
+    """任意待审核积压量下同一接收人同一天仅收到一条汇总（零审核卡片），含双口径统计与工作台入口。"""
+    source = RssSource(name="Example", feed_url=f"https://example.com/backlog-{backlog}.xml", enabled=True)
+    backlog_run = RssDiscoveryRun(run_date=date(2026, 8, 10), status="completed")
+    db_session.add_all([source, backlog_run])
+    await db_session.flush()
+    db_session.add_all([_backlog_candidate(source, backlog_run, f"backlog-{index}") for index in range(backlog)])
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    notifier = FlakyNotifier()
+    candidate_url = "http://reven.example/rss/candidates"
+
+    result = await RssDiscoveryService(
+        factory, StubFeedReader(), StubLocalizer(), notifier, candidate_url=candidate_url
+    ).run(date(2026, 8, 19))
+
+    assert result.status == "completed"
+    assert len(notifier.delivered) == 1
+    notification = notifier.delivered[0]
+    assert "候选 0 条" in notification.summary  # 无筛选器时本次新条目为 pending，不计入候选
+    assert f"待审核共 {backlog} 条" in notification.summary
+    assert notification.links == {"打开候选工作台": candidate_url}
+
+    await RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier, candidate_url=candidate_url).run(
+        date(2026, 8, 19)
+    )
+    assert len(notifier.delivered) == 1  # 积压场景同日重跑也不重复发送
