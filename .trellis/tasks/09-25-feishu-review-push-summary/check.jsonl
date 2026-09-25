@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "reven-server 后端层 spec 入口，含 Quality Check 清单"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "代码质量检查标准"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "核对推送链路删除与汇总契约改写是否符合新约定"}
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "核对 review_pushed_at 废弃标注与候选审核语义是否一致"}
+{"file": ".trellis/tasks/09-25-feishu-review-push-summary/research/code-survey.md", "reason": "现状调查基线，用于核对改动范围无遗漏无外扩"}
