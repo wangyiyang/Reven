@@ -43,7 +43,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     number: "01",
     title: "飞书应用",
     eyebrow: "通知与审核",
-    description: "向白名单成员发送每日汇总和候选素材审核卡片，在飞书内完成采纳 / 忽略。",
+    description: "向白名单成员发送每日汇总（含待审核统计与候选工作台入口），采纳 / 忽略在候选工作台完成。",
     publicFields: [
       { key: "whitelist_open_ids", label: "接收人 Open ID（审核白名单）", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
       { key: "enabled", label: "启用机器人", type: "checkbox" },

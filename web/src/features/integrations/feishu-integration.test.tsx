@@ -20,7 +20,7 @@ describe("Feishu application integration", () => {
     const card = await findCard("飞书应用")
     expect(screen.queryByRole("heading", { name: "飞书" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Webhook")).not.toBeInTheDocument()
-    expect(card.getByText(/每日汇总和候选素材审核卡片/)).toBeInTheDocument()
+    expect(card.getByText(/每日汇总（含待审核统计与候选工作台入口）/)).toBeInTheDocument()
     expect(card.getByLabelText("接收人 Open ID（审核白名单）")).toHaveValue("ou_boss\nou_ops")
     expect(card.getByLabelText("启用机器人")).toBeChecked()
     expect(card.getByText("已配置 · ****alue")).toBeInTheDocument()
