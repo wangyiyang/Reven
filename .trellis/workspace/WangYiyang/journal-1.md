@@ -254,3 +254,25 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: fix(feishu): #132 候选审核推送收敛为每日汇总 + #131 关闭 + #146 清理 issue
+
+**Date**: 2026-09-26
+**Task**: fix(feishu): #132 候选审核推送收敛为每日汇总 + #131 关闭 + #146 清理 issue
+**Package**: web
+**Branch**: `main`
+
+### Summary
+
+两轮设计拷问敲定方案后实施：删除飞书候选审核全量卡片推送链路（review_card/review_pusher/ReviewBoard/list_pending_review/mark_review_pushed/send_review_card），每日汇总追加待审核总数统计，去重复用 notification_sent_at；回调链路保留，review_pushed_at 列保留并标注废弃；spec/runbook/integrations/README/web 文案同步。PR #145 squash 合并（CI 全绿），#131 关闭为 obsolete，新建 #146 跟踪卡片回调死代码清理。验证：server 597 tests + ruff + mypy strict 全绿，web 206 tests + eslint + tsc 全绿。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f169da2` | (see git log) |
+
+### Status
+
+[OK] **Completed**
