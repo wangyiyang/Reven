@@ -5,14 +5,12 @@ import base64
 import threading
 import time
 from collections.abc import Callable
-from uuid import UUID
 
 import pytest
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.config import FeishuBotConfig
-from reven.integrations.feishu_bot.review_callback import ReviewActionOutcome
-from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor, LarkWsConnection
+from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
 from reven.integrations.models import Integration
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -242,51 +240,8 @@ async def test_start_and_stop_are_idempotent(db_session: AsyncSession) -> None:
     supervisor.stop()
 
 
-class ReviewCallbackStub:
-    """假审核回调：只记录主循环绑定，生命周期测试中不应被调用。"""
-
-    def __init__(self) -> None:
-        self.bound_loops: list[asyncio.AbstractEventLoop] = []
-
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        self.bound_loops.append(loop)
-
-    def __call__(self, action: str, item_id: UUID, operator_open_id: str | None) -> ReviewActionOutcome:
-        raise AssertionError("生命周期测试不触发审核回调")
-
-
 @pytest.mark.anyio
-async def test_start_binds_main_loop_to_review_callback(db_session: AsyncSession) -> None:
-    callback = ReviewCallbackStub()
-    factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory, review_callback=callback)
-
-    await supervisor.start()
-
-    assert callback.bound_loops == [asyncio.get_running_loop()]
-
-
-@pytest.mark.anyio
-async def test_default_connection_factory_wires_review_callback_into_event_handler(
-    db_session: AsyncSession,
-) -> None:
-    callback = ReviewCallbackStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), review_callback=callback)
-
-    connection = supervisor._build_default_connection(
-        FeishuBotConfig(app_id="cli_test", app_secret="s", whitelist_open_ids=())
-    )
-
-    assert isinstance(connection, LarkWsConnection)
-    event_handler = connection._client._event_handler
-    assert "p2.im.message.receive_v1" in event_handler._processorMap
-    assert "p2.card.action.trigger" in event_handler._callback_processor_map
-
-
-@pytest.mark.anyio
-async def test_default_connection_factory_without_review_callback_registers_only_im(
-    db_session: AsyncSession,
-) -> None:
+async def test_default_connection_factory_registers_only_im_processor(db_session: AsyncSession) -> None:
     supervisor = FeishuBotSupervisor(_credentials(db_session))
 
     connection = supervisor._build_default_connection(

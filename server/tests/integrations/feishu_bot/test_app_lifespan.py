@@ -15,8 +15,8 @@ DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
 class FakeSupervisor:
     instances: list["FakeSupervisor"] = []
 
-    def __init__(self, credentials: object, review_callback: object = None) -> None:
-        del credentials, review_callback
+    def __init__(self, credentials: object) -> None:
+        del credentials
         self.started = 0
         self.stopped = 0
         FakeSupervisor.instances.append(self)

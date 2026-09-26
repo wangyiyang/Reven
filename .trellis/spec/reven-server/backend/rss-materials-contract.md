@@ -9,10 +9,9 @@
 - review_pushed_at 已废弃：飞书审核卡片推送链路已删除（候选通知收敛为每日汇总），字段仅为兼容历史数据保留、不再有写入方，也不是素材保存时间。
 
 ## API 与交互
-- POST /api/rss/candidates/{id}/confirm 返回完整 RssCandidateResponse，网页与飞书共用领域服务。
+- POST /api/rss/candidates/{id}/confirm 返回完整 RssCandidateResponse，网页候选工作台使用 CandidateReviewService。
 - GET /api/rss/candidates?status=saved 返回本地素材；response 包含 saved_at，无 Notion 或外部推送字段。
 - missing item 返回 404；非法状态返回 409 RSS_CANDIDATE_NOT_SAVABLE。
-- 飞书保留允许用户校验、事件去重和重放处理；成功反馈为已保存素材。
 - 不需 Notion/GitHub/微信配置，也不进行稿件同步或发布。
 
 ## 基础设施
@@ -22,5 +21,4 @@
 - 迁移 0021 删除旧推送字段及 pushing/pushed 历史记录；不恢复历史资料。
 
 ## 验证
-tests/rss/test_review_service.py 与 tests/api/test_rss_candidates.py 验证幂等、并发和状态边界；
-tests/integrations/feishu_bot/test_review_callback.py 验证授权与真实领域服务接入。
+tests/rss/test_review_service.py 与 tests/api/test_rss_candidates.py 验证幂等、并发和状态边界。

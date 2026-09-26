@@ -5,7 +5,6 @@ FeishuBotSupervisor 按 integrations 表中 feishu_bot 的配置驱动 lark-oapi
 - reload()：配置变更时由路由调用，同步返回，内部另起线程读最新配置并原子替换连接；
 - stop()：进程关闭时调用，尽力停止当前连接（幂等）。
 
-review_callback（审核按钮回调分发器）随 start() 绑定主事件循环，并接入每代连接的事件分发器。
 配置读取/解密失败只记 provider + 异常类型的日志，绝不阻断主进程。
 """
 
@@ -20,7 +19,6 @@ from typing import Any, Protocol
 
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.config import PROVIDER, FeishuBotConfig
-from reven.integrations.feishu_bot.review_callback import ReviewActionDispatch, ReviewCallback
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +46,8 @@ class FeishuBotSupervisor:
         credentials: IntegrationCredentials,
         *,
         connection_factory: ConnectionFactory | None = None,
-        review_callback: ReviewCallback | None = None,
     ) -> None:
         self._credentials = credentials
-        self._review_callback = review_callback
         self._connection_factory = connection_factory or self._build_default_connection
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._lock = threading.Lock()
@@ -59,14 +55,12 @@ class FeishuBotSupervisor:
         self._thread: threading.Thread | None = None
 
     def _build_default_connection(self, credentials: FeishuBotConfig) -> BotConnection:
-        """默认连接工厂：建 LarkWsConnection 并把审核回调接进事件分发器。"""
-        return LarkWsConnection(credentials, review_callback=self._review_callback)
+        """默认连接工厂：建 LarkWsConnection。"""
+        return LarkWsConnection(credentials)
 
     async def start(self) -> None:
         """按当前配置确保连接在运行；已在运行时直接返回。"""
         self._main_loop = asyncio.get_running_loop()
-        if self._review_callback is not None:
-            self._review_callback.bind_loop(self._main_loop)
         with self._lock:
             if self._connection is not None:
                 return
@@ -153,8 +147,6 @@ class LarkWsConnection:
     def __init__(
         self,
         credentials: FeishuBotConfig,
-        *,
-        review_callback: ReviewActionDispatch | None = None,
     ) -> None:
         import lark_oapi  # type: ignore[import-untyped]  # 延迟导入：避免进程导入期触发 SDK 模块级事件循环副作用
 
@@ -166,7 +158,6 @@ class LarkWsConnection:
             event_handler=build_event_handler(
                 credentials.app_id,
                 credentials.app_secret,
-                review_dispatch=review_callback,
             ),
             log_level=lark_oapi.LogLevel.INFO,
         )
