@@ -32,11 +32,9 @@ from reven.background import build_background_runner
 from reven.config import Settings, get_settings
 from reven.db import create_session_factory
 from reven.integrations.credentials import IntegrationCredentials
-from reven.integrations.feishu_bot.review_callback import ReviewCallbackDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
 from reven.provider_clients import ProviderClients
 from reven.rss.factory import KeywordEmbeddingRefresher
-from reven.rss.review_service import CandidateReviewService
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
 from reven.security.headers import SecurityHeadersMiddleware
@@ -131,11 +129,7 @@ def _build_feishu_bot_supervisor(
     """创建飞书机器人长连接 supervisor；无库或凭证降级时停用，不阻断进程。"""
     if factory is None or credentials is None:
         return None
-    review_callback = ReviewCallbackDispatcher(
-        credentials,
-        CandidateReviewService(factory),
-    )
-    supervisor = FeishuBotSupervisor(credentials, review_callback=review_callback)
+    supervisor = FeishuBotSupervisor(credentials)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
 
