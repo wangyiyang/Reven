@@ -8,7 +8,7 @@ from reven.rss.repository import RssSettingsRepository
 from reven.rss.review_service import CandidateReviewService
 from reven.rss.screening import RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -88,7 +88,9 @@ async def test_rss_discovery_to_saved_material_is_idempotent(
     assert saved.id == repeated.id == candidate_id
     assert saved.saved_at is not None
     assert saved.saved_at == repeated.saved_at
-    assert await review.list_pending_review() == []
+    async with factory() as session:
+        pending = await session.scalar(select(func.count()).select_from(RssItem).where(RssItem.status == "candidate"))
+        assert pending == 0
     async with factory() as session:
         materials = list(await session.scalars(select(RssItem).where(RssItem.status == "saved")))
         assert len(materials) == 1

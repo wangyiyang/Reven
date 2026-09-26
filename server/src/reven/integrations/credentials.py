@@ -63,7 +63,7 @@ class IntegrationCredentials:
     """凭证解析 seam：session_factory + Settings 进，typed credentials 出。
 
     构造即完成全仓唯一的 SecretBox.from_base64；master key 非法时构造抛 ValueError，
-    与现状一致：装配点（supervisor/审核推送）捕获降级，路由/任务路径显式失败。
+    与现状一致：装配点（supervisor）捕获降级，路由/任务路径显式失败。
     """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession], settings: Settings) -> None:

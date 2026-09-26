@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "reven-server 后端层 spec 入口，含 Pre-Development Checklist"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "飞书应用机器人通知契约——本次要删除审核推送条款并改写为每日汇总唯一主动通知"}
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "rss_items.review_pushed_at 语义定义处——本次标注废弃"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "通知失败处理与脱敏日志约定，改 _send_summary 时需遵守"}
+{"file": ".trellis/tasks/09-25-feishu-review-push-summary/research/code-survey.md", "reason": "推送链路/每日汇总/测试/文档的现状调查，含全部关键文件路径与行号"}
