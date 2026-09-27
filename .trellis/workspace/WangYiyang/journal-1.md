@@ -276,3 +276,27 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 飞书机器人接入 Agent 对话
+
+**Date**: 2026-09-27
+**Task**: 飞书机器人接入 Agent 对话
+**Package**: web
+**Branch**: `feat/feishu-bot-conversation`
+
+### Summary
+
+飞书机器人从固定文案应答升级为 Agent 对话入口：私聊+群聊@ 经线程桥（handler 立即返回 + daemon 工作线程）接入 AgentService，session=feishu:{chat_id}:{user_id}，两条引用回复，120s 兜底，白名单全静默。602 测试全绿，mypy strict 通过；真实凭证验证 get_bot_open_id 正确。契约已回写 spec。PR #150。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f81d614` | (see git log) |
+| `bc10810` | (see git log) |
+| `3eda431` | (see git log) |
+
+### Status
+
+[OK] **Completed**
