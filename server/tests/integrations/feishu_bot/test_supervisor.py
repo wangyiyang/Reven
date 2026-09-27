@@ -5,6 +5,7 @@ import base64
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from reven.config import Settings
@@ -34,6 +35,57 @@ def _credentials(session: AsyncSession) -> IntegrationCredentials:
         reven_admin_password="test-admin-password",
     )
     return IntegrationCredentials(_factory(session), settings)
+
+
+class FakeBotApiClient:
+    """FeishuBotApiClient 替身：避免 start/reload 触真实网络；类属性可模拟失败。"""
+
+    error: Exception | None = None
+    instances: list["FakeBotApiClient"] = []
+
+    def __init__(self, app_id: str, app_secret: str) -> None:
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.get_calls = 0
+        FakeBotApiClient.instances.append(self)
+
+    async def get_bot_open_id(self) -> str:
+        self.get_calls += 1
+        if FakeBotApiClient.error is not None:
+            raise FakeBotApiClient.error
+        return "ou_bot"
+
+
+@pytest.fixture(autouse=True)
+def _stub_bot_api_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeBotApiClient.error = None
+    FakeBotApiClient.instances = []
+    monkeypatch.setattr("reven.integrations.feishu_bot.supervisor.FeishuBotApiClient", FakeBotApiClient)
+
+
+class FakeChatDispatcher:
+    """ChatDispatch 替身：记录 bind_loop / submit 调用。"""
+
+    def __init__(self) -> None:
+        self.bound_loops: list[asyncio.AbstractEventLoop] = []
+        self.submits: list[dict[str, Any]] = []
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.bound_loops.append(loop)
+
+    def submit(self, **kwargs: Any) -> None:
+        self.submits.append(kwargs)
+
+
+def _supervisor(
+    session: AsyncSession,
+    factory: "ConnectionFactoryStub | None" = None,
+    dispatcher: FakeChatDispatcher | None = None,
+) -> FeishuBotSupervisor:
+    kwargs: dict[str, Any] = {"chat_dispatcher": dispatcher or FakeChatDispatcher()}
+    if factory is not None:
+        kwargs["connection_factory"] = factory
+    return FeishuBotSupervisor(_credentials(session), **kwargs)
 
 
 class FakeConnection:
@@ -98,7 +150,7 @@ async def _write_bot_config(
 @pytest.mark.anyio
 async def test_start_without_config_spawns_no_connection(db_session: AsyncSession) -> None:
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
 
@@ -110,7 +162,7 @@ async def test_start_without_config_spawns_no_connection(db_session: AsyncSessio
 async def test_start_with_disabled_config_spawns_no_connection(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=False)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
 
@@ -121,7 +173,7 @@ async def test_start_with_disabled_config_spawns_no_connection(db_session: Async
 async def test_start_with_incomplete_secret_spawns_no_connection(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True, secret={"app_id": "cli_test"})
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
 
@@ -132,7 +184,7 @@ async def test_start_with_incomplete_secret_spawns_no_connection(db_session: Asy
 async def test_start_with_config_spawns_thread_and_passes_credentials(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
 
@@ -149,7 +201,7 @@ async def test_start_with_config_spawns_thread_and_passes_credentials(db_session
 async def test_reload_replaces_connection_atomically(db_session: AsyncSession) -> None:
     integration = await _write_bot_config(db_session, enabled=True, secret={"app_id": "cli_old", "app_secret": "old"})
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
     await supervisor.start()
     assert await _wait_until(lambda: len(factory.connections) == 1)
 
@@ -170,7 +222,7 @@ async def test_reload_replaces_connection_atomically(db_session: AsyncSession) -
 async def test_reload_stops_connection_when_config_disabled(db_session: AsyncSession) -> None:
     integration = await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
     await supervisor.start()
     assert await _wait_until(lambda: len(factory.connections) == 1)
 
@@ -193,7 +245,7 @@ async def test_undecryptable_secret_is_logged_not_raised(db_session: AsyncSessio
     db_session.add(integration)
     await db_session.commit()
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()  # 解密失败只记日志，不阻断进程
 
@@ -214,7 +266,7 @@ async def test_config_read_exception_does_not_propagate(
 
     monkeypatch.setattr("reven.integrations.credentials.IntegrationRepository", BrokenRepository)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
 
@@ -225,7 +277,7 @@ async def test_config_read_exception_does_not_propagate(
 async def test_start_and_stop_are_idempotent(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session, enabled=True)
     factory = ConnectionFactoryStub()
-    supervisor = FeishuBotSupervisor(_credentials(db_session), connection_factory=factory)
+    supervisor = _supervisor(db_session, factory)
 
     await supervisor.start()
     await supervisor.start()  # 已在运行：不重复建连接
@@ -242,7 +294,7 @@ async def test_start_and_stop_are_idempotent(db_session: AsyncSession) -> None:
 
 @pytest.mark.anyio
 async def test_default_connection_factory_registers_only_im_processor(db_session: AsyncSession) -> None:
-    supervisor = FeishuBotSupervisor(_credentials(db_session))
+    supervisor = _supervisor(db_session)
 
     connection = supervisor._build_default_connection(
         FeishuBotConfig(app_id="cli_test", app_secret="s", whitelist_open_ids=())
@@ -251,6 +303,111 @@ async def test_default_connection_factory_registers_only_im_processor(db_session
     event_handler = connection._client._event_handler
     assert "p2.im.message.receive_v1" in event_handler._processorMap
     assert "p2.card.action.trigger" not in event_handler._callback_processor_map
+
+
+@pytest.mark.anyio
+async def test_start_binds_main_loop_and_fetches_bot_open_id(db_session: AsyncSession) -> None:
+    await _write_bot_config(db_session, enabled=True)
+    factory = ConnectionFactoryStub()
+    dispatcher = FakeChatDispatcher()
+    supervisor = _supervisor(db_session, factory, dispatcher)
+
+    await supervisor.start()
+
+    assert dispatcher.bound_loops == [asyncio.get_running_loop()]
+    assert supervisor._bot_open_id == "ou_bot"
+    assert [client.app_id for client in FakeBotApiClient.instances] == ["cli_test"]
+    supervisor.stop()
+
+
+@pytest.mark.anyio
+async def test_default_connection_receives_bot_open_id_and_dispatcher(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeLarkConnection:
+        def __init__(self, credentials: FeishuBotConfig, *, bot_open_id: str | None, chat_dispatch: object) -> None:
+            captured["credentials"] = credentials
+            captured["bot_open_id"] = bot_open_id
+            captured["chat_dispatch"] = chat_dispatch
+
+    monkeypatch.setattr("reven.integrations.feishu_bot.supervisor.LarkWsConnection", FakeLarkConnection)
+    dispatcher = FakeChatDispatcher()
+    supervisor = _supervisor(db_session, dispatcher=dispatcher)
+    supervisor._bot_open_id = "ou_bot"
+    config = FeishuBotConfig(app_id="cli_test", app_secret="s", whitelist_open_ids=())
+
+    supervisor._build_default_connection(config)
+
+    assert captured == {"credentials": config, "bot_open_id": "ou_bot", "chat_dispatch": dispatcher}
+
+
+@pytest.mark.anyio
+async def test_bot_open_id_failure_degrades_group_chat_but_keeps_connection(
+    db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    await _write_bot_config(db_session, enabled=True)
+    factory = ConnectionFactoryStub()
+    supervisor = _supervisor(db_session, factory)
+    FakeBotApiClient.error = RuntimeError("network down")
+
+    with caplog.at_level("WARNING"):
+        await supervisor.start()
+
+    assert supervisor._bot_open_id is None  # 降级：群聊忽略，私聊对话不受影响
+    assert len(factory.connections) == 1
+    assert "open_id 获取失败" in caplog.text
+    assert "network down" not in caplog.text  # 日志脱敏：只记异常类型
+    supervisor.stop()
+
+
+@pytest.mark.anyio
+async def test_reload_retries_bot_open_id_fetch_after_failure(db_session: AsyncSession) -> None:
+    await _write_bot_config(db_session, enabled=True)
+    factory = ConnectionFactoryStub()
+    supervisor = _supervisor(db_session, factory)
+    FakeBotApiClient.error = RuntimeError("network down")
+    await supervisor.start()
+    assert await _wait_until(lambda: len(factory.connections) == 1)
+    assert supervisor._bot_open_id is None
+
+    FakeBotApiClient.error = None
+    supervisor.reload()
+
+    assert await _wait_until(lambda: supervisor._bot_open_id == "ou_bot")
+    assert len(FakeBotApiClient.instances) == 2  # 首次失败后 reload 重试成功
+    supervisor.stop()
+
+
+@pytest.mark.anyio
+async def test_reload_before_start_is_ignored(db_session: AsyncSession, caplog: pytest.LogCaptureFixture) -> None:
+    supervisor = _supervisor(db_session)
+
+    with caplog.at_level("WARNING"):
+        supervisor.reload()  # 主事件循环尚未就绪：仅记日志，不建连接
+        await asyncio.sleep(0.2)
+
+    assert "主事件循环尚未就绪" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_reload_with_dead_loop_closes_coroutine_and_stops(
+    db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    await _write_bot_config(db_session, enabled=True)
+    factory = ConnectionFactoryStub()
+    supervisor = _supervisor(db_session, factory)
+    dead_loop = asyncio.new_event_loop()
+    dead_loop.close()
+    supervisor._main_loop = dead_loop
+
+    with caplog.at_level("WARNING"):
+        supervisor.reload()  # 调度失败：协程已 close，不建连接
+        await asyncio.sleep(0.2)
+
+    assert factory.credentials == []
+    assert "配置热更新读取失败" in caplog.text
 
 
 def test_credentials_repr_hides_secrets() -> None:
