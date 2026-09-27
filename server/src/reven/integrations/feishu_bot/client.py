@@ -57,6 +57,20 @@ class FeishuBotApiClient:
             error="飞书机器人信息获取失败（请确认已开通并发布机器人能力）",
         )
 
+    async def get_bot_open_id(self) -> str:
+        """获取机器人自身 open_id（群聊 @ 判定用）；复用 verify_bot 同一端点与 token 缓存。"""
+        payload = await self._request(
+            "GET",
+            BOT_INFO_URL,
+            token=await self._tenant_token(),
+            error="飞书机器人信息获取失败（请确认已开通并发布机器人能力）",
+        )
+        bot = payload.get("bot")
+        open_id = bot.get("open_id") if isinstance(bot, dict) else None
+        if not isinstance(open_id, str) or not open_id:
+            raise FeishuBotApiError("飞书机器人信息响应格式无效")
+        return open_id
+
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
 

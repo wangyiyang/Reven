@@ -3,7 +3,13 @@ import json
 import httpx
 import pytest
 import respx
-from reven.integrations.feishu_bot.client import MESSAGES_URL, TENANT_TOKEN_URL, FeishuBotApiClient, FeishuBotApiError
+from reven.integrations.feishu_bot.client import (
+    BOT_INFO_URL,
+    MESSAGES_URL,
+    TENANT_TOKEN_URL,
+    FeishuBotApiClient,
+    FeishuBotApiError,
+)
 
 
 def _mock_token(router: respx.MockRouter) -> None:
@@ -55,3 +61,36 @@ async def test_missing_token_is_rejected() -> None:
         router.post(TENANT_TOKEN_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
         with pytest.raises(FeishuBotApiError, match="凭证无效"):
             await FeishuBotApiClient("cli_test", "secret").send_text("ou_owner", "通知")
+
+
+@pytest.mark.anyio
+async def test_get_bot_open_id_parses_bot_payload() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json={"code": 0, "bot": {"open_id": "ou_bot"}}))
+        client = FeishuBotApiClient("cli_test", "secret")
+
+        assert await client.get_bot_open_id() == "ou_bot"
+        assert len(router.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_get_bot_open_id_error_is_explicit_and_redacted() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json={"code": 403, "msg": "secret token"}))
+        with pytest.raises(FeishuBotApiError) as caught:
+            await FeishuBotApiClient("cli_test", "secret").get_bot_open_id()
+
+    assert "secret" not in str(caught.value)
+    assert "token" not in str(caught.value)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("payload", [{"code": 0, "bot": {}}, {"code": 0}, {"code": 0, "bot": {"open_id": 1}}])
+async def test_get_bot_open_id_malformed_payload_is_rejected(payload: dict) -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        router.get(BOT_INFO_URL).mock(return_value=httpx.Response(200, json=payload))
+        with pytest.raises(FeishuBotApiError, match="格式无效"):
+            await FeishuBotApiClient("cli_test", "secret").get_bot_open_id()

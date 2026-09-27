@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from reven.app import create_app
 from reven.config import Settings
+from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -15,8 +16,9 @@ DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
 class FakeSupervisor:
     instances: list["FakeSupervisor"] = []
 
-    def __init__(self, credentials: object) -> None:
+    def __init__(self, credentials: object, *, chat_dispatcher: object) -> None:
         del credentials
+        self.chat_dispatcher = chat_dispatcher
         self.started = 0
         self.stopped = 0
         FakeSupervisor.instances.append(self)
@@ -51,6 +53,7 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
         supervisor = FakeSupervisor.instances[0]
         assert supervisor.started == 1
         assert client.app.state.feishu_bot_supervisor is supervisor
+        assert isinstance(supervisor.chat_dispatcher, FeishuChatDispatcher)  # 对话分发器随 supervisor 装配
 
     assert supervisor.stopped == 1
 

@@ -21,7 +21,7 @@ describe("Feishu application integration", () => {
     expect(screen.queryByRole("heading", { name: "飞书" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Webhook")).not.toBeInTheDocument()
     expect(card.getByText(/每日汇总（含待审核统计与候选工作台入口）/)).toBeInTheDocument()
-    expect(card.getByLabelText("接收人 Open ID（审核白名单）")).toHaveValue("ou_boss\nou_ops")
+    expect(card.getByLabelText("可使用机器人的用户 Open ID（通知接收 + 对话）")).toHaveValue("ou_boss\nou_ops")
     expect(card.getByLabelText("启用机器人")).toBeChecked()
     expect(card.getByText("已配置 · ****alue")).toBeInTheDocument()
     expect(card.getByLabelText("App ID")).toHaveValue("")
@@ -42,7 +42,7 @@ describe("Feishu application integration", () => {
     renderPage()
 
     const card = await findCard("飞书应用")
-    const recipients = card.getByLabelText("接收人 Open ID（审核白名单）")
+    const recipients = card.getByLabelText("可使用机器人的用户 Open ID（通知接收 + 对话）")
     await user.clear(recipients)
     await user.type(recipients, "ou_boss, ou_ops\nou_backup，ou_editor")
     await user.click(card.getByLabelText("启用机器人"))

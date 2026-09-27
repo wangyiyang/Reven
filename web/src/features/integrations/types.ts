@@ -42,10 +42,10 @@ export const PROVIDERS: ProviderDefinition[] = [
     provider: "feishu_bot",
     number: "01",
     title: "飞书应用",
-    eyebrow: "通知与审核",
-    description: "向白名单成员发送每日汇总（含待审核统计与候选工作台入口），采纳 / 忽略在候选工作台完成。",
+    eyebrow: "通知与对话",
+    description: "向白名单成员发送每日汇总（含待审核统计与候选工作台入口）；白名单成员可在飞书中与机器人对话，采纳 / 忽略在候选工作台完成。",
     publicFields: [
-      { key: "whitelist_open_ids", label: "接收人 Open ID（审核白名单）", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
+      { key: "whitelist_open_ids", label: "可使用机器人的用户 Open ID（通知接收 + 对话）", type: "string_list", optional: true, placeholder: "ou_…，每行一个或用逗号分隔" },
       { key: "enabled", label: "启用机器人", type: "checkbox" },
     ],
     secretFields: [

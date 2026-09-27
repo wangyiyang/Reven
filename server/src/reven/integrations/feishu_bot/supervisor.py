@@ -18,6 +18,8 @@ from contextlib import suppress
 from typing import Any, Protocol
 
 from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.feishu_bot.chat_dispatcher import ChatDispatch
+from reven.integrations.feishu_bot.client import FeishuBotApiClient
 from reven.integrations.feishu_bot.config import PROVIDER, FeishuBotConfig
 
 logger = logging.getLogger(__name__)
@@ -45,26 +47,30 @@ class FeishuBotSupervisor:
         self,
         credentials: IntegrationCredentials,
         *,
+        chat_dispatcher: ChatDispatch,
         connection_factory: ConnectionFactory | None = None,
     ) -> None:
         self._credentials = credentials
+        self._chat_dispatcher = chat_dispatcher
         self._connection_factory = connection_factory or self._build_default_connection
         self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._bot_open_id: str | None = None
         self._lock = threading.Lock()
         self._connection: BotConnection | None = None
         self._thread: threading.Thread | None = None
 
     def _build_default_connection(self, credentials: FeishuBotConfig) -> BotConnection:
-        """默认连接工厂：建 LarkWsConnection。"""
-        return LarkWsConnection(credentials)
+        """默认连接工厂：建 LarkWsConnection（透传 bot open_id 与对话分发器）。"""
+        return LarkWsConnection(credentials, bot_open_id=self._bot_open_id, chat_dispatch=self._chat_dispatcher)
 
     async def start(self) -> None:
         """按当前配置确保连接在运行；已在运行时直接返回。"""
         self._main_loop = asyncio.get_running_loop()
+        self._chat_dispatcher.bind_loop(self._main_loop)
         with self._lock:
             if self._connection is not None:
                 return
-        credentials = await self._load_credentials()
+        credentials = await self._prepare_credentials()
         self._replace_connection(credentials)
 
     def stop(self) -> None:
@@ -80,8 +86,14 @@ class FeishuBotSupervisor:
         if loop is None:
             logger.warning("飞书机器人 reload 忽略：主事件循环尚未就绪（provider=%s）", PROVIDER)
             return
+        coro = self._prepare_credentials()
         try:
-            future = asyncio.run_coroutine_threadsafe(self._load_credentials(), loop)
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except Exception as exc:
+            coro.close()  # 调度失败时协程从未被 await，必须显式 close 避免泄漏（RuntimeWarning）
+            logger.warning("飞书机器人配置热更新读取失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
+            return
+        try:
             credentials = future.result(timeout=_CONFIG_READ_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.warning("飞书机器人配置热更新读取失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
@@ -133,6 +145,25 @@ class FeishuBotSupervisor:
         """读取 feishu_bot 配置；未配置/未启用/凭证不完整/读取失败均返回 None。"""
         return await self._credentials.feishu_bot()
 
+    async def _prepare_credentials(self) -> FeishuBotConfig | None:
+        """读取配置并按需补齐 bot open_id（群聊 @ 判定用；为 None 时重试，成功一次后不再拉取）。"""
+        credentials = await self._load_credentials()
+        if credentials is not None and self._bot_open_id is None:
+            self._bot_open_id = await self._fetch_bot_open_id(credentials)
+        return credentials
+
+    async def _fetch_bot_open_id(self, credentials: FeishuBotConfig) -> str | None:
+        """获取机器人 open_id；失败降级为 None：群聊消息忽略（记日志），私聊对话不受影响。"""
+        try:
+            return await FeishuBotApiClient(credentials.app_id, credentials.app_secret).get_bot_open_id()
+        except Exception as exc:
+            logger.warning(
+                "飞书机器人 open_id 获取失败，群聊消息将忽略（provider=%s, error_type=%s）",
+                PROVIDER,
+                type(exc).__name__,
+            )
+            return None
+
 
 class LarkWsConnection:
     """lark-oapi ws.Client 一代连接。
@@ -147,6 +178,9 @@ class LarkWsConnection:
     def __init__(
         self,
         credentials: FeishuBotConfig,
+        *,
+        bot_open_id: str | None,
+        chat_dispatch: ChatDispatch,
     ) -> None:
         import lark_oapi  # type: ignore[import-untyped]  # 延迟导入：避免进程导入期触发 SDK 模块级事件循环副作用
 
@@ -158,6 +192,8 @@ class LarkWsConnection:
             event_handler=build_event_handler(
                 credentials.app_id,
                 credentials.app_secret,
+                bot_open_id=bot_open_id,
+                chat_dispatch=chat_dispatch,
             ),
             log_level=lark_oapi.LogLevel.INFO,
         )

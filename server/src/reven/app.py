@@ -17,6 +17,7 @@ from reven.agent.mcp_server import (
     create_agent_mcp_app,
     resolve_agent_mcp_context,
 )
+from reven.agent.service import AgentService
 from reven.api.routes.agent import router as agent_router
 from reven.api.routes.auth import router as auth_router
 from reven.api.routes.brand import router as brand_router
@@ -32,6 +33,7 @@ from reven.background import build_background_runner
 from reven.config import Settings, get_settings
 from reven.db import create_session_factory
 from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
 from reven.provider_clients import ProviderClients
 from reven.rss.factory import KeywordEmbeddingRefresher
@@ -125,11 +127,13 @@ def _build_feishu_bot_supervisor(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
     credentials: IntegrationCredentials | None,
+    agent_runtime: AgentRuntime,
 ) -> FeishuBotSupervisor | None:
     """创建飞书机器人长连接 supervisor；无库或凭证降级时停用，不阻断进程。"""
     if factory is None or credentials is None:
         return None
-    supervisor = FeishuBotSupervisor(credentials)
+    chat_dispatcher = FeishuChatDispatcher(credentials, AgentService(agent_runtime))
+    supervisor = FeishuBotSupervisor(credentials, chat_dispatcher=chat_dispatcher)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
 
@@ -207,7 +211,7 @@ async def _lifespan(
     )
     current_app.state.agent_runtime = agent_runtime
     feishu_bot_supervisor = _build_feishu_bot_supervisor(
-        current_app, factory, clients.credentials if clients is not None else None
+        current_app, factory, clients.credentials if clients is not None else None, agent_runtime
     )
     active_runner = runner
     primary_error: BaseException | None = None

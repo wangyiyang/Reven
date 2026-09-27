@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-09-26
+- **Total Sessions**: 7
+- **Last Active**: 2026-09-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~278 | Active |
+| `journal-1.md` | ~302 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-09-27 | 飞书机器人接入 Agent 对话 | `f81d614`, `bc10810`, `3eda431` | `feat/feishu-bot-conversation` |
 | 6 | 2026-09-26 | fix(feishu): #132 候选审核推送收敛为每日汇总 + #131 关闭 + #146 清理 issue | `f169da2` | `main` |
 | 5 | 2026-09-21 | PR #128 交付与收尾 | `3e29860` | `codex/remove-notion-publishing` |
 | 4 | 2026-09-21 | 移除稿件发布与 Notion 集成 | `3e29860` | `codex/remove-notion-publishing` |
