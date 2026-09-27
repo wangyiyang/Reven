@@ -1,8 +1,8 @@
-# 飞书应用机器人通知契约
+# 飞书应用机器人契约（通知 + 对话）
 
 ## 1. 范围与触发
 
-修改飞书配置、RSS 每日汇总通知、测试通知或部署通知时使用本契约。
+修改飞书配置、RSS 每日汇总通知、测试通知、部署通知或机器人对话（私聊/群聊@）时使用本契约。
 用户已明确废弃 Webhook 群机器人，唯一业务 provider 为 `feishu_bot`。
 
 ## 2. 调用签名
@@ -11,13 +11,21 @@
 - `POST /api/integrations/feishu_bot/test -> IntegrationResponse`：显式发送测试消息。
 - `reven.notifications.DeliveryNotifier.send(Notification)`：RSS 的统一通知口。
 - `python3 scripts/notify_feishu_deploy.py`：Actions 部署通知，使用环境中的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_NOTIFY_OPEN_IDS`。
+- 对话入站（`integrations/feishu_bot/`）：`handlers.route_message(sender, message, bot_open_id) -> RouteDecision | None`（纯函数路由）；`chat_dispatcher.FeishuChatDispatcher.submit(*, kind, reply, message_id, chat_id, open_id, text) -> None`（立即返回）；`client.FeishuBotApiClient.get_bot_open_id() -> str`（`/bot/v3/info`）。
+- 对话会话：session_id = `feishu:{chat_id}:{open_id}`，传入 `AgentService.chat(message, session_id)`；群内每人独立会话。
 
 ## 3. 行为契约
 
 - RSS 每日汇总只读取应用配置，不依赖 Webhook。稿件发布、Notion 与 outbox 已由主线退役，不得恢复。
 - `enabled` 控制应用机器人运行时通知与入站连接；显式发送测试由用户触发，可验证未启用配置。
-- 白名单是主动通知接收人。Open ID 必须属于该应用；空白名单不能被当作发送成功。
+- 白名单是「可使用机器人的用户」：既是主动通知接收人，也是唯一能与机器人对话的用户。Open ID 必须属于该应用；空白名单不能被当作发送成功。
 - 通知使用文本保留标题、阶段、摘要、链接。每日汇总（含本次统计、待审核总数与候选工作台入口）是唯一候选相关主动通知，每位接收人每天最多一条；候选审核收敛到网页候选工作台，不存在任何审核卡片推送、补发或卡片按钮回调链路。只由飞书应用客户端负责出站 API 边界。
+- 对话路径白名单外用户**全静默**：私聊、群聊@、非文本消息一律不回，连「思考中…」占位回复也不发；白名单预检必须先于一切外显回复。
+- 对话入站只经 lark-oapi WS 长连接。消息处理器在 SDK 连接事件循环上**同步执行**，SDK 的 ping 循环（间隔约 120s）跑在同一循环上——**处理器必须立即返回，严禁在处理器内阻塞等待 Agent 或任何慢 IO**，否则心跳超时掉线。等待一律挪到 daemon 工作线程；慢调用用 `bind_loop()` 绑定主循环 + `asyncio.run_coroutine_threadsafe` 桥接，`run_coroutine_threadsafe` 调度失败必须 `coro.close()`；一切异常收敛为兜底文案 + 脱敏日志，绝不向 SDK 抛。
+- 群聊@判定只用 `mentions[*].id.open_id == bot open_id`（`name`/`mentioned_type` 不可靠，禁用）；mention 占位符用 `mentions[*].key` 从正文剥离。bot open_id 在 `supervisor.start()` 获取，失败降级为群聊忽略 + warning 日志，**私聊不受影响**（私聊无需 bot open_id）。
+- 对话回复策略：先引用回复「思考中…」再引用回复最终结果（均按触发消息 message_id reply）；非文本消息统一回「暂只支持文字提问」；剥离 mention 后空文本回引导文案。
+- 对话白名单每次现读 `credentials.feishu_bot()`（主循环内），配置页改白名单即时生效，不依赖连接重建。
+- 单轮对话超时 120s（`_CHAT_TIMEOUT_SECONDS`，构造参可注入，测试传小值）；超时后 dsh 侧 `harness.run` 线程不取消、跑完为止——已知取舍，不引入取消机制。
 - 连接测试包含 token、`/open-apis/bot/v3/info` 和真正发送消息。前端检查返回的 `connection_status`，不能只凭 HTTP 200 显示成功。
 - 汇总去重只复用 `rss_discovery_runs.notification_sent_at` 与调度器同日完成缓存：发送失败不标记、随 run 重入重试；不新增去重表或字段，也不表示每次 scheduler tick 都重发。
 - 禁止将任一接收人发送失败记为整条成功。RSS 保留已有发送状态及重试行为，多人部分成功后整次重试仍可能重复发送。
@@ -37,6 +45,10 @@
 | 旧 `feishu` 数据行存在 | API 列表隐藏，专用路径 404 |
 | Actions 三项配置全空/部分缺失 | 全空跳过；部分缺失退出非零 |
 | Actions token 或消息 API 失败 | 退出非零，不输出 Secret/token/响应原文 |
+| 对话超时或 AgentError 一族 | 用户收兜底文案「出了点问题，请稍后重试」；日志含 error_type + error_code，不含异常 message（可能回显 secret） |
+| bot open_id 获取失败 | 群聊消息一律忽略 + warning；私聊正常 |
+| 白名单外用户任何消息 | 零回复、零 dispatch，仅 debug 日志 |
+| 「思考中…」占位发送失败 | 放弃本轮，不再发结果，避免时序错乱 |
 
 ## 5. 正常、默认与错误案例
 
@@ -44,6 +56,7 @@
 - 默认：未配置 CI 通知 Secrets 的仓库仍可部署，通知步骤明确跳过。
 - 错误：获取 tenant token 成功就显示“测试消息已发送”，会掩盖权限缺失。
 - 错误：为汇总去重引入新表或新字段；去重只能复用 `notification_sent_at` 与同日完成缓存。
+- 错误：在消息处理器里 `future.result(timeout=120)` 阻塞等 Agent——ping 循环同循环，心跳超时掉线。
 
 ## 6. 必须覆盖的测试
 
@@ -52,6 +65,8 @@
 - RSS 汇总失败重入重试不重复投递、同日重跑不重复发送；1/100/1,000 条待审核候选下同一接收人仅收到一条汇总，且包含准确待审核总数与候选工作台入口。
 - 前端无 Webhook 入口、类型化保存、重复点击保护、失败不报成功。
 - CI 脚本解析环境与接收人、真实请求形状、API/网络错误、同一操作稳定 UUID。
+- 对话路由矩阵：私聊 text/非文本、群聊无@/@他人/@bot 剥离/空文本引导、非 user sender、畸形 JSON；bot open_id 一律参数注入，测试零网络。
+- 对话桥接：`bind_loop(get_running_loop())` + `asyncio.to_thread(submit)`；dead loop 调度失败兜底且不泄漏协程（可加 `-W error::RuntimeWarning`）；超时注小值；AgentError 矩阵；非白名单零 reply；db 改白名单下一轮即时生效。
 
 ## 7. 错误与正确写法
 
@@ -71,4 +86,18 @@ return { message: "测试消息已发送" }
 // 正确：业务状态失败必须显式进入错误路径。
 const result = await requestIntegration(path, { method: "POST" })
 if (result.connection_status !== "连接正常") throw new Error(result.last_error ?? "测试失败")
+```
+
+```python
+# 错误：在 SDK 连接线程的处理器里阻塞等 Agent，ping 循环同循环会心跳掉线。
+def on_message(data):
+    future = asyncio.run_coroutine_threadsafe(agent.chat(text, session_id), main_loop)
+    answer = future.result(timeout=120)  # 阻塞 120s，连接断开
+    reply(data.event.message.message_id, answer)
+
+# 正确：处理器只路由并 submit，立即返回；等待在 daemon 工作线程内完成。
+def on_message(data):
+    decision = route_message(data.event.sender, data.event.message, bot_open_id)
+    if decision is not None:
+        dispatcher.submit(kind=decision.kind, reply=reply, ...)  # 立即返回
 ```
