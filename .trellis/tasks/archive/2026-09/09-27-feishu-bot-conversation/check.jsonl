@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "后端规范入口：Quality Check 清单"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "后端质量门禁标准"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "核对错误纪律：兜底收敛、脱敏、不向 SDK 抛"}
+{"file": ".trellis/spec/reven-server/backend/logging-guidelines.md", "reason": "核对日志脱敏"}
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "核对集成层契约：凭证 seam、热更新不退化"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "核对飞书应用契约与白名单语义扩展的一致性"}
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "核对 Agent 调用侧约束（未改 Agent 模块本身，仅核对消费方式）"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨包通用指南"}
+{"file": ".trellis/tasks/09-27-feishu-bot-conversation/research/feishu-bot-testing.md", "reason": "核对测试矩阵是否按切入点落实、既有回归断言口径是否同步"}

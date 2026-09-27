@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "后端规范入口：Pre-Development Checklist 与 Quality Check，动手前必读"}
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "飞书 bot 所在集成层的 provider 契约（凭证 seam、热更新、目录纪律）"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "飞书应用机器人契约：通知触发、白名单语义、凭证管理，本任务扩展其白名单语义"}
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "Agent 模块与 dsh 运行时集成契约：AgentService/AgentRuntime 约束，飞书侧调用前必读"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "错误处理纪律：异常收敛、兜底文案、绝不向 SDK 抛"}
+{"file": ".trellis/spec/reven-server/backend/logging-guidelines.md", "reason": "日志脱敏要求：secret/token 不得入日志"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨包通用思考指南"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "前端规范入口：集成页白名单文案改动所属层"}
+{"file": ".trellis/tasks/09-27-feishu-bot-conversation/research/lark-oapi-event-structure-mention.md", "reason": "lark-oapi 事件模型、mention 判定（只能比 open_id）、文本剥离、reply API 形态"}
+{"file": ".trellis/tasks/09-27-feishu-bot-conversation/research/review-callback-thread-bridge.md", "reason": "线程桥复刻骨架：bind_loop + run_coroutine_threadsafe + daemon 工作线程，含 coro.close 等关键细节"}
+{"file": ".trellis/tasks/09-27-feishu-bot-conversation/research/agent-service-assembly.md", "reason": "AgentService 装配点、异常矩阵、reload 不失效验证、最小注入改动链"}
+{"file": ".trellis/tasks/09-27-feishu-bot-conversation/research/feishu-bot-testing.md", "reason": "测试基座：dict 构造事件、_StubAgentService 范式、anyio 用法、各测试文件切入点"}
