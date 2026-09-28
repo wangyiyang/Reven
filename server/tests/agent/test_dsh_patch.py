@@ -61,6 +61,39 @@ def test_patch_disables_builtin_coding_tools() -> None:
     assert disabled == DISABLED_CODING_TOOLS
 
 
+def _system_prompt_config() -> dict[str, Any]:
+    (entry,) = [item for item in _load_patch() if item.get("id") == "system-prompt"]
+    return dict(entry["config"])
+
+
+def _system_prompt_persona_suffix() -> str:
+    return str(_system_prompt_config()["personaSuffix"])
+
+
+def test_patch_preserves_persona_prefix() -> None:
+    """config 为整体替换语义：覆盖 system-prompt 时必须显式保留 sdk 原有 personaPrefix。"""
+    prefix = str(_system_prompt_config()["personaPrefix"])
+    assert "{{model}}" in prefix
+    assert "coding agent" in prefix
+
+
+def test_patch_injects_keyword_ops_behavior_instructions() -> None:
+    """#153 行为指令：删除复述确认 + 话术三要素（语义匹配/下次每日抓取/命中数）。"""
+    suffix = _system_prompt_persona_suffix()
+    # 覆盖 personaSuffix 必须保留原条目的工作目录占位
+    assert "{{cwd}}" in suffix
+    # 删除前复述确认（词、正/反向、ID），用户确认后才调 delete
+    assert "复述确认" in suffix
+    assert "rss_keyword_delete" in suffix
+    # 话术三要素：语义匹配生效、下次每日抓取后生效、命中数
+    assert "语义匹配" in suffix
+    assert "下次每日抓取" in suffix
+    assert "hit_count" in suffix
+    # embedding pending 降级话术
+    assert "embedding_status" in suffix
+    assert "pending" in suffix
+
+
 @pytest.mark.dsh_runtime
 def test_patch_composes_with_sdk_profile(tmp_path: Path) -> None:
     """dsh --dump-config 实跑：insert/disable 语法被 sdk profile 接受，mcp-reven 出现在组合结果中。"""
@@ -86,3 +119,6 @@ def test_patch_composes_with_sdk_profile(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "mcp-reven" in result.stdout
     assert "@deepseek-ai/dsh-mcp-client" in result.stdout
+    # config 整体替换语义下，组合结果的 system-prompt 必须同时保有 personaPrefix 与 personaSuffix
+    assert "personaPrefix" in result.stdout
+    assert "personaSuffix" in result.stdout

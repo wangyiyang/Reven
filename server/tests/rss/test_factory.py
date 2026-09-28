@@ -6,7 +6,7 @@ embedding/chat 客户端装配与默认值语义由 tests/test_provider_clients.
 import base64
 from datetime import UTC, date, datetime
 from urllib.parse import parse_qsl
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -23,7 +23,7 @@ from reven.rss.factory import (
     _UnavailableSiliconFlow,
     record_backfill_error,
 )
-from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
+from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsRepository
 from reven.security.secrets import SecretBox
 from sqlalchemy import select
@@ -124,6 +124,107 @@ async def test_refresher_embeds_keywords_via_seam(db_session: AsyncSession, sett
 
     assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).refresh() == 1
     assert route.calls[0].request.headers["authorization"] == "Bearer sk-db"
+
+
+def _embedding_integration() -> Integration:
+    return Integration(
+        provider="embedding",
+        public_config={"base_url": "https://embedding.example.com", "model": BGE_M3_MODEL},
+        encrypted_secret=SecretBox.from_base64(TEST_MASTER_KEY).encrypt({"api_key": "sk-db"}),
+    )
+
+
+def _embedding_route(vectors: list[list[float]]) -> respx.Route:
+    return respx.post("https://embedding.example.com/v1/embeddings").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "model": BGE_M3_MODEL,
+                "data": [
+                    {"object": "embedding", "index": index, "embedding": vector} for index, vector in enumerate(vectors)
+                ],
+            },
+        )
+    )
+
+
+async def _seed_items(db_session: AsyncSession, titles: list[str]) -> None:
+    run = RssDiscoveryRun(run_date=date(2026, 9, 28), status="completed")
+    db_session.add(run)
+    await db_session.flush()
+    for index, title in enumerate(titles):
+        db_session.add(
+            RssItem(
+                first_seen_run_id=run.id,
+                source_name="Example",
+                title_key=f"title-key-{index}",
+                title=title,
+                title_zh=title,
+            )
+        )
+
+
+async def _seed_embedded_keyword(db_session: AsyncSession) -> UUID:
+    keyword = RssKeyword(
+        term="具身智能",
+        normalized_term="具身智能",
+        kind="positive",
+        enabled=True,
+        embedding=[0.5] * 1024,
+        embedding_model=BGE_M3_MODEL,
+        embedding_dimension=1024,
+    )
+    db_session.add(keyword)
+    await db_session.commit()
+    return keyword.id
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_estimate_hits_counts_items_above_screening_threshold(
+    db_session: AsyncSession, settings: Settings
+) -> None:
+    db_session.add(_embedding_integration())
+    await _seed_items(db_session, ["具身智能取得突破", "今日天气预报"])
+    keyword_id = await _seed_embedded_keyword(db_session)
+    # 第一条与词向量同向（cosine=1.0，超筛选阈值 0.55），第二条反向（cosine=-1.0）
+    _embedding_route([[0.5] * 1024, [-0.5] * 1024])
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).estimate_hits(keyword_id) == 1
+
+
+@pytest.mark.anyio
+async def test_estimate_hits_returns_zero_when_item_store_empty(db_session: AsyncSession, settings: Settings) -> None:
+    keyword_id = await _seed_embedded_keyword(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).estimate_hits(keyword_id) == 0
+
+
+@pytest.mark.anyio
+async def test_estimate_hits_returns_none_when_embedder_not_configured(
+    db_session: AsyncSession, settings: Settings
+) -> None:
+    await _seed_items(db_session, ["具身智能取得突破"])
+    keyword_id = await _seed_embedded_keyword(db_session)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).estimate_hits(keyword_id) is None
+    assert await KeywordEmbeddingRefresher(factory, None).estimate_hits(keyword_id) is None
+
+
+@pytest.mark.anyio
+async def test_estimate_hits_returns_none_when_keyword_vector_missing(
+    db_session: AsyncSession, settings: Settings
+) -> None:
+    await RssSettingsRepository(db_session).create_keyword(term="无向量", kind="positive", enabled=True)
+    await db_session.commit()
+    keyword_id = (await RssSettingsRepository(db_session).list_keywords())[0].id
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    assert await KeywordEmbeddingRefresher(factory, _clients(db_session, settings)).estimate_hits(keyword_id) is None
 
 
 class _SingleEntryFeedReader:

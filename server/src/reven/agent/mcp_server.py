@@ -16,7 +16,7 @@ from fastmcp.server.auth import StaticTokenVerifier
 from fastmcp.server.http import StarletteWithLifespan
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.agent.tools_rss import register_rss_tools
+from reven.agent.tools_rss import KeywordEmbeddingHooks, register_rss_tools
 from reven.config import DEFAULT_AGENT_MCP_URL, Settings
 
 AGENT_MCP_MOUNT_PREFIX = "/agent"
@@ -44,17 +44,25 @@ def resolve_agent_mcp_context(settings: Settings | None) -> AgentMcpContext:
 def create_agent_mcp_server(
     session_factory: async_sessionmaker[AsyncSession],
     token: str,
+    *,
+    embedding_refresher: KeywordEmbeddingHooks | None = None,
 ) -> FastMCP:
     """构建注册了 Reven 工具集、仅接受内部 Bearer token 的 FastMCP 实例。"""
     verifier = StaticTokenVerifier(tokens={token: {"client_id": _MCP_CLIENT_ID, "scopes": []}})
     mcp = FastMCP("reven", auth=verifier)
-    register_rss_tools(mcp, session_factory)
+    register_rss_tools(mcp, session_factory, embedding_refresher=embedding_refresher)
     return mcp
 
 
 def create_agent_mcp_app(
     session_factory: async_sessionmaker[AsyncSession],
     token: str,
+    *,
+    embedding_refresher: KeywordEmbeddingHooks | None = None,
 ) -> StarletteWithLifespan:
     """构建可挂载进 FastAPI 的 MCP ASGI 子应用；调用方必须进入其 lifespan（驱动会话管理器）。"""
-    return create_agent_mcp_server(session_factory, token).http_app(path="/mcp")
+    return create_agent_mcp_server(
+        session_factory,
+        token,
+        embedding_refresher=embedding_refresher,
+    ).http_app(path="/mcp")
