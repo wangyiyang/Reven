@@ -26,6 +26,7 @@
 - **`AGENT_MCP_URL` 默认 `http://127.0.0.1:8000/agent/mcp`；非 8000 端口部署必须显式设置**，否则 dsh 回调连不上（症状：模型"不知道有工具"，不报错）。
 - 配置变更需重启进程生效（本版限制）。
 - 容器：`DSH_HOME=/data/dsh`（compose `dsh-data` 卷）；镜像内 `dsh --version` 可用作部署冒烟。
+- **`read_only` 根文件系统的容器必须将 `HOME` 指向可写卷**（compose 设 `HOME: /data/dsh`）：dsh 运行时（pkg 打包的 Node）boot 时要在 `$HOME/.cache/pkg/` 创建插件缓存目录，只读 `$HOME`（如镜像默认的 `/home/reven`）下 mkdir 失败，症状为启动日志报 `dsh 运行时启动失败（error_type=JsonRpcError）`、Agent 按降级不可用（2026-09-28 生产实测踩坑；`PKG_CACHE_PATH` env 经实测无效）。
 - 测试：DB 套件与 dsh 子进程测试混跑时，`conftest.py` 必须隔离 `AGENT_*/DSH_HOME` env（否则开发者 shell 残留 env 会级联污染无关用例——M1 踩过的坑）。
 
 ## 关联
