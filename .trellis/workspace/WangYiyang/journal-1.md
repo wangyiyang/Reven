@@ -300,3 +300,25 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 排查并修复 self-host dsh 运行时 HOME 不可写导致的 Agent 降级
+
+**Date**: 2026-09-28
+**Task**: 排查并修复 self-host dsh 运行时 HOME 不可写导致的 Agent 降级
+**Package**: web
+**Branch**: `chore/trellis-finish-self-host-dsh-home`
+
+### Summary
+
+生产飞书机器人对话报错排查：第一层 agent-llm 未配置（引导用户前端配置）；第二层配置启动时一次性加载不热更，重启后暴露真凶——read_only 根文件系统下 dsh 运行时无法在 $HOME/.cache/pkg 建插件缓存（ENOENT→JsonRpcError→Agent 降级）。服务器 compose 加 HOME: /data/dsh 验证恢复后，修复持久化回仓库（infra/self-host compose + agent-dsh 契约，PR #151）；PKG_CACHE_PATH 经实测无效。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6422a96` | (see git log) |
+
+### Status
+
+[OK] **Completed**
