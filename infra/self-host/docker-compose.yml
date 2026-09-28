@@ -36,6 +36,9 @@ services:
       REVEN_ADMIN_PASSWORD: ${REVEN_ADMIN_PASSWORD:?Generate REVEN_ADMIN_PASSWORD before starting}
       REVEN_PUBLIC_BASE_URL: ${REVEN_PUBLIC_BASE_URL:?Set REVEN_PUBLIC_BASE_URL to your HTTPS origin}
       DSH_HOME: /data/dsh
+      # HOME must point to a writable volume: with read_only rootfs, the dsh runtime
+      # cannot create its plugin cache (~/.cache/pkg), and Agent degrades at startup.
+      HOME: /data/dsh
       # Unset optional keys are omitted, preserving application defaults and explicit degradation.
       SILICONFLOW_API_KEY:
       SILICONFLOW_CHAT_MODEL:
