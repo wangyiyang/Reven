@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-09-27
+- **Total Sessions**: 8
+- **Last Active**: 2026-09-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~302 | Active |
+| `journal-1.md` | ~324 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-09-28 | 排查并修复 self-host dsh 运行时 HOME 不可写导致的 Agent 降级 | `6422a96` | `chore/trellis-finish-self-host-dsh-home` |
 | 7 | 2026-09-27 | 飞书机器人接入 Agent 对话 | `f81d614`, `bc10810`, `3eda431` | `feat/feishu-bot-conversation` |
 | 6 | 2026-09-26 | fix(feishu): #132 候选审核推送收敛为每日汇总 + #131 关闭 + #146 清理 issue | `f169da2` | `main` |
 | 5 | 2026-09-21 | PR #128 交付与收尾 | `3e29860` | `codex/remove-notion-publishing` |
