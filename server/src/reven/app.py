@@ -87,12 +87,13 @@ def _mount_agent_mcp(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
     settings: Settings | None,
+    embedding_refresher: KeywordEmbeddingRefresher | None,
 ) -> tuple[AgentMcpContext | None, StarletteWithLifespan | None]:
     """有数据库时装配进程内 MCP 端点（dsh 工具回调入口）；无库时不挂载，dsh 也不带工具 patch。"""
     if factory is None:
         return None, None
     context = resolve_agent_mcp_context(settings)
-    mcp_app = create_agent_mcp_app(factory, context.token)
+    mcp_app = create_agent_mcp_app(factory, context.token, embedding_refresher=embedding_refresher)
     current_app.mount(AGENT_MCP_MOUNT_PREFIX, mcp_app)
     return context, mcp_app
 
@@ -202,10 +203,12 @@ async def _lifespan(
     clients = _build_provider_clients(factory, settings)
     current_app.state.integration_credentials = clients.credentials if clients is not None else None
     current_app.state.provider_clients = clients
+    refresher: KeywordEmbeddingRefresher | None = None
     if factory is not None:
         current_app.state.session_factory = factory
-        current_app.state.rss_embedding_refresher = KeywordEmbeddingRefresher(factory, clients)
-    mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings)
+        refresher = KeywordEmbeddingRefresher(factory, clients)
+        current_app.state.rss_embedding_refresher = refresher
+    mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings, refresher)
     agent_runtime = await _build_agent_runtime(
         clients.credentials if clients is not None else None, settings, mcp_context
     )

@@ -202,10 +202,11 @@ def _max_similarity(vector: tuple[float, ...], keywords: tuple[KeywordSignal, ..
     vectors = tuple(keyword.vector for keyword in keywords if keyword.vector is not None)
     if not vectors:
         return 0.0
-    return max(_cosine(vector, keyword_vector) for keyword_vector in vectors)
+    return max(cosine_similarity(vector, keyword_vector) for keyword_vector in vectors)
 
 
-def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+def cosine_similarity(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+    """余弦相似度：筛选语义分与命中数估计共用的唯一实现（禁止另造）。"""
     if len(left) != len(right) or not left:
         raise ValueError("Embedding 维度不一致")
     denominator = math.sqrt(sum(value * value for value in left)) * math.sqrt(sum(value * value for value in right))

@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "dsh patch/MCP 装配契约：!!js env 表达式、工具命名 mcp__ 前缀、禁用内建工具"}
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "关键词 embedding 与筛选阈值契约，命中数估计必须复用而非新造"}

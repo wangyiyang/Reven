@@ -9,6 +9,7 @@
 - **自定义工具唯一可行路径 = MCP**：profile patch 用 `- insert:` 语法插入 `@deepseek-ai/dsh-mcp-client`（已编译进 runtime 二进制，无需 pnpm）；平铺 `- id/name/config` 只能覆盖既有条目（否则报 `entry "<id>" not found`）。
   - 工具在模型侧名称为 `mcp__<serverName>__<tool>`。
   - patch 内运行时值用 `!!js process.env.X` 表达式，变量由 `AgentRuntime._launch` 注入子进程 env——凭证不落盘。
+  - **patch 覆盖既有条目时 config 是整体替换语义**：如 `system-prompt` 只写 `personaSuffix` 会静默丢弃 sdk 原 `personaPrefix`，两键必须显式同列（09-28 关键词任务踩坑，test_dsh_patch 有组合断言）。
 - **并发**：SDK 同步客户端（reader 线程 + waiters），单实例多线程 `run()`（独立 session_id）实测真并发，**不要加全局锁**；FastAPI 侧一律 `anyio.to_thread.run_sync` 包装。
 - 内建 coding 工具（tool-bash/tool-pwsh/tool-fs/tool-fs-search/tool-skill/tool-subagent-control/tool-subagent-list-agents/tool-jobs）在 IM 场景用 patch `disabled: true` 关闭（`agent/dsh.patch.yml` 为准）。
 
@@ -18,6 +19,7 @@
 - `agent/runtime.py`：启动失败**不抛出**——置不可用 + 结构化日志（fail-fast 已被拍板否决）；`chat` 在该状态抛 `AGENT_RUNTIME_UNAVAILABLE`（502）；未配置抛 `AgentNotConfiguredError`（503）。
 - `agent/mcp_server.py`：MCP 端点挂 `/agent/mcp`（非 `/api/*`，避开 AuthMiddleware 会话拦截），Bearer token 鉴权（缺省进程内随机 `token_hex(32)`）；CSRF 中间件经 `exempt_prefixes` 豁免该前缀（机器端点无 CSRF 威胁模型）。
 - `agent/service.py`：`chat(message, session_id)`；session_id 缺省生成 UUID hex 并随响应返回。
+- `agent/tools_rss.py`：关键词 MCP 工具写路径（create/update）成功后**必须触发 `RssEmbeddingRefresher.refresh()` 增量刷新**——无 embedding 的关键词在语义筛选中静默不生效（REST 侧靠 `/embeddings/rebuild`，MCP 侧曾无人触发，#153 修复）；refresh 失败返回成功但标 `embedding_status=pending`（词已入库，下轮兜底），不静默不抛出。
 - 路由为 `/api/agent/chat`（非 PRD 字面的 `/agent/chat`）——挂 `/api/*` 下才能被 AuthMiddleware fail-closed 保护。
 
 ## 配置与部署

@@ -26,6 +26,26 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     await engine.dispose()
 
 
+class _FakeEmbeddingRefresher:
+    """KeywordEmbeddingHooks 测试替身：记录调用，可注入 refresh 失败与命中数。"""
+
+    def __init__(self, *, hits: int | None = 0, fail_refresh: bool = False) -> None:
+        self._hits = hits
+        self._fail_refresh = fail_refresh
+        self.refresh_calls = 0
+        self.estimate_calls: list[UUID] = []
+
+    async def refresh(self, *, force: bool = False) -> int:
+        self.refresh_calls += 1
+        if self._fail_refresh:
+            raise RuntimeError("SILICONFLOW_API_KEY_NOT_CONFIGURED")
+        return 1
+
+    async def estimate_hits(self, keyword_id: UUID) -> int | None:
+        self.estimate_calls.append(keyword_id)
+        return self._hits
+
+
 @pytest.mark.anyio
 async def test_create_and_list_keywords_roundtrip(session_factory: async_sessionmaker[AsyncSession]) -> None:
     tools = RssKeywordTools(session_factory)
@@ -66,7 +86,13 @@ async def test_update_keyword_reclassifies_and_disables(session_factory: async_s
 
     updated = await tools.update_keyword(keyword_id, term="LLM 应用", kind="negative", enabled=False)
 
-    assert updated == {"id": str(keyword_id), "term": "LLM 应用", "kind": "negative", "enabled": False}
+    assert updated == {
+        "id": str(keyword_id),
+        "term": "LLM 应用",
+        "kind": "negative",
+        "enabled": False,
+        "embedding_status": "pending",
+    }
 
 
 @pytest.mark.anyio
@@ -111,5 +137,79 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
         # 带空白的输入在 MCP 边界经 pydantic 约束自动 strip（与 API schema 行为一致）
         created = await client.call_tool("rss_keyword_create", {"term": " MCP 协议 ", "kind": "positive"})
         assert created.data["term"] == "MCP 协议"
+        assert created.data["embedding_status"] == "pending"
+        assert created.data["hit_count"] is None
         listed = await client.call_tool("rss_keyword_list", {})
         assert [item["term"] for item in listed.data] == ["MCP 协议"]
+
+
+@pytest.mark.anyio
+async def test_create_triggers_refresh_and_reports_hit_count(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    refresher = _FakeEmbeddingRefresher(hits=7)
+    tools = RssKeywordTools(session_factory, refresher)
+
+    created = await tools.create_keyword(term="具身智能", kind="positive")
+
+    assert refresher.refresh_calls == 1
+    assert refresher.estimate_calls == [UUID(str(created["id"]))]
+    assert created["embedding_status"] == "ready"
+    assert created["hit_count"] == 7
+
+
+@pytest.mark.anyio
+async def test_create_degrades_to_pending_when_refresh_fails(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    refresher = _FakeEmbeddingRefresher(fail_refresh=True)
+    tools = RssKeywordTools(session_factory, refresher)
+
+    created = await tools.create_keyword(term="具身智能", kind="positive")
+
+    # 词已入库且工具返回成功，仅标注 pending（不静默、不抛出）
+    assert created["embedding_status"] == "pending"
+    assert created["hit_count"] is None
+    assert refresher.estimate_calls == []
+    listed = await tools.list_keywords()
+    assert [item["term"] for item in listed] == ["具身智能"]
+
+
+@pytest.mark.anyio
+async def test_create_marks_pending_when_refresher_not_wired(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    created = await RssKeywordTools(session_factory).create_keyword(term="具身智能", kind="positive")
+
+    assert created["embedding_status"] == "pending"
+    assert created["hit_count"] is None
+
+
+@pytest.mark.anyio
+async def test_update_triggers_refresh_and_marks_status(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    refresher = _FakeEmbeddingRefresher()
+    tools = RssKeywordTools(session_factory, refresher)
+    created = await tools.create_keyword(term="LLM", kind="positive")
+
+    updated = await tools.update_keyword(UUID(str(created["id"])), term="LLM 应用", kind="positive", enabled=True)
+
+    assert refresher.refresh_calls == 2
+    assert updated["embedding_status"] == "ready"
+    assert "hit_count" not in updated
+
+
+@pytest.mark.anyio
+async def test_create_conflict_still_raises_before_refresh(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    refresher = _FakeEmbeddingRefresher()
+    tools = RssKeywordTools(session_factory, refresher)
+    await tools.create_keyword(term="AI Agent", kind="positive")
+
+    with pytest.raises(ToolError) as exc_info:
+        await tools.create_keyword(term="ai  agent ", kind="negative")
+
+    assert "RSS_KEYWORD_CONFLICT" in str(exc_info.value)
+    assert refresher.refresh_calls == 1
