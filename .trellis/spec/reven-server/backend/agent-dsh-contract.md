@@ -19,6 +19,7 @@
 - `agent/runtime.py`：启动失败**不抛出**——置不可用 + 结构化日志（fail-fast 已被拍板否决）；`chat` 在该状态抛 `AGENT_RUNTIME_UNAVAILABLE`（502）；未配置抛 `AgentNotConfiguredError`（503）。
 - `agent/mcp_server.py`：MCP 端点挂 `/agent/mcp`（非 `/api/*`，避开 AuthMiddleware 会话拦截），Bearer token 鉴权（缺省进程内随机 `token_hex(32)`）；CSRF 中间件经 `exempt_prefixes` 豁免该前缀（机器端点无 CSRF 威胁模型）。
 - `agent/service.py`：`chat(message, session_id)`；session_id 缺省生成 UUID hex 并随响应返回。
+- **dsh 会话无 resume 语义**（SDK 仅 `session/prompt`）：进程重启后，磁盘上已存在的 session_id 再 prompt 报 `JsonRpcError: session "..." already exists`，该会话永久不可用（#161，2026-09-30 生产实测）。`AgentRuntime.chat` 的应对：进程内 `_session_aliases` 映射外部 id → 活跃 id，捕获 already exists 冲突后重铸 `~r` 后缀新 id、记别名、重试一次；别名不持久化，重启后首次冲突再次重铸（预期行为）。调用方（如飞书桥接）可以丢弃返回的 session_id——别名常驻 runtime 进程内。
 - `agent/tools_rss.py`：关键词 MCP 工具写路径（create/update）成功后**必须触发 `RssEmbeddingRefresher.refresh()` 增量刷新**——无 embedding 的关键词在语义筛选中静默不生效（REST 侧靠 `/embeddings/rebuild`，MCP 侧曾无人触发，#153 修复）；refresh 失败返回成功但标 `embedding_status=pending`（词已入库，下轮兜底），不静默不抛出。
 - 路由为 `/api/agent/chat`（非 PRD 字面的 `/agent/chat`）——挂 `/api/*` 下才能被 AuthMiddleware fail-closed 保护。
 
