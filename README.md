@@ -6,7 +6,7 @@ Reven 是面向超级个体的个人经营工作台，聚合需要判断和处�
 
 ## 开始使用
 
-按 [自托管指南](docs/self-hosting.md) 从源码构建 PostgreSQL 17、Reven 和 Caddy，无需维护者的私有镜像或云账号。
+按 [自托管指南](docs/self-hosting.md) 从源码构建（或使用公开镜像）部署 PostgreSQL 17、Reven 和 Caddy，无需维护者的私有镜像或云账号。
 
 - 正式支持目标为 **Linux AMD64**；ARM64 和 Docker Desktop 尚未正式验证。
 - 公网使用自己的域名和 Caddy 自动 HTTPS；本机体验提供仅绑定 loopback 的 HTTP 配置。

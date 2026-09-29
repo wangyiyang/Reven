@@ -1,6 +1,6 @@
 # 自托管与首次使用
 
-本指南从源码构建，在独立的 Linux AMD64 主机上运行 PostgreSQL 17、Reven 与 Caddy。首次目标是登录后将一条 RSS 候选采纳并保存到 Reven 本地素材库。
+本指南在独立的 Linux AMD64 主机上运行 PostgreSQL 17、Reven 与 Caddy，提供**源码构建（默认）**与**公开镜像**两种镜像来源，以及公网 HTTPS、仅本机 HTTP 两种入口。首次目标是登录后将一条 RSS 候选采纳并保存到 Reven 本地素材库。
 
 以下命令使用 Bash，均从仓库根目录执行。部署数据使用独立的 `reven-self-host` Compose project；不要复用维护者生产目录或数据库。
 
@@ -51,7 +51,29 @@ chmod 600 infra/self-host/.env
 reven_compose_files=(-f infra/self-host/docker-compose.yml)
 ```
 
-接着从以下两种入口中选择一种，再执行本节最后的启动命令。
+接着从镜像来源与入口中选择一种组合，再执行本节最后的启动命令。
+
+### 镜像来源一：源码构建（默认）
+
+本机构建 Reven 镜像，无需任何镜像仓库账号；构建需要访问上游镜像与依赖下载源。首次使用默认选择此来源。
+
+### 镜像来源二：公开镜像
+
+不想在主机上构建时，可改用发布到 GitHub Container Registry 的镜像。它是与维护者生产发布相同的产物，经过相同的 Trivy 门禁扫描；公开镜像在仓库公开后可匿名拉取，私有期间请使用源码构建。
+
+1. 在 `.env` 增加 `REVEN_IMAGE`，固定为发布说明中的 digest（不要用 `:latest`）：
+
+```bash
+REVEN_IMAGE=ghcr.io/wangyiyang/reven@sha256:<64-hex>
+```
+
+2. 在文件列表追加镜像覆盖文件：
+
+```bash
+reven_compose_files+=(-f infra/self-host/compose.image.yml)
+```
+
+该覆盖文件会移除源码 build 段，启动时按 digest 拉取。拉取后可在宿主机直接核对（无需 `dc exec` 进入容器）：执行 `docker inspect --format '{{.RepoDigests}}' "$(docker compose -p reven-self-host ps -q reven)"`，确认输出与 `.env` 中的 digest 一致。此来源可与下面的"仅本机 HTTP 体验"入口叠加。
 
 ### 公网 HTTPS
 
@@ -75,7 +97,7 @@ ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_HOST
 
 ### 构建与启动
 
-完成上面的文件选择后定义 `dc`；两种入口均执行这些命令：
+完成上面的文件与入口选择后定义 `dc`；两种来源、两种入口共用这些命令（使用公开镜像来源时跳过 `dc build reven`）：
 
 ```bash
 dc() {

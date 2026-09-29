@@ -1,0 +1,7 @@
+# Docker Compose >= 2.24.4; !reset removes the source build so the published image is used.
+# Pin REVEN_IMAGE to the exact digest from the release notes, e.g.
+# ghcr.io/wangyiyang/reven@sha256:<64-hex>; tags like :latest are not recommended.
+services:
+  reven:
+    image: ${REVEN_IMAGE:?Set REVEN_IMAGE to a release digest, e.g. ghcr.io/wangyiyang/reven@sha256:<64-hex>}
+    build: !reset
