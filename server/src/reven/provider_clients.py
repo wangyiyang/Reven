@@ -133,9 +133,7 @@ class FeishuNotifier:
             lines.extend(f"{label}：{url}" for label, url in notification.links.items())
             markdown = f"**当前阶段**：{notification.stage}\n\n{notification.summary}"
             if notification.links:
-                markdown += "\n\n" + "　".join(
-                    f"[{label}]({url})" for label, url in notification.links.items()
-                )
+                markdown += "\n\n" + "　".join(f"[{label}]({url})" for label, url in notification.links.items())
             await bot.api.send_markdown_to_recipients(
                 bot.config.whitelist_open_ids,
                 markdown,
