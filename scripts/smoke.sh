@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly BASE_URL="${REVEN_BASE_URL:-http://dev.wangyiyang.cc:3001}"
+readonly BASE_URL="${REVEN_BASE_URL:-http://localhost:8080}"
 readonly AUTHORITY="${BASE_URL#*://}"
 readonly HOST_PORT="${AUTHORITY%%/*}"
 readonly HOST="${HOST_PORT%%:*}"

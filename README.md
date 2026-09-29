@@ -96,4 +96,4 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 
 ## 许可证
 
-Reven 原创代码采用 [Apache-2.0](LICENSE)，版权持有人为 Wang Yiyang。第三方依赖和开发工具保留各自许可，其中 Trellis 工具模板为 AGPL。具体边界和分发声明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+Reven 原创代码采用 [Apache-2.0](LICENSE)，版权持有人为王翊仰（Wang Yiyang）。第三方依赖和开发工具保留各自许可，其中 Trellis 工具模板为 AGPL。具体边界和分发声明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
