@@ -91,6 +91,8 @@ dc up -d --no-build --wait
 
 自托管更新采用源码构建，不使用维护者的 `scripts/deploy_reven.sh`。先阅读目标版本的迁移说明，确认上一版本能读取升级后的数据库，再安排升级。
 
+使用公开镜像（`compose.image.yml`）的用户跳过构建：将 `.env` 的 `REVEN_IMAGE` 更新为目标版本发布说明中的 digest，按上文备份后执行 `dc pull reven && dc up -d --wait`，并核对运行中的 `RepoDigests` 与新 digest 一致。迁移与回滚约束与源码构建相同。
+
 1. 按上文创建并验证备份，记录当前源码提交与镜像 ID。保留该镜像，升级完成前不要执行镜像清理。
 2. 获取并检出审阅过的目标提交，保持 `infra/self-host/.env`、project 名与卷不变；如配置示例有新增必填项，先补齐。
 3. 在当前 Bash 会话保存旧镜像的引用，然后构建新版本：

@@ -191,6 +191,18 @@ jobs:
             -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c \
             caddy validate --config /etc/caddy/Caddyfile
+      - name: Validate self-host image override compose
+        run: |
+          merged="$(POSTGRES_PASSWORD=ci-postgres REVEN_MASTER_KEY=ci-master-key \
+            REVEN_ADMIN_PASSWORD=ci-admin-password \
+            REVEN_PUBLIC_BASE_URL=https://reven.example.com \
+            REVEN_IMAGE=ghcr.io/wangyiyang/reven@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            docker compose -f infra/self-host/docker-compose.yml -f infra/self-host/compose.image.yml config)"
+          printf '%s\n' "$merged" | grep -q 'image: ghcr.io/wangyiyang/reven@sha256:0000'
+          if printf '%s\n' "$merged" | grep -q 'build:'; then
+            echo "compose.image.yml must remove the source build" >&2
+            exit 1
+          fi
       - name: Verify non-root runtime and embedded agent
         run: |
           test "$(docker run --rm reven:test id -u)" = "10001"

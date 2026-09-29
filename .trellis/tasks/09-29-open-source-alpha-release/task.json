@@ -1,0 +1,32 @@
+{
+  "id": "open-source-alpha-release",
+  "name": "open-source-alpha-release",
+  "title": "开源 Alpha 发布准备（授权、安全清理与通用自托管）",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "web",
+  "priority": "P2",
+  "creator": "WangYiyang",
+  "assignee": "WangYiyang",
+  "createdAt": "2026-09-29",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-29-secret-history-audit",
+    "09-29-repo-personal-binding-cleanup",
+    "09-29-public-image-ghcr",
+    "09-29-alpha-release-delivery",
+    "09-29-clean-env-acceptance"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
