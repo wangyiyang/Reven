@@ -2,9 +2,12 @@
 
 import json
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
+
+from reven.integrations.feishu_bot.cards import build_markdown_card
 
 TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v3/info"
@@ -74,13 +77,35 @@ class FeishuBotApiClient:
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
 
+    async def send_markdown(
+        self, open_id: str, markdown: str, *, title: str | None = None, fallback_text: str | None = None
+    ) -> None:
+        """优先发 interactive 卡片渲染 markdown；卡片失败降级纯文本保证可达。"""
+        try:
+            await self._send_message(open_id, "interactive", build_markdown_card(markdown, title=title))
+        except FeishuBotApiError:
+            await self.send_text(open_id, fallback_text if fallback_text is not None else markdown)
+
     async def send_text_to_recipients(self, recipients: tuple[str, ...], text: str) -> None:
+        await self._send_to_recipients(recipients, lambda open_id: self.send_text(open_id, text))
+
+    async def send_markdown_to_recipients(
+        self, recipients: tuple[str, ...], markdown: str, *, title: str | None = None, fallback_text: str | None = None
+    ) -> None:
+        await self._send_to_recipients(
+            recipients,
+            lambda open_id: self.send_markdown(open_id, markdown, title=title, fallback_text=fallback_text),
+        )
+
+    async def _send_to_recipients(
+        self, recipients: tuple[str, ...], send_one: Callable[[str], Awaitable[None]]
+    ) -> None:
         if not recipients:
             raise FeishuBotApiError("请先配置通知接收人 Open ID")
         failures: list[FeishuBotApiError] = []
         for open_id in recipients:
             try:
-                await self.send_text(open_id, text)
+                await send_one(open_id)
             except FeishuBotApiError as exc:
                 failures.append(exc)
         if failures:

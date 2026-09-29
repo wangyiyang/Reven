@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from reven.integrations.feishu_bot.cards import build_markdown_card
 from reven.integrations.feishu_bot.config import PROVIDER
 
 if TYPE_CHECKING:
@@ -142,21 +143,28 @@ def build_event_handler(
 
     im_client = lark_oapi.Client.builder().app_id(app_id).app_secret(app_secret).build()
 
-    def reply(message_id: str, text: str) -> None:
+    def reply_once(message_id: str, msg_type: str, content: dict[str, Any]) -> Any:
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
             .request_body(
                 ReplyMessageRequestBody.builder()
-                .msg_type("text")
-                .content(json.dumps({"text": text}, ensure_ascii=False))
+                .msg_type(msg_type)
+                .content(json.dumps(content, ensure_ascii=False))
                 .build()
             )
             .build()
         )
-        response = im_client.im.v1.message.reply(request)
-        if not response.success():
-            raise RuntimeError(f"飞书消息回复失败（code={response.code}）")
+        return im_client.im.v1.message.reply(request)
+
+    def reply(message_id: str, text: str) -> None:
+        # 优先卡片渲染 markdown；卡片失败降级纯文本保证可达，纯文本也失败才抛错
+        card_response = reply_once(message_id, "interactive", build_markdown_card(text))
+        if card_response.success():
+            return
+        text_response = reply_once(message_id, "text", {"text": text})
+        if not text_response.success():
+            raise RuntimeError(f"飞书消息回复失败（code={text_response.code}）")
 
     builder = EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(
         build_message_handler(reply, chat_dispatch, bot_open_id)

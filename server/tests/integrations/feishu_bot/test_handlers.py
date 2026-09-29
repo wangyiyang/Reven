@@ -4,6 +4,8 @@
 ReplyRecorder / DispatchRecorder 替身保证零网络。
 """
 
+import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -285,3 +287,79 @@ def test_event_handler_registers_only_im_processor() -> None:
 
     assert "p2.im.message.receive_v1" in handler._processorMap
     assert "p2.card.action.trigger" not in handler._callback_processor_map
+
+
+# --- 回复出站：卡片优先，失败降级纯文本 ---
+
+
+class _FakeReplyResponse:
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+    def success(self) -> bool:
+        return self.code == 0
+
+
+class _FakeMessageApi:
+    """im.v1.message 替身：按预置 code 序列返回，记录每次 reply 的 msg_type 与 content。"""
+
+    def __init__(self, codes: list[int]) -> None:
+        self._codes = codes
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+
+    def reply(self, request: Any) -> _FakeReplyResponse:
+        body = request.request_body
+        self.sent.append((body.msg_type, json.loads(body.content)))
+        return _FakeReplyResponse(self._codes.pop(0))
+
+
+class _FakeClientBuilder:
+    def __init__(self, message_api: _FakeMessageApi) -> None:
+        self._message_api = message_api
+
+    def app_id(self, _: str) -> "_FakeClientBuilder":
+        return self
+
+    def app_secret(self, _: str) -> "_FakeClientBuilder":
+        return self
+
+    def build(self) -> Any:
+        return SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=self._message_api)))
+
+
+def _build_reply(monkeypatch: pytest.MonkeyPatch, codes: list[int]) -> tuple[Any, _FakeMessageApi]:
+    """经真实 build_event_handler 拿 reply 闭包，仅 lark Client 换替身，零网络。"""
+    message_api = _FakeMessageApi(codes)
+    monkeypatch.setattr("lark_oapi.Client", SimpleNamespace(builder=lambda: _FakeClientBuilder(message_api)))
+    dispatch = DispatchRecorder()
+    handler = build_event_handler("cli_test", "secret", bot_open_id=BOT_OPEN_ID, chat_dispatch=dispatch)  # type: ignore[arg-type]
+    handler._processorMap["p2.im.message.receive_v1"].do(_message_event())
+    return dispatch.calls[0]["reply"], message_api
+
+
+def test_reply_sends_interactive_card_with_markdown_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply, message_api = _build_reply(monkeypatch, [0])
+
+    reply("om_1", "**加粗**")
+
+    assert len(message_api.sent) == 1
+    msg_type, content = message_api.sent[0]
+    assert msg_type == "interactive"
+    assert content["schema"] == "2.0"
+    assert content["body"]["elements"] == [{"tag": "markdown", "content": "**加粗**"}]
+
+
+def test_reply_falls_back_to_text_when_card_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply, message_api = _build_reply(monkeypatch, [230001, 0])
+
+    reply("om_1", "回答")
+
+    assert [msg_type for msg_type, _ in message_api.sent] == ["interactive", "text"]
+    assert message_api.sent[1][1] == {"text": "回答"}
+
+
+def test_reply_raises_only_when_card_and_text_both_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply, _ = _build_reply(monkeypatch, [230001, 230002])
+
+    with pytest.raises(RuntimeError, match="code=230002"):
+        reply("om_1", "回答")
