@@ -64,6 +64,52 @@ async def test_missing_token_is_rejected() -> None:
 
 
 @pytest.mark.anyio
+async def test_markdown_message_sends_interactive_card() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        message = router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
+        client = FeishuBotApiClient("cli_test", "secret")
+        await client.send_markdown("ou_owner", "**加粗**", title="标题")
+        assert len(router.calls) == 2
+    payload = json.loads(message.calls[0].request.content)
+    assert payload["msg_type"] == "interactive"
+    card = json.loads(payload["content"])
+    assert card["schema"] == "2.0"
+    assert card["header"] == {"title": {"tag": "plain_text", "content": "标题"}}
+    assert card["body"]["elements"] == [{"tag": "markdown", "content": "**加粗**"}]
+
+
+@pytest.mark.anyio
+async def test_markdown_message_falls_back_to_text_when_card_fails() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        message = router.post(MESSAGES_URL).mock(
+            side_effect=[
+                httpx.Response(200, json={"code": 230027}),
+                httpx.Response(200, json={"code": 0}),
+            ]
+        )
+        client = FeishuBotApiClient("cli_test", "secret")
+        await client.send_markdown("ou_owner", "**加粗**", fallback_text="加粗")
+
+    card_payload = json.loads(message.calls[0].request.content)
+    text_payload = json.loads(message.calls[1].request.content)
+    assert card_payload["msg_type"] == "interactive"
+    assert text_payload["msg_type"] == "text"
+    assert json.loads(text_payload["content"]) == {"text": "加粗"}
+
+
+@pytest.mark.anyio
+async def test_markdown_message_raises_when_card_and_text_both_fail() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 230027}))
+        client = FeishuBotApiClient("cli_test", "secret")
+        with pytest.raises(FeishuBotApiError, match="code=230027"):
+            await client.send_markdown("ou_owner", "**加粗**")
+
+
+@pytest.mark.anyio
 async def test_get_bot_open_id_parses_bot_payload() -> None:
     with respx.mock(assert_all_called=True) as router:
         _mock_token(router)

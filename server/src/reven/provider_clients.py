@@ -131,4 +131,12 @@ class FeishuNotifier:
                 raise RuntimeError("飞书应用机器人未启用或凭证不可用")
             lines = [notification.title, f"当前阶段：{notification.stage}", notification.summary]
             lines.extend(f"{label}：{url}" for label, url in notification.links.items())
-            await bot.api.send_text_to_recipients(bot.config.whitelist_open_ids, "\n".join(lines))
+            markdown = f"**当前阶段**：{notification.stage}\n\n{notification.summary}"
+            if notification.links:
+                markdown += "\n\n" + "　".join(f"[{label}]({url})" for label, url in notification.links.items())
+            await bot.api.send_markdown_to_recipients(
+                bot.config.whitelist_open_ids,
+                markdown,
+                title=notification.title,
+                fallback_text="\n".join(lines),
+            )

@@ -71,13 +71,38 @@ async def test_application_only_config_sends_all_notification_content_to_every_r
 
     assert [payload["receive_id"] for payload in captured] == ["ou_first", "ou_second"]
     for payload in captured:
-        assert payload["msg_type"] == "text"
-        content = json.loads(str(payload["content"]))["text"]
-        assert NOTIFICATION.title in content
-        assert NOTIFICATION.stage in content
-        assert NOTIFICATION.summary in content
+        assert payload["msg_type"] == "interactive"
+        card = json.loads(str(payload["content"]))
+        assert card["header"]["title"]["content"] == NOTIFICATION.title
+        markdown = card["body"]["elements"][0]["content"]
+        assert NOTIFICATION.stage in markdown
+        assert NOTIFICATION.summary in markdown
         for label, url in NOTIFICATION.links.items():
-            assert f"{label}：{url}" in content
+            assert f"[{label}]({url})" in markdown
+
+
+@pytest.mark.anyio
+async def test_card_failure_falls_back_to_text_with_all_content(db_session: AsyncSession) -> None:
+    captured: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/auth/" in request.url.path:
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token"})
+        payload = json.loads(request.content)
+        captured.append(payload)
+        code = 230027 if payload["msg_type"] == "interactive" else 0
+        return httpx.Response(200, json={"code": code})
+
+    await _configure(db_session, recipients=["ou_first"])
+    await _notifier(db_session, handler).send(NOTIFICATION)
+
+    assert [payload["msg_type"] for payload in captured] == ["interactive", "text"]
+    text = json.loads(str(captured[1]["content"]))["text"]
+    assert NOTIFICATION.title in text
+    assert NOTIFICATION.stage in text
+    assert NOTIFICATION.summary in text
+    for label, url in NOTIFICATION.links.items():
+        assert f"{label}：{url}" in text
 
 
 @pytest.mark.anyio
@@ -96,7 +121,8 @@ async def test_partial_failure_raises_for_retry_and_attempts_every_recipient(db_
     with pytest.raises(FeishuBotApiError, match="已发送 1/2") as caught:
         await notifier.send(NOTIFICATION)
 
-    assert recipients == ["ou_first", "ou_second"]
+    # ou_first 卡片失败后会再降级重试一次纯文本，最终仍计为该接收人失败
+    assert recipients == ["ou_first", "ou_first", "ou_second"]
     assert "test-secret" not in str(caught.value)
     assert "token" not in str(caught.value)
 
