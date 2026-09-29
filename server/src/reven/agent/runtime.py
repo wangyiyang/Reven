@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from anyio import to_thread
 from deepseek_harness import DeepSeekHarness
-from deepseek_harness.errors import HarnessError
+from deepseek_harness.errors import HarnessError, JsonRpcError
 
 from reven.agent.config import AgentConfig
 from reven.agent.errors import AgentNotConfiguredError, AgentRuntimeError
@@ -43,6 +43,13 @@ def _launch(config: AgentConfig, mcp: AgentMcpContext | None) -> DeepSeekHarness
     return harness
 
 
+def _is_session_exists_conflict(exc: HarnessError) -> bool:
+    """识别"磁盘上存在但进程内存中不存在"的会话冲突（dsh 无 resume API，进程重启后出现）。"""
+    if not isinstance(exc, JsonRpcError):
+        return False
+    return "already exists" in str(exc)
+
+
 class AgentRuntime:
     """持有 DeepSeekHarness 单例，由 FastAPI lifespan 管理启动与关闭。
 
@@ -56,6 +63,7 @@ class AgentRuntime:
         self._mcp = mcp
         self._harness: DeepSeekHarness | None = None
         self._start_failed = False
+        self._session_aliases: dict[str, str] = {}
 
     @property
     def configured(self) -> bool:
@@ -84,7 +92,12 @@ class AgentRuntime:
             await to_thread.run_sync(harness.close)
 
     async def chat(self, message: str, session_id: str | None = None) -> tuple[str, str]:
-        """执行一轮对话，返回 (session_id, 最终响应文本)；session_id 缺省时生成。"""
+        """执行一轮对话，返回 (实际使用的 session_id, 最终响应文本)；session_id 缺省时生成。
+
+        进程重启后 dsh 内存会话表清空而磁盘会话仍在，旧 session_id 会触发 "already exists"
+        冲突：为该外部 id 重铸活跃 id（`<外部 id>~r<随机>`）重试一次并记录进程内别名，
+        后续同外部 id 的消息经别名沿用同一活跃会话；别名不持久化，重启后首次冲突会再次重铸。
+        """
         if self._config is None:
             raise AgentNotConfiguredError()
         if self._start_failed:
@@ -92,9 +105,17 @@ class AgentRuntime:
         harness = self._harness
         if harness is None:
             raise AgentRuntimeError("AGENT_RUNTIME_NOT_STARTED", "dsh 运行时未启动")
-        resolved_session_id = session_id or uuid4().hex
+        resolved_session_id = self._session_aliases.get(session_id, session_id) if session_id else uuid4().hex
         try:
             result = await to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id))
         except HarnessError as exc:
-            raise AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败：{exc}") from exc
+            if not session_id or not _is_session_exists_conflict(exc):
+                raise AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败：{exc}") from exc
+            resolved_session_id = f"{session_id}~r{uuid4().hex[:8]}"
+            logger.info("dsh 会话冲突，重铸活跃 id 重试（session_id=%s, resolved=%s）", session_id, resolved_session_id)
+            try:
+                result = await to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id))
+            except HarnessError as retry_exc:
+                raise AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败：{retry_exc}") from retry_exc
+            self._session_aliases[session_id] = resolved_session_id
         return result.session_id, result.final_response
