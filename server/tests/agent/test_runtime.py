@@ -1,6 +1,9 @@
+from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from deepseek_harness.errors import HarnessError, JsonRpcError
 from reven.agent import AgentConfig, AgentNotConfiguredError, AgentRuntime, AgentRuntimeError
 from reven.agent.mcp_server import AgentMcpContext
 
@@ -142,3 +145,133 @@ async def test_launch_without_mcp_context_keeps_plain_sdk_profile(
     (kwargs,) = captured
     assert kwargs["patches"] == ()
     assert kwargs["env"] == {}
+
+
+EXTERNAL_SESSION_ID = "feishu:chat-1:user-1"
+
+
+def _stub_chat_harness(monkeypatch: pytest.MonkeyPatch, run: Callable[[str, str], object]) -> list[str]:
+    """替换 DeepSeekHarness 为脚本化 run 的假实现，返回 run 依次收到的 session_id。"""
+    seen_session_ids: list[str] = []
+
+    class _Harness:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def run(self, message: str, *, session_id: str) -> object:
+            seen_session_ids.append(session_id)
+            return run(message, session_id)
+
+    monkeypatch.setattr("reven.agent.runtime.DeepSeekHarness", _Harness)
+    return seen_session_ids
+
+
+def _fail_on_external_id(message: str, session_id: str) -> object:
+    if session_id == EXTERNAL_SESSION_ID:
+        raise JsonRpcError(-32602, f'session "{session_id}" already exists')
+    return SimpleNamespace(session_id=session_id, final_response="回复")
+
+
+@pytest.mark.anyio
+async def test_chat_remints_session_id_on_already_exists_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """进程重启后旧 session_id 报 already exists：重铸活跃 id 重试成功并返回新 id。"""
+    seen = _stub_chat_harness(monkeypatch, _fail_on_external_id)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    session_id, response = await runtime.chat("你好", EXTERNAL_SESSION_ID)
+
+    assert response == "回复"
+    assert session_id.startswith(f"{EXTERNAL_SESSION_ID}~r")
+    assert seen == [EXTERNAL_SESSION_ID, session_id]
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_chat_reuses_reminted_alias_for_same_external_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """同一外部 session_id 的后续消息直接命中别名，沿用同一活跃 id，不再重铸重试。"""
+    seen = _stub_chat_harness(monkeypatch, _fail_on_external_id)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    first_id, _ = await runtime.chat("第一条", EXTERNAL_SESSION_ID)
+    second_id, _ = await runtime.chat("第二条", EXTERNAL_SESSION_ID)
+
+    assert second_id == first_id
+    assert seen == [EXTERNAL_SESSION_ID, first_id, first_id]
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_chat_raises_when_remint_retry_also_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """重铸重试仍失败时按原路径抛 AGENT_CHAT_FAILED，且不记录别名（下次仍从外部 id 重试）。"""
+
+    def _always_conflict(message: str, session_id: str) -> object:
+        raise JsonRpcError(-32602, f'session "{session_id}" already exists')
+
+    seen = _stub_chat_harness(monkeypatch, _always_conflict)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    with pytest.raises(AgentRuntimeError) as exc_info:
+        await runtime.chat("你好", EXTERNAL_SESSION_ID)
+
+    assert exc_info.value.code == "AGENT_CHAT_FAILED"
+    assert len(seen) == 2
+    assert seen[1].startswith(f"{EXTERNAL_SESSION_ID}~r")
+
+    with pytest.raises(AgentRuntimeError):
+        await runtime.chat("再来", EXTERNAL_SESSION_ID)
+    assert seen[2] == EXTERNAL_SESSION_ID
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_chat_without_session_id_does_not_remint_on_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """session_id 缺省时即使报 already exists 也不重铸重试（无外部 id 可记别名），直接抛 AGENT_CHAT_FAILED。"""
+
+    def _always_conflict(message: str, session_id: str) -> object:
+        raise JsonRpcError(-32602, f'session "{session_id}" already exists')
+
+    seen = _stub_chat_harness(monkeypatch, _always_conflict)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    with pytest.raises(AgentRuntimeError) as exc_info:
+        await runtime.chat("你好")
+
+    assert exc_info.value.code == "AGENT_CHAT_FAILED"
+    assert len(seen) == 1
+    await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error", [HarnessError("transport closed"), JsonRpcError(-32000, "rate limited")])
+async def test_chat_does_not_retry_on_non_conflict_errors(
+    error: HarnessError, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非 already exists 冲突的 HarnessError 不触发重铸重试，直接抛 AGENT_CHAT_FAILED。"""
+
+    def _fail(message: str, session_id: str) -> object:
+        raise error
+
+    seen = _stub_chat_harness(monkeypatch, _fail)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    with pytest.raises(AgentRuntimeError) as exc_info:
+        await runtime.chat("你好", EXTERNAL_SESSION_ID)
+
+    assert exc_info.value.code == "AGENT_CHAT_FAILED"
+    assert seen == [EXTERNAL_SESSION_ID]
+    await runtime.close()
