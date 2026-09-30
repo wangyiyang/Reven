@@ -39,6 +39,9 @@ jobs:
   image:
     if: github.event_name == 'push'
     needs: quality-gate
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image: ${{ steps.push.outputs.image }}
     runs-on: ubuntu-latest
@@ -67,6 +70,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME}"
           docker build --pull --no-cache \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             -f infra/docker/Dockerfile \
             -t "${IMAGE}:${version}" \
             -t "${IMAGE}:latest" .
@@ -76,6 +80,18 @@ jobs:
             "${IMAGE}:${version}"
           docker push "${IMAGE}:${version}"
           docker push "${IMAGE}:latest"
+      - name: Mirror production image to GitHub Container Registry
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/reven"
+          version="${GITHUB_REF_NAME}"
+          printf '%s' "$GHCR_PASSWORD" | \
+            docker login ghcr.io --username "${GITHUB_REPOSITORY_OWNER}" --password-stdin
+          docker tag "${IMAGE}:${version}" "${ghcr_image}:${version}"
+          docker tag "${IMAGE}:${version}" "${ghcr_image}:latest"
+          docker push "${ghcr_image}:${version}"
+          docker push "${ghcr_image}:latest"
       - name: Generate SBOM
         run: |
           docker run --rm \

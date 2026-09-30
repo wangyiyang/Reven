@@ -42,7 +42,7 @@ dc up -d --wait
 
 ### Origin 与浏览器认证
 
-- `REVEN_PUBLIC_BASE_URL` 优先于兼容别名 `PUBLIC_BASE_URL`。旧默认 origin 保留；自托管必须显式提供。
+- `REVEN_PUBLIC_BASE_URL` 优先于兼容别名 `PUBLIC_BASE_URL`。默认 origin 为本机回环 `http://localhost:8080`；公网自托管必须显式配置自己的域名。
 - 接受 HTTP/HTTPS、ASCII 域名（包括 Punycode）、IPv4/方括号 IPv6、合法端口；scheme/host 转小写、删除根斜杠和默认端口，IPv6 压缩为规范形式。
 - 拒绝非 ASCII authority、空白/控制字符、用户信息、非根路径、query/fragment（含空 `?`/`#`）、百分号、反斜杠、非法 host、空端口、端口 0 或超出 65535。
 - 不使用 Python 内置 IDNA 编码自动转换 Unicode 域名：其 IDNA2003 行为会将 `faß.de` 转成 `fass.de`，与浏览器不同。使用者必须配置 `xn--fa-hia.de` 形式。
