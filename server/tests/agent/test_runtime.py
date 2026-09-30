@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -274,4 +275,53 @@ async def test_chat_does_not_retry_on_non_conflict_errors(
 
     assert exc_info.value.code == "AGENT_CHAT_FAILED"
     assert seen == [EXTERNAL_SESSION_ID]
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_chat_timeout_raises_and_voids_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """harness 挂死超过阈值（#177）：AGENT_CHAT_TIMEOUT + 会话标记作废重铸，后续消息走新会话。"""
+    calls: list[str] = []
+
+    def _hang_once(message: str, session_id: str) -> object:
+        calls.append(session_id)
+        if len(calls) == 1:
+            time.sleep(0.5)  # 首轮挂死（远超 0.05s 阈值）；to_thread 无法真取消，线程自行跑完
+        return SimpleNamespace(session_id=session_id, final_response="回复")
+
+    seen = _stub_chat_harness(monkeypatch, _hang_once)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"), run_timeout_seconds=0.05)
+    await runtime.start()
+
+    with pytest.raises(AgentRuntimeError) as exc_info:
+        await runtime.chat("会挂死的消息", EXTERNAL_SESSION_ID)
+
+    assert exc_info.value.code == "AGENT_CHAT_TIMEOUT"
+    renewed = runtime._session_aliases[EXTERNAL_SESSION_ID]
+    assert renewed.startswith(f"{EXTERNAL_SESSION_ID}~r")
+
+    session_id, response = await runtime.chat("后续消息", EXTERNAL_SESSION_ID)
+    assert response == "回复"
+    assert session_id == renewed  # 作废后的新活跃会话，不再落入挂死的旧会话
+    assert seen == [EXTERNAL_SESSION_ID, renewed]
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_chat_timeout_without_external_session_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """无外部 session_id 的超时（#177）：仅放弃本次执行并抛 AGENT_CHAT_TIMEOUT，不记别名。"""
+
+    def _hang(message: str, session_id: str) -> object:
+        time.sleep(0.5)
+        return SimpleNamespace(session_id=session_id, final_response="回复")
+
+    _stub_chat_harness(monkeypatch, _hang)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"), run_timeout_seconds=0.05)
+    await runtime.start()
+
+    with pytest.raises(AgentRuntimeError) as exc_info:
+        await runtime.chat("挂死")
+
+    assert exc_info.value.code == "AGENT_CHAT_TIMEOUT"
+    assert runtime._session_aliases == {}
     await runtime.close()

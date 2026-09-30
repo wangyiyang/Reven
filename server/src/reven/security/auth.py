@@ -17,6 +17,11 @@ from reven.security.models import AuthSession
 
 SESSION_COOKIE = "reven_session"
 SESSION_TTL = timedelta(days=7)
+# 滑动续期节流（#177）：仅距过期不足一半 TTL 才顺延写库；
+# last_seen_at 距上次回写超过该阈值才更新——绝大多数请求只读不写，
+# 远端库 RTT（~430ms/写）不再每请求白付，同 cookie 并发也不再因 UPDATE 互锁。
+SESSION_REFRESH_REMAINING = SESSION_TTL / 2
+LAST_SEEN_UPDATE_INTERVAL = timedelta(hours=1)
 PUBLIC_PATHS = {"/api/health", "/api/auth/login"}
 
 
@@ -59,10 +64,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 await session.delete(row)
                 await session.commit()
                 return _unauthorized()
-            # 滑动续期：活跃请求把会话顺延 7 天
-            row.last_seen_at = now
-            row.expires_at = now + SESSION_TTL
-            await session.commit()
+            # 滑动续期节流（#177）：距过期不足一半 TTL 才顺延；last_seen 超阈值才回写
+            refresh_expiry = row.expires_at - now < SESSION_REFRESH_REMAINING
+            refresh_seen = now - row.last_seen_at >= LAST_SEEN_UPDATE_INTERVAL
+            if refresh_expiry or refresh_seen:
+                if refresh_expiry:
+                    row.expires_at = now + SESSION_TTL
+                row.last_seen_at = now
+                await session.commit()
         return await call_next(request)
 
 

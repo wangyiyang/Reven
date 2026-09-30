@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from reven.app import create_app
 from reven.config import Settings
 from reven.scheduling import utc_now
-from reven.security.auth import SESSION_COOKIE, hash_token, reset_login_throttle
+from reven.security.auth import SESSION_COOKIE, hash_token, issue_token, reset_login_throttle
 from reven.security.models import AuthSession
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -121,29 +121,91 @@ def test_logout_invalidates_session(auth_client: tuple[TestClient, async_session
     assert client.get("/api/auth/me", headers={"Cookie": f"{SESSION_COOKIE}={token}"}).status_code == 401
 
 
-def test_active_request_slides_session_expiry(
-    auth_client: tuple[TestClient, async_sessionmaker],
+def _make_session(
+    factory: async_sessionmaker,
+    token: str,
+    *,
+    expires_at: object,
+    last_seen_at: object,
 ) -> None:
-    client, factory = auth_client
-    assert _login(client).status_code == 200
-    token = client.cookies.get(SESSION_COOKIE)
-    assert token
+    async def op() -> None:
+        async with factory() as session:
+            session.add(AuthSession(token_hash=hash_token(token), expires_at=expires_at, last_seen_at=last_seen_at))  # type: ignore[arg-type]
+            await session.commit()
 
-    async def read_expiry() -> tuple[object, object]:
+    asyncio.run(op())
+
+
+def _read_session(factory: async_sessionmaker, token: str) -> tuple[object, object]:
+    async def op() -> tuple[object, object]:
         async with factory() as session:
             row = (
                 await session.execute(select(AuthSession).where(AuthSession.token_hash == hash_token(token)))
             ).scalar_one()
             return row.last_seen_at, row.expires_at
 
-    first_seen, first_expiry = asyncio.run(read_expiry())
+    return asyncio.run(op())
+
+
+def test_fresh_session_request_skips_write(
+    auth_client: tuple[TestClient, async_sessionmaker],
+) -> None:
+    """#177：距过期超过一半 TTL 且 last_seen 新鲜——只读不写库（expiry/last_seen 均不变）。"""
+    client, factory = auth_client
+    token = issue_token()
+    _make_session(factory, token, expires_at=utc_now() + timedelta(days=7), last_seen_at=utc_now())
+    client.cookies.set(SESSION_COOKIE, token)
+    first_seen, first_expiry = _read_session(factory, token)
 
     assert client.get("/api/auth/me").status_code == 200
-    last_seen, expiry = asyncio.run(read_expiry())
 
-    assert last_seen >= first_seen  # type: ignore[operator]
-    assert expiry > first_expiry  # type: ignore[operator]
-    assert expiry > utc_now() + timedelta(days=6)  # type: ignore[operator]
+    last_seen, expiry = _read_session(factory, token)
+    assert last_seen == first_seen
+    assert expiry == first_expiry
+
+
+def test_near_expiry_session_slides_on_request(
+    auth_client: tuple[TestClient, async_sessionmaker],
+) -> None:
+    """#177：距过期不足一半 TTL——请求触发滑动续期写库，last_seen 同步刷新。"""
+    client, factory = auth_client
+    token = issue_token()
+    _make_session(
+        factory,
+        token,
+        expires_at=utc_now() + timedelta(days=1),  # 不足一半 TTL
+        last_seen_at=utc_now(),
+    )
+    client.cookies.set(SESSION_COOKIE, token)
+
+    assert client.get("/api/auth/me").status_code == 200
+
+    last_seen, expiry = _read_session(factory, token)
+    assert expiry > utc_now() + timedelta(days=6)  # type: ignore[operator]  # 已顺延满 7 天
+
+
+def test_stale_last_seen_updates_only_last_seen_and_throttles(
+    auth_client: tuple[TestClient, async_sessionmaker],
+) -> None:
+    """#177：last_seen 超阈值仅回写 last_seen（不顺延 expiry）；紧随其后的请求因新鲜而不再写。"""
+    client, factory = auth_client
+    token = issue_token()
+    _make_session(
+        factory,
+        token,
+        expires_at=utc_now() + timedelta(days=6),  # 剩余 TTL 充足
+        last_seen_at=utc_now() - timedelta(hours=2),
+    )
+    client.cookies.set(SESSION_COOKIE, token)
+    _, first_expiry = _read_session(factory, token)
+
+    assert client.get("/api/auth/me").status_code == 200
+    last_seen, expiry = _read_session(factory, token)
+    assert last_seen > utc_now() - timedelta(minutes=1)  # type: ignore[operator]  # 已刷新
+    assert expiry == first_expiry  # 未顺延
+
+    assert client.get("/api/auth/me").status_code == 200
+    assert _read_session(factory, token)[0] == last_seen  # 第二个请求：last_seen 仍新鲜，不再写库
 
 
 def test_login_locks_after_five_failures(auth_client: tuple[TestClient, async_sessionmaker]) -> None:

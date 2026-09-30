@@ -5,6 +5,10 @@ FeishuBotSupervisor 按 integrations 表中 feishu_bot 的配置驱动 lark-oapi
 - reload()：配置变更时由路由调用，同步返回，内部另起线程读最新配置并原子替换连接；
 - stop()：进程关闭时调用，尽力停止当前连接（幂等）。
 
+状态机（#177）：running（连接线程在跑）/ stopped（正常停止）/ dead（线程非预期死亡）。
+连接线程一旦非预期退出，_on_connection_exit 同步把状态复位为 dead 并触发告警钩子——
+杜绝"线程已死但状态仍新鲜"的静默死亡（10-01 故障同类）；status() 供监控抓取。
+
 配置读取/解密失败只记 provider + 异常类型的日志，绝不阻断主进程。
 """
 
@@ -15,12 +19,14 @@ import logging
 import threading
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime
 from typing import Any, Protocol
 
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import ChatDispatch
 from reven.integrations.feishu_bot.client import FeishuBotApiClient
 from reven.integrations.feishu_bot.config import PROVIDER, FeishuBotConfig
+from reven.scheduling import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +47,12 @@ ConnectionFactory = Callable[[FeishuBotConfig], BotConnection]
 
 
 class FeishuBotSupervisor:
-    """线程安全的 ws.Client 生命周期管理器；所有公开方法幂等。"""
+    """线程安全的 ws.Client 生命周期管理器；所有公开方法幂等。
+
+    状态机（#177）：running → stop()/reload() 正常替换 → stopped；连接线程非预期死亡 → dead。
+    dead 由 _on_connection_exit 在确认死亡线程仍是当前连接后复位（同时清空连接/线程引用），
+    并经 on_unexpected_exit 钩子告警；监控读 status() 即可发现死亡，不再被新鲜 last_started_at 蒙蔽。
+    """
 
     def __init__(
         self,
@@ -49,15 +60,31 @@ class FeishuBotSupervisor:
         *,
         chat_dispatcher: ChatDispatch,
         connection_factory: ConnectionFactory | None = None,
+        on_unexpected_exit: Callable[[str], None] | None = None,
     ) -> None:
         self._credentials = credentials
         self._chat_dispatcher = chat_dispatcher
         self._connection_factory = connection_factory or self._build_default_connection
+        # 非预期死亡告警钩子（接 notify 通道，由组合根装配）；同步回调，在连接线程内触发，必须快速返回
+        self.on_unexpected_exit = on_unexpected_exit
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._bot_open_id: str | None = None
         self._lock = threading.Lock()
         self._connection: BotConnection | None = None
         self._thread: threading.Thread | None = None
+        self._state = "stopped"
+        self._last_started_at: datetime | None = None
+
+    @property
+    def main_loop(self) -> asyncio.AbstractEventLoop | None:
+        """主事件循环（组合根的告警钩子用它把异步投递调度回主线程）。"""
+        return self._main_loop
+
+    def status(self) -> dict[str, str | None]:
+        """监控用连接状态：state ∈ running/stopped/dead；last_started_at 为 ISO 时间或 None。"""
+        with self._lock:
+            started = self._last_started_at
+            return {"state": self._state, "last_started_at": started.isoformat() if started is not None else None}
 
     def _build_default_connection(self, credentials: FeishuBotConfig) -> BotConnection:
         """默认连接工厂：建 LarkWsConnection（透传 bot open_id 与对话分发器）。"""
@@ -120,18 +147,44 @@ class FeishuBotSupervisor:
                 return
             self._connection = connection
             self._thread = thread
+            self._state = "running"
+            self._last_started_at = utc_now()
 
     def _run_connection(self, connection: BotConnection) -> None:
         try:
             connection.run()
         except Exception as exc:
             logger.warning("飞书机器人长连接线程异常退出（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
+        finally:
+            self._on_connection_exit(connection)
+
+    def _on_connection_exit(self, connection: BotConnection) -> None:
+        """连接线程退出复位（#177）：仍是当前连接即非预期死亡——复位状态为 dead 并告警，杜绝静默死亡。
+
+        stop()/reload() 会先把 _connection 置 None 再 shutdown，因此正常替换路径下
+        死亡线程进来时 _connection 已不是它，直接返回（状态由 _stop_locked 管理）。
+        """
+        with self._lock:
+            if self._connection is not connection:
+                return
+            self._connection = None
+            self._thread = None
+            self._state = "dead"
+        logger.warning("飞书机器人长连接意外终止，状态已复位为 dead（provider=%s）", PROVIDER)
+        alerter = self.on_unexpected_exit
+        if alerter is None:
+            return
+        try:
+            alerter("飞书机器人长连接意外终止，状态已复位为 dead，请检查机器人配置与网络")
+        except Exception as exc:
+            logger.warning("飞书机器人死亡告警回调失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
 
     def _stop_locked(self) -> None:
         connection = self._connection
         thread = self._thread
         self._connection = None
         self._thread = None
+        self._state = "stopped"
         if connection is None:
             return
         try:
