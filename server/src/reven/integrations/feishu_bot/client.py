@@ -77,6 +77,9 @@ class FeishuBotApiClient:
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
 
+    async def send_text_to_chat(self, chat_id: str, text: str) -> None:
+        await self._send_message(chat_id, "text", {"text": text}, receive_id_type="chat_id")
+
     async def send_markdown(
         self, open_id: str, markdown: str, *, title: str | None = None, fallback_text: str | None = None
     ) -> None:
@@ -85,6 +88,17 @@ class FeishuBotApiClient:
             await self._send_message(open_id, "interactive", build_markdown_card(markdown, title=title))
         except FeishuBotApiError:
             await self.send_text(open_id, fallback_text if fallback_text is not None else markdown)
+
+    async def send_markdown_to_chat(
+        self, chat_id: str, markdown: str, *, title: str | None = None, fallback_text: str | None = None
+    ) -> None:
+        """定向会话（群/私聊）发卡片；卡片失败降级纯文本，会话不可达等错误照常抛出。"""
+        try:
+            await self._send_message(
+                chat_id, "interactive", build_markdown_card(markdown, title=title), receive_id_type="chat_id"
+            )
+        except FeishuBotApiError:
+            await self.send_text_to_chat(chat_id, fallback_text if fallback_text is not None else markdown)
 
     async def send_text_to_recipients(self, recipients: tuple[str, ...], text: str) -> None:
         await self._send_to_recipients(recipients, lambda open_id: self.send_text(open_id, text))
@@ -112,12 +126,14 @@ class FeishuBotApiClient:
             delivered = len(recipients) - len(failures)
             raise FeishuBotApiError(f"{failures[0]}；已发送 {delivered}/{len(recipients)} 位接收人")
 
-    async def _send_message(self, open_id: str, msg_type: str, content: dict[str, Any]) -> None:
+    async def _send_message(
+        self, receive_id: str, msg_type: str, content: dict[str, Any], *, receive_id_type: str = "open_id"
+    ) -> None:
         await self._request(
             "POST",
-            f"{MESSAGES_URL}?receive_id_type=open_id",
+            f"{MESSAGES_URL}?receive_id_type={receive_id_type}",
             token=await self._tenant_token(),
-            body={"receive_id": open_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
+            body={"receive_id": receive_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
             error="飞书消息发送失败",
         )
 

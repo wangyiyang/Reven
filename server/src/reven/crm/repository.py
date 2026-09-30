@@ -69,6 +69,16 @@ class CrmRepository:
             contact_match,
         )
 
+    async def list_due_follow_ups(self, *, today: date, limit: int) -> list[Customer]:
+        """到期/逾期未跟进客户：next_follow_up_on <= 今天，按到期日升序（最逾期在前）。"""
+        statement = (
+            select(Customer)
+            .where(Customer.next_follow_up_on.is_not(None), Customer.next_follow_up_on <= today)
+            .order_by(Customer.next_follow_up_on, func.lower(Customer.name))
+            .limit(limit)
+        )
+        return list((await self.session.scalars(statement)).all())
+
     async def get_customer(self, customer_id: UUID) -> Customer | None:
         return await self.session.get(Customer, customer_id)
 
