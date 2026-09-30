@@ -72,7 +72,7 @@ jobs:
           version="${GITHUB_REF_NAME}"
           docker buildx build --pull \
             --cache-from type=registry,ref=${IMAGE}:buildcache \
-            --cache-to type=registry,ref=${IMAGE}:buildcache,mode=max \
+            --cache-to type=registry,ref=${IMAGE}:buildcache,mode=min,ignore-error=true \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             -f infra/docker/Dockerfile \
             -t "${IMAGE}:${version}" \
