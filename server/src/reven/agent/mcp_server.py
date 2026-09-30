@@ -16,6 +16,7 @@ from fastmcp.server.auth import StaticTokenVerifier
 from fastmcp.server.http import StarletteWithLifespan
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from reven.agent.tools_crm import register_crm_tools
 from reven.agent.tools_rss import KeywordEmbeddingHooks, register_rss_tools
 from reven.config import DEFAULT_AGENT_MCP_URL, Settings
 
@@ -51,6 +52,7 @@ def create_agent_mcp_server(
     verifier = StaticTokenVerifier(tokens={token: {"client_id": _MCP_CLIENT_ID, "scopes": []}})
     mcp = FastMCP("reven", auth=verifier)
     register_rss_tools(mcp, session_factory, embedding_refresher=embedding_refresher)
+    register_crm_tools(mcp, session_factory)
     return mcp
 
 
