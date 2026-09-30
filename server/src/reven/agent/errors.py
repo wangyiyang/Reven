@@ -19,3 +19,15 @@ class AgentNotConfiguredError(AgentError):
 
 class AgentRuntimeError(AgentError):
     """dsh 运行时启动或会话执行失败。"""
+
+
+class AgentModelUnavailableError(AgentError):
+    """指令指定的模型未配置、未启用或拉起失败。
+
+    对齐 OpenClaw 语义：用户显式选择的模型不可达时明确报错，绝不静默降级到默认模型。
+    message 只含模型 ref（provider/model），不含任何凭证信息。
+    """
+
+    def __init__(self, model_ref: str, reason: str = "未配置或未启用") -> None:
+        super().__init__("AGENT_MODEL_UNAVAILABLE", f"模型 {model_ref} 不可用：{reason}")
+        self.model_ref = model_ref

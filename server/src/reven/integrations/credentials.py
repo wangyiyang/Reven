@@ -59,6 +59,33 @@ class AgentLlmCredentials:
     base_url: str | None
 
 
+def model_ref_of(provider: str, model: str) -> str:
+    """模型引用：统一 `provider/model` 主键格式（对齐 OpenClaw model ref）。"""
+    return f"{provider}/{model}"
+
+
+@dataclass(frozen=True)
+class AgentModelEntry:
+    """模型注册表条目：一个可切换的 provider/model 组合及其凭证。
+
+    注册表存于 agent-llm 集成行：顶层 provider/model/base_url + api_key 为默认条目
+    （is_default=True，向后兼容现有配置页与 agent_llm() 读取）；public_config["models"]
+    数组为附加可切换条目，独立 key 存 encrypted_secret 的扁平键 "model_key:<ref>"
+    （SecretBox 契约是 dict[str, str]，不做嵌套），缺省回落默认条目 api_key
+    （同 provider 多模型共用 key 的常见场景）。
+    """
+
+    api_key: str = field(repr=False)
+    provider: str
+    model: str
+    base_url: str | None
+    is_default: bool
+
+    @property
+    def ref(self) -> str:
+        return model_ref_of(self.provider, self.model)
+
+
 class IntegrationCredentials:
     """凭证解析 seam：session_factory + Settings 进，typed credentials 出。
 
@@ -174,6 +201,53 @@ class IntegrationCredentials:
             base_url=base_url if isinstance(base_url, str) else None,
         )
 
+    async def agent_llm_models(self) -> tuple[AgentModelEntry, ...] | None:
+        """模型注册表：默认条目 + 全部启用的附加条目；未配置返回 None。
+
+        DB 行/凭证缺失、读取或解密失败均记脱敏日志后回退 env（与 agent_llm() 同纪律）；
+        env 路径为单条目注册表（env 模型即默认）。只返回启用条目——禁用条目对
+        指令层与运行时均不可见（白名单语义：只允许切到已配置且启用的模型）。
+        """
+        try:
+            async with session_scope(self._session_factory) as session:
+                integration = await IntegrationRepository(session).get_by_provider(AGENT_LLM_PROVIDER)
+            if integration is None or integration.encrypted_secret is None:
+                return self._agent_llm_models_from_env()
+            secrets = self._secret_box.decrypt(integration.encrypted_secret)
+        except SecretBoxError:
+            logger.error("agent-llm 集成 Secret 解密失败，请重新配置；模型注册表回退 env")
+            return self._agent_llm_models_from_env()
+        except Exception as exc:
+            logger.error("agent-llm 模型注册表读取失败（error_type=%s），回退 env 配置", type(exc).__name__)
+            return self._agent_llm_models_from_env()
+        api_key = secrets.get("api_key")
+        if not api_key:
+            return self._agent_llm_models_from_env()
+        public_config = public_config_without_hint(integration)
+        default = AgentModelEntry(
+            api_key=api_key,
+            provider=_nonempty_str(public_config.get("provider")) or DEFAULT_AGENT_LLM_PROVIDER,
+            model=_nonempty_str(public_config.get("model")) or DEFAULT_AGENT_LLM_MODEL,
+            base_url=_nonempty_str(public_config.get("base_url")),
+            is_default=True,
+        )
+        extra = _parse_extra_model_entries(public_config.get("models"), default, secrets)
+        return (default, *extra)
+
+    def _agent_llm_models_from_env(self) -> tuple[AgentModelEntry, ...] | None:
+        env = self._agent_llm_from_env()
+        if env is None:
+            return None
+        return (
+            AgentModelEntry(
+                api_key=env.api_key,
+                provider=env.provider,
+                model=env.model,
+                base_url=env.base_url,
+                is_default=True,
+            ),
+        )
+
     async def translations(self) -> tuple[TranslationConfig, ...]:
         """全部可用机翻凭证：priority 数值升序，同优先级按 TRANSLATION_PROVIDERS 声明次序。"""
         async with session_scope(self._session_factory) as session:
@@ -244,6 +318,49 @@ def _translation_config_from_secret(provider: str, priority: int, secret: dict[s
         if _present(access_key_id) and _present(access_key_secret):
             return AliyunTranslationConfig(priority, access_key_id, access_key_secret)
     return None
+
+
+def _parse_extra_model_entries(
+    raw: object,
+    default: AgentModelEntry,
+    secrets: dict[str, str],
+) -> tuple[AgentModelEntry, ...]:
+    """解析 public_config["models"] 附加条目：过滤禁用/畸形/与默认条目 ref 重复的项。
+
+    附加条目独立 key 取 secrets["model_key:<ref>"]，缺省回落默认条目 api_key；
+    一切跳过只记脱敏日志（条目标记 + 原因类型），不带配置内容。
+    """
+    if not isinstance(raw, list):
+        return ()
+    entries: list[AgentModelEntry] = []
+    seen_refs = {default.ref}
+    for item in raw:
+        if not isinstance(item, dict):
+            logger.warning("跳过畸形的附加模型条目（error_type=%s）", type(item).__name__)
+            continue
+        if item.get("enabled") is False:
+            continue
+        provider = _nonempty_str(item.get("provider"))
+        model = _nonempty_str(item.get("model"))
+        if provider is None or model is None:
+            logger.warning("跳过缺少 provider/model 的附加模型条目")
+            continue
+        ref = model_ref_of(provider, model)
+        if ref in seen_refs:
+            logger.warning("跳过重复的附加模型条目（ref=%s）", ref)
+            continue
+        seen_refs.add(ref)
+        override_key = secrets.get(f"model_key:{ref}")
+        entries.append(
+            AgentModelEntry(
+                api_key=override_key if override_key else default.api_key,
+                provider=provider,
+                model=model,
+                base_url=_nonempty_str(item.get("base_url")),
+                is_default=False,
+            )
+        )
+    return tuple(entries)
 
 
 def _present(value: str | None) -> TypeGuard[str]:
