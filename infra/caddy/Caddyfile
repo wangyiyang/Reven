@@ -1,4 +1,5 @@
-http://dev.wangyiyang.cc:3001 {
+# 公共站点逻辑（HTTPS 主站与过渡期 :3001 共用），通过 snippet 复用避免两处漂移
+(site_common) {
 	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
 	# 用 ? 前缀（仅在缺失时写入，且延迟到响应写出时才执行）：API 响应已由
 	# SecurityHeadersMiddleware 设置的保留上游值，静态页由 Caddy 补上，两端都不会重复
@@ -14,7 +15,6 @@ http://dev.wangyiyang.cc:3001 {
 	}
 
 	# 指纹资产长缓存；HTML/SPA 入口 no-cache——否则部署后浏览器继续跑旧 bundle
-	#（2026-08-25 实测：发版后页面仍加载旧 index-*.js，需强刷才拿到新包）
 	handle /assets/* {
 		header Cache-Control "public, max-age=31536000, immutable"
 		root * /srv/reven/current
@@ -27,4 +27,14 @@ http://dev.wangyiyang.cc:3001 {
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+# HTTPS 主站（2026-10-01 全站 TLS 化，Caddy 自动签发证书；签发依赖公网可达 80/443）
+dev.wangyiyang.cc {
+	import site_common
+}
+
+# 过渡期保留的 HTTP 入口（TLS 验证通过、PUBLIC_BASE_URL 切换后可下线）
+http://dev.wangyiyang.cc:3001 {
+	import site_common
 }

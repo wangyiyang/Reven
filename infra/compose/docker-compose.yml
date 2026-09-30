@@ -43,6 +43,10 @@ services:
         condition: service_healthy
     ports:
       - "3001:3001"
+      # 2026-10-01 全站 TLS 化：发布 80（ACME 签发/HTTP 跳转）与 443（HTTPS 主站）
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - reven-static:/srv/reven:ro
