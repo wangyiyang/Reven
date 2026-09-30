@@ -121,6 +121,50 @@ async def test_get_bot_open_id_parses_bot_payload() -> None:
 
 
 @pytest.mark.anyio
+async def test_chat_markdown_uses_chat_id_receive_type() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        message = router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 0}))
+        client = FeishuBotApiClient("cli_test", "secret")
+        await client.send_markdown_to_chat("oc_group", "正文", title="标题")
+
+    request = message.calls[0].request
+    assert request.url.params["receive_id_type"] == "chat_id"
+    payload = json.loads(request.content)
+    assert payload["receive_id"] == "oc_group"
+    assert payload["msg_type"] == "interactive"
+
+
+@pytest.mark.anyio
+async def test_chat_markdown_falls_back_to_text_when_card_fails() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        message = router.post(MESSAGES_URL).mock(
+            side_effect=[
+                httpx.Response(200, json={"code": 230027}),
+                httpx.Response(200, json={"code": 0}),
+            ]
+        )
+        client = FeishuBotApiClient("cli_test", "secret")
+        await client.send_markdown_to_chat("oc_group", "**加粗**", fallback_text="加粗")
+
+    text_payload = json.loads(message.calls[1].request.content)
+    assert text_payload["msg_type"] == "text"
+    assert json.loads(text_payload["content"]) == {"text": "加粗"}
+
+
+@pytest.mark.anyio
+async def test_chat_markdown_raises_when_chat_unreachable() -> None:
+    """会话不可达（如机器人不在群内）：卡片与纯文本都失败，错误照常抛给调用方降级。"""
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        router.post(MESSAGES_URL).mock(return_value=httpx.Response(200, json={"code": 230002}))
+        client = FeishuBotApiClient("cli_test", "secret")
+        with pytest.raises(FeishuBotApiError, match="code=230002"):
+            await client.send_markdown_to_chat("oc_group", "正文")
+
+
+@pytest.mark.anyio
 async def test_get_bot_open_id_error_is_explicit_and_redacted() -> None:
     with respx.mock(assert_all_called=True) as router:
         _mock_token(router)

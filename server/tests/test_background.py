@@ -1,9 +1,10 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from types import SimpleNamespace
 
 import pytest
 from reven.background import BackgroundRunner, RssDiscoveryTick, build_background_runner
+from reven.notify.scheduler import DailyPushScheduler
 from reven.system.models import SystemState
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -81,12 +82,33 @@ async def test_tick_cancellation_stops_the_loop() -> None:
 def test_default_runner_builds_rss_with_notification_service() -> None:
     factory = object()
     clients = SimpleNamespace(credentials=object())
-    settings = type("Settings", (), {"rss_scheduler_interval_seconds": 42})()
+    settings = type("Settings", (), {"rss_scheduler_interval_seconds": 42, "notify_push_enabled": False})()
 
     runner = build_background_runner(factory, clients, settings)  # type: ignore[arg-type]
 
     assert isinstance(runner._rss_tick, RssDiscoveryTick)
     assert runner._rss_interval == 42
+    assert runner._extra_runners == ()
+
+
+def test_default_runner_builds_daily_push_scheduler_when_enabled() -> None:
+    factory = object()
+    clients = SimpleNamespace(credentials=object())
+    settings = SimpleNamespace(
+        rss_scheduler_interval_seconds=42,
+        notify_push_enabled=True,
+        notify_push_time="09:30",
+        notify_push_chat_id="oc_target",
+        notify_push_heartbeat=True,
+    )
+
+    runner = build_background_runner(factory, clients, settings)  # type: ignore[arg-type]
+
+    (scheduler,) = runner._extra_runners
+    assert isinstance(scheduler, DailyPushScheduler)
+    assert scheduler._config.run_at == time(9, 30)
+    assert scheduler._config.chat_id == "oc_target"
+    assert scheduler._config.heartbeat is True
 
 
 @pytest.mark.anyio

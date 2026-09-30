@@ -1,3 +1,5 @@
+import re
+from datetime import time
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -28,6 +30,11 @@ class Settings(BaseSettings):
     siliconflow_chat_model: str = "Qwen/Qwen3-8B"
     rss_model_review_enabled: bool = True
     rss_scheduler_interval_seconds: int = Field(default=60, ge=5)
+    # 定时主动推送（#171）：每日 run_at（Asia/Shanghai）触发挂载场景；chat_id 为空时降级机器人白名单接收人
+    notify_push_enabled: bool = True
+    notify_push_time: str = "09:00"
+    notify_push_chat_id: str | None = None
+    notify_push_heartbeat: bool = False
     dsh_home: Path = Path(".dsh-runtime")
     agent_provider: str = "deepseek-official"
     agent_model: str = "deepseek-v4-flash"
@@ -43,6 +50,26 @@ class Settings(BaseSettings):
             return normalize_origin(value)
         except ValueError as error:
             raise ValueError("PUBLIC_BASE_URL 必须是 HTTP 或 HTTPS origin，域名请使用 ASCII 或 Punycode") from error
+
+    @field_validator("notify_push_time")
+    @classmethod
+    def validate_notify_push_time(cls, value: str) -> str:
+        """严格 HH:MM（24 小时制）；time.fromisoformat 单独用会放过带时区偏移等异形输入。"""
+        if not re.fullmatch(r"\d{2}:\d{2}", value):
+            raise ValueError("NOTIFY_PUSH_TIME 必须是 HH:MM 格式（Asia/Shanghai 本地时刻）")
+        try:
+            time.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("NOTIFY_PUSH_TIME 必须是 HH:MM 格式（Asia/Shanghai 本地时刻）") from error
+        return value
+
+    @field_validator("notify_push_chat_id", mode="before")
+    @classmethod
+    def blank_chat_id_as_none(cls, value: object) -> object:
+        """.env 里 NOTIFY_PUSH_CHAT_ID= 留空视为未配置。"""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 def get_settings() -> Settings:
