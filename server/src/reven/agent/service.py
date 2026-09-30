@@ -9,9 +9,10 @@ class AgentService:
     def __init__(self, runtime: AgentRuntime) -> None:
         self._runtime = runtime
 
-    async def chat(self, message: str, session_id: str | None = None) -> tuple[str, str]:
+    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
         """执行一轮对话，返回 (session_id, 最终响应文本)。
 
-        未配置抛 AgentNotConfiguredError（503）；运行时不可用/失败抛 AgentRuntimeError（502）。
+        未配置抛 AgentNotConfiguredError（503）；运行时不可用/失败抛 AgentRuntimeError（502）；
+        model 为会话级 override 模型引用（provider/model），不可达抛 AgentModelUnavailableError。
         """
-        return await self._runtime.chat(message, session_id)
+        return await self._runtime.chat(message, session_id, model=model)

@@ -9,7 +9,7 @@ from fastmcp.server.http import StarletteWithLifespan
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from reven.agent import AgentRuntime, resolve_agent_config
+from reven.agent import AgentRuntime, resolve_agent_config, resolve_agent_model_config
 from reven.agent.mcp_server import (
     AGENT_MCP_ENDPOINT_PATH,
     AGENT_MCP_MOUNT_PREFIX,
@@ -17,6 +17,7 @@ from reven.agent.mcp_server import (
     create_agent_mcp_app,
     resolve_agent_mcp_context,
 )
+from reven.agent.runtime import ModelConfigResolver
 from reven.agent.service import AgentService
 from reven.api.routes.agent import router as agent_router
 from reven.api.routes.auth import router as auth_router
@@ -106,7 +107,12 @@ async def _build_agent_runtime(
     if settings is None:
         return AgentRuntime(None)
     config = await resolve_agent_config(credentials, settings)
-    return AgentRuntime(config, mcp=mcp)
+    # 有凭证 seam 时接入模型注册表解析器，支持 /model 指令的会话级模型切换（#163）；
+    # 无库/降级形态为 None：override 请求会被 AgentModelUnavailableError 明确拒绝
+    resolver: ModelConfigResolver | None = None
+    if credentials is not None:
+        resolver = partial(resolve_agent_model_config, credentials, settings)
+    return AgentRuntime(config, mcp=mcp, model_resolver=resolver)
 
 
 def _build_provider_clients(

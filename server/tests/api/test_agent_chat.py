@@ -18,7 +18,7 @@ class _StubRuntime:
         self.reply = reply
         self.calls: list[tuple[str, str | None]] = []
 
-    async def chat(self, message: str, session_id: str | None = None) -> tuple[str, str]:
+    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
         if self.error is not None:
             raise self.error
         self.calls.append((message, session_id))

@@ -60,3 +60,27 @@ async def resolve_agent_config(
         dsh_home=settings.dsh_home,
         cwd=settings.dsh_home,
     )
+
+
+async def resolve_agent_model_config(
+    credentials: IntegrationCredentials,
+    settings: Settings,
+    model_ref: str,
+) -> AgentConfig | None:
+    """按模型引用（provider/model）解析运行时配置；未注册/未启用返回 None。
+
+    每次调用现读注册表（配置页改动即时生效）；读取/解密失败由 seam 内部降级。
+    返回 None 时调用方必须明确报错，禁止静默回落默认模型（OpenClaw 严格语义）。
+    """
+    entries = await credentials.agent_llm_models()
+    for entry in entries or ():
+        if entry.ref == model_ref:
+            return AgentConfig(
+                provider=entry.provider,
+                model=entry.model,
+                base_url=entry.base_url,
+                api_key=entry.api_key,
+                dsh_home=settings.dsh_home,
+                cwd=settings.dsh_home,
+            )
+    return None

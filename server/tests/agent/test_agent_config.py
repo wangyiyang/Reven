@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from reven.agent.config import AgentConfig, resolve_agent_config
+from reven.agent.config import AgentConfig, resolve_agent_config, resolve_agent_model_config
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.models import Integration
@@ -163,3 +163,82 @@ async def test_credentials_unavailable_uses_env_only(tmp_path: Path) -> None:
 
     assert config is not None
     assert config.api_key == "sk-env"
+
+
+# --- resolve_agent_model_config（#163 模型注册表按 ref 解析） ---
+
+
+@pytest.mark.anyio
+async def test_resolve_model_config_hits_extra_entry(
+    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """命中附加条目：返回该模型的 provider/model/base_url/key，dsh_home 取自 settings。"""
+    await _save_integration(
+        session_factory,
+        public_config={
+            "provider": "deepseek-official",
+            "model": "deepseek-v4-flash",
+            "models": [{"provider": "openai", "model": "gpt-5", "base_url": "https://api.openai.com/v1"}],
+        },
+        api_key="sk-db",
+    )
+    settings = _make_settings(dsh_home=tmp_path / "dsh")
+
+    config = await resolve_agent_model_config(
+        IntegrationCredentials(session_factory, settings), settings, "openai/gpt-5"
+    )
+
+    assert config is not None
+    assert config.provider == "openai"
+    assert config.model == "gpt-5"
+    assert config.base_url == "https://api.openai.com/v1"
+    assert config.api_key == "sk-db"  # 无独立 key 时回落默认条目
+    assert config.dsh_home == tmp_path / "dsh"
+
+
+@pytest.mark.anyio
+async def test_resolve_model_config_hits_default_entry(
+    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    await _save_integration(
+        session_factory, public_config={"provider": "deepseek-official", "model": "deepseek-v4-flash"}, api_key="sk-db"
+    )
+    settings = _make_settings(dsh_home=tmp_path / "dsh")
+
+    config = await resolve_agent_model_config(
+        IntegrationCredentials(session_factory, settings), settings, "deepseek-official/deepseek-v4-flash"
+    )
+
+    assert config is not None
+    assert config.model == "deepseek-v4-flash"
+
+
+@pytest.mark.anyio
+async def test_resolve_model_config_returns_none_for_unknown_or_disabled(
+    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """未注册与已禁用的 ref 均返回 None（调用方据此明确拒绝，不静默降级）。"""
+    await _save_integration(
+        session_factory,
+        public_config={
+            "provider": "deepseek-official",
+            "model": "deepseek-v4-flash",
+            "models": [{"provider": "anthropic", "model": "claude-sonnet-4", "enabled": False}],
+        },
+        api_key="sk-db",
+    )
+    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    credentials = IntegrationCredentials(session_factory, settings)
+
+    assert await resolve_agent_model_config(credentials, settings, "openai/gpt-5") is None
+    assert await resolve_agent_model_config(credentials, settings, "anthropic/claude-sonnet-4") is None
+
+
+@pytest.mark.anyio
+async def test_resolve_model_config_returns_none_when_unconfigured(
+    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    credentials = IntegrationCredentials(session_factory, settings)
+
+    assert await resolve_agent_model_config(credentials, settings, "openai/gpt-5") is None
