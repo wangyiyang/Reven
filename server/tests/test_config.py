@@ -106,3 +106,42 @@ def test_public_base_url_preserves_alias_precedence(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", "http://localhost:8080")
     assert Settings(_env_file=None).public_base_url == "http://localhost:8080"
+
+
+@pytest.fixture
+def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@db/test")
+    monkeypatch.setenv("REVEN_MASTER_KEY", "test-master-key")
+    monkeypatch.setenv("REVEN_ADMIN_PASSWORD", "test-admin-password")
+
+
+def test_notify_push_defaults(_base_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("NOTIFY_PUSH_ENABLED", "NOTIFY_PUSH_TIME", "NOTIFY_PUSH_CHAT_ID", "NOTIFY_PUSH_HEARTBEAT"):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.notify_push_enabled is True
+    assert settings.notify_push_time == "09:00"
+    assert settings.notify_push_chat_id is None
+    assert settings.notify_push_heartbeat is False
+
+
+def test_notify_push_time_normalizes_and_blank_chat_id_is_none(
+    _base_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NOTIFY_PUSH_TIME", "21:30")
+    monkeypatch.setenv("NOTIFY_PUSH_CHAT_ID", "  ")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.notify_push_time == "21:30"
+    assert settings.notify_push_chat_id is None
+
+
+@pytest.mark.parametrize("value", ["", "25:00", "九点", "09-00"])
+def test_notify_push_time_rejects_invalid_format(_base_env: None, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("NOTIFY_PUSH_TIME", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

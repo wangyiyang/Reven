@@ -10,6 +10,7 @@ from reven.crm.models import Contact, Customer, FollowUp  # noqa: F401
 from reven.db import Base
 from reven.finance.models import FinanceEntry  # noqa: F401
 from reven.integrations.models import Integration  # noqa: F401
+from reven.notify.models import NotificationLog  # noqa: F401
 from reven.projects.models import Project  # noqa: F401
 from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource  # noqa: F401
 from reven.security.models import AuthSession  # noqa: F401
