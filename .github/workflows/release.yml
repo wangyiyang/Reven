@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Authenticate to Alibaba ACR
         env:
           ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
@@ -69,11 +70,14 @@ jobs:
       - name: Build, scan, and push production image
         run: |
           version="${GITHUB_REF_NAME}"
-          docker build --pull --no-cache \
+          docker buildx build --pull \
+            --cache-from type=registry,ref=${IMAGE}:buildcache \
+            --cache-to type=registry,ref=${IMAGE}:buildcache,mode=max \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             -f infra/docker/Dockerfile \
             -t "${IMAGE}:${version}" \
-            -t "${IMAGE}:latest" .
+            -t "${IMAGE}:latest" \
+            --push --load .
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.64.1@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e \
             image --scanners vuln --exit-code 1 --ignore-unfixed --severity CRITICAL \
