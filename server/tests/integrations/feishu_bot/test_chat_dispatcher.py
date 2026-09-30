@@ -355,3 +355,20 @@ async def test_whitelist_is_reread_on_every_turn(db_session: AsyncSession) -> No
 
     assert second.calls == []
     assert len(agent.calls) == 1
+
+
+# --- 模型 override 快照（#173 删除保护接缝） ---
+
+
+def test_model_refs_in_use_reflects_overrides() -> None:
+    dispatcher = _dispatcher(_StubCredentials(None), _StubAgentService())
+
+    assert dispatcher.model_refs_in_use() == frozenset()
+
+    dispatcher._overrides["oc_1:ou_boss"] = "deepseek-official/deepseek-v4-pro"
+    dispatcher._overrides["oc_2:ou_ops"] = "siliconflow/Qwen/Qwen3-32B"
+    dispatcher._overrides["oc_3:ou_boss"] = "deepseek-official/deepseek-v4-pro"
+
+    assert dispatcher.model_refs_in_use() == frozenset(
+        {"deepseek-official/deepseek-v4-pro", "siliconflow/Qwen/Qwen3-32B"}
+    )

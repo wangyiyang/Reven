@@ -21,7 +21,14 @@ from reven.integrations.errors import IntegrationConfigurationError
 from reven.integrations.feishu_bot.config import PROVIDER as FEISHU_BOT_PROVIDER
 from reven.integrations.feishu_bot.config import FeishuBotConfig, parse_whitelist
 from reven.integrations.models import Integration
-from reven.integrations.providers import TRANSLATION_PROVIDERS, TranslationProvider
+from reven.integrations.providers import (
+    AGENT_LLM_PROVIDER,
+    DEFAULT_AGENT_LLM_MODEL,
+    DEFAULT_AGENT_LLM_PROVIDER,
+    TRANSLATION_PROVIDERS,
+    TranslationProvider,
+    model_ref_of,
+)
 from reven.integrations.repository import IntegrationRepository
 from reven.integrations.service import public_config_without_hint
 from reven.integrations.translation.configuration import (
@@ -32,10 +39,6 @@ from reven.integrations.translation.configuration import (
 from reven.security.secrets import SecretBox, SecretBoxError
 
 logger = logging.getLogger(__name__)
-
-AGENT_LLM_PROVIDER = "agent-llm"
-DEFAULT_AGENT_LLM_PROVIDER = "deepseek-official"
-DEFAULT_AGENT_LLM_MODEL = "deepseek-v4-flash"
 
 _TRANSLATION_PROVIDER_ORDER = {provider: index for index, provider in enumerate(TRANSLATION_PROVIDERS)}
 
@@ -57,11 +60,6 @@ class AgentLlmCredentials:
     provider: str
     model: str
     base_url: str | None
-
-
-def model_ref_of(provider: str, model: str) -> str:
-    """模型引用：统一 `provider/model` 主键格式（对齐 OpenClaw model ref）。"""
-    return f"{provider}/{model}"
 
 
 @dataclass(frozen=True)
