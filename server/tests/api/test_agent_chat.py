@@ -4,14 +4,18 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from agent_service_support import EXTRA_REF, ServiceRig
 from fastapi.testclient import TestClient
 from reven.agent import AgentConfig, AgentRuntime
 from reven.agent.errors import AgentRuntimeError
 from reven.agent.mcp_server import AgentMcpContext
+from reven.agent.service import AgentService
 
 
 class _StubRuntime:
-    """duck-type 替换 app.state.agent_runtime，绕开真实 dsh 子进程。"""
+    """AgentService 内部 runtime 替身，绕开真实 dsh 子进程。"""
+
+    default_model_ref = "test/model"
 
     def __init__(self, *, error: Exception | None = None, reply: tuple[str, str] = ("sess-fixed", "回声")) -> None:
         self.error = error
@@ -66,7 +70,7 @@ def test_chat_returns_502_when_runtime_start_failed(
     workbench: tuple[TestClient, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, _ = workbench
-    client.app.state.agent_runtime = _failed_runtime(tmp_path, monkeypatch)
+    client.app.state.agent_service = AgentService(_failed_runtime(tmp_path, monkeypatch))
 
     response = client.post("/api/agent/chat", json={"message": "你好"})
 
@@ -76,7 +80,9 @@ def test_chat_returns_502_when_runtime_start_failed(
 
 def test_chat_returns_502_on_runtime_error(workbench: tuple[TestClient, object]) -> None:
     client, _ = workbench
-    client.app.state.agent_runtime = _StubRuntime(error=AgentRuntimeError("AGENT_CHAT_FAILED", "dsh 会话执行失败"))
+    client.app.state.agent_service = AgentService(
+        _StubRuntime(error=AgentRuntimeError("AGENT_CHAT_FAILED", "dsh 会话执行失败"))
+    )
 
     response = client.post("/api/agent/chat", json={"message": "你好"})
 
@@ -87,7 +93,7 @@ def test_chat_returns_502_on_runtime_error(workbench: tuple[TestClient, object])
 def test_chat_success_and_session_id_passthrough(workbench: tuple[TestClient, object]) -> None:
     client, _ = workbench
     stub = _StubRuntime()
-    client.app.state.agent_runtime = stub
+    client.app.state.agent_service = AgentService(stub)
 
     continued = client.post("/api/agent/chat", json={"message": "继续聊", "session_id": "sess-abc"})
     fresh = client.post("/api/agent/chat", json={"message": "新会话"})
@@ -104,3 +110,20 @@ def test_chat_validates_payload(workbench: tuple[TestClient, object]) -> None:
     assert client.post("/api/agent/chat", json={"message": ""}).status_code == 422
     assert client.post("/api/agent/chat", json={"message": "hi", "unexpected": 1}).status_code == 422
     assert client.post("/api/agent/chat", json={}).status_code == 422
+
+
+def test_chat_uses_shared_external_session_choice_without_changing_json(workbench, tmp_path, monkeypatch) -> None:
+    client, _ = workbench
+    rig = ServiceRig(tmp_path, monkeypatch)
+    service, runtime = client.portal.call(rig.build)
+    client.app.state.agent_service = service
+    session_id = "feishu:oc_shared:ou_boss"
+    try:
+        client.portal.call(service.use_model, session_id, EXTRA_REF)
+        response = client.post("/api/agent/chat", json={"message": "跨入口继续", "session_id": session_id})
+        assert response.status_code == 200
+        assert response.json() == {"session_id": session_id, "response": f"回复@{EXTRA_REF}"}
+        assert rig.instances[0].calls == []
+        assert rig.instances[1].calls == [("跨入口继续", session_id)]
+    finally:
+        client.portal.call(runtime.close)

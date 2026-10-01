@@ -17,7 +17,8 @@ import threading
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Literal, Protocol, TypeVar
 
-from reven.agent.errors import AgentError, AgentModelUnavailableError
+from reven.agent.errors import AgentModelUnavailableError
+from reven.agent.service import AgentTurn, SessionModelState
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.commands import (
     USAGE_TEXT,
@@ -53,9 +54,11 @@ RouteKind = Literal["chat", "guide", "unsupported"]
 class AgentChatService(Protocol):
     """Agent 对话口（reven.agent.service.AgentService 满足该协议）；本地定义避免跨层依赖 api 层。"""
 
-    async def chat(
-        self, message: str, session_id: str | None = None, *, model: str | None = None
-    ) -> tuple[str, str]: ...
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn: ...
+
+    async def model_state(self, session_id: str) -> SessionModelState: ...
+
+    async def use_model(self, session_id: str, model_ref: str) -> SessionModelState: ...
 
 
 class ChatDispatch(Protocol):
@@ -80,9 +83,8 @@ _T = TypeVar("_T")
 class FeishuChatDispatcher:
     """消息对话分发器：白名单现读 + Agent 调用桥到主事件循环，工作线程内等待并回消息。
 
-    会话级模型 override（#163）存于 `_overrides` 内存字典：读写都只发生在主事件
-    循环的桥接协程内（工作线程不直接触碰），单线程无锁；不持久化，重启丢失（MVP
-    已拍板）。指令消息（/model …）直接回复，不发「思考中…」占位、不进入 Agent。
+    指令消息（/model …）直接回复，不发「思考中…」占位、不进入 LLM。
+    会话模型选择与本轮身份由共享 Agent 业务对象解释。
     """
 
     def __init__(
@@ -100,7 +102,6 @@ class FeishuChatDispatcher:
         self._timeout_seconds = timeout_seconds
         self._precheck_timeout_seconds = precheck_timeout_seconds
         self._main_loop: asyncio.AbstractEventLoop | None = None
-        self._overrides: dict[str, str] = {}
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """绑定主事件循环（supervisor.start 时调用）；进程生命周期内不变。"""
@@ -196,52 +197,33 @@ class FeishuChatDispatcher:
         return config is not None and open_id in config.whitelist_open_ids
 
     @staticmethod
-    def _override_key(chat_id: str, open_id: str) -> str:
-        """会话 override 的作用域键：chat_id + open_id（与会话 session_id 同粒度）。"""
-        return f"{chat_id}:{open_id}"
+    def _session_id(chat_id: str, open_id: str) -> str:
+        return f"feishu:{chat_id}:{open_id}"
 
     async def _handle_model_command(self, chat_id: str, open_id: str, command: ModelCommand) -> str:
-        """处理 /model 指令（主循环内）：注册表现读，白名单语义——只允许切到已配置且启用的模型。"""
-        key = self._override_key(chat_id, open_id)
-        entries = await self._credentials.agent_llm_models() or ()
+        session_id = self._session_id(chat_id, open_id)
         if command.action == "list":
-            return render_model_list(entries, self._overrides.get(key))
+            return render_model_list(await self._agent.model_state(session_id))
         if command.action == "current":
-            override = self._overrides.get(key)
-            if override is not None:
-                return render_current(override, is_override=True)
-            default = next((entry for entry in entries if entry.is_default), None)
-            return render_current(default.ref if default is not None else None, is_override=False)
+            return render_current(await self._agent.model_state(session_id))
         if command.action == "use":
             ref = command.model_ref
             if ref is None or not is_valid_model_ref(ref):
                 return USAGE_TEXT
-            for entry in entries:
-                if entry.ref == ref:
-                    if entry.is_default:
-                        # 切回默认模型 = 清除 override（语义等价，避免无意义的池实例）
-                        self._overrides.pop(key, None)
-                        return render_use_reset_to_default(ref)
-                    self._overrides[key] = ref
-                    return render_use_switched(ref)
-            return render_use_rejected(ref, entries)
+            try:
+                state = await self._agent.use_model(session_id, ref)
+            except AgentModelUnavailableError:
+                return render_use_rejected(ref, await self._agent.model_state(session_id))
+            return render_use_switched(ref) if state.is_override else render_use_reset_to_default(ref)
         return USAGE_TEXT
 
     async def _chat(self, chat_id: str, open_id: str, text: str) -> str:
-        session_id = f"feishu:{chat_id}:{open_id}"
-        override = self._overrides.get(self._override_key(chat_id, open_id))
         try:
-            _, answer = await self._agent.chat(text, session_id, model=override)
+            turn = await self._agent.chat(text, self._session_id(chat_id, open_id))
         except AgentModelUnavailableError as exc:
             # 严格语义：override 模型不可达时明确报错，绝不静默回落默认模型
             logger.warning("飞书机器人会话模型不可用（model=%s, error_code=%s）", exc.model_ref, exc.code)
             return render_model_unavailable(exc.model_ref)
-        except AgentError as exc:
-            if override is None:
-                raise
-            # error_code 为稳定脱敏码；异常 message 可能含上游凭证回显，禁止进日志与回复
-            logger.warning("飞书机器人会话模型调用失败（model=%s, error_code=%s）", override, exc.code)
-            return render_model_unavailable(override)
-        if override is not None:
-            return render_answer_with_model(answer, override)
-        return answer
+        if turn.is_override and turn.model_ref is not None:
+            return render_answer_with_model(turn.response, turn.model_ref)
+        return turn.response

@@ -12,6 +12,7 @@
 - `reven.notifications.DeliveryNotifier.send(Notification)`：RSS 的统一通知口。
 - `python3 scripts/notify_feishu_deploy.py`：Actions 部署通知，使用环境中的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_NOTIFY_OPEN_IDS`。
 - 对话入站（`integrations/feishu_bot/`）：`handlers.route_message(sender, message, bot_open_id) -> RouteDecision | None`（纯函数路由）；`chat_dispatcher.FeishuChatDispatcher.submit(*, kind, message_id, chat_id, open_id, text) -> None`（立即返回）；`client.FeishuBotApiClient.get_bot_open_id() -> str`（`/bot/v3/info`）。
+- 模型指令：`parse_model_command(text) -> ModelCommand | None`，支持 `/model`、`/model list`、`/model current`、`/model use provider/model`；renderer 消费 `SessionModelState`，不接收含凭证的注册表条目。
 - 对话会话：session_id = `feishu:{chat_id}:{open_id}`，传入 `AgentService.chat(message, session_id)`；群内每人独立会话。
 
 ### 统一 HTTP 交付入口
@@ -54,6 +55,7 @@ dispatcher 构造时注入这个 callable；SDK handlers 只负责入站路由�
 - 对话入站只经 lark-oapi WS 长连接。消息处理器在 SDK 连接事件循环上**同步执行**，SDK 的 ping 循环（间隔约 120s）跑在同一循环上——**处理器必须立即返回，严禁在处理器内阻塞等待 Agent 或任何慢 IO**，否则心跳超时掉线。等待一律挪到 daemon 工作线程；慢调用用 `bind_loop()` 绑定主循环 + `asyncio.run_coroutine_threadsafe` 桥接，`run_coroutine_threadsafe` 调度失败必须 `coro.close()`；一切异常收敛为兜底文案 + 脱敏日志，绝不向 SDK 抛。
 - 群聊@判定只用 `mentions[*].id.open_id == bot open_id`（`name`/`mentioned_type` 不可靠，禁用）；mention 占位符用 `mentions[*].key` 从正文剥离。bot open_id 在 `supervisor.start()` 获取，失败降级为群聊忽略 + warning 日志，**私聊不受影响**（私聊无需 bot open_id）。
 - 对话回复策略：先引用回复「思考中…」再引用回复最终结果（均按触发消息 message_id reply，卡片优先、失败降级纯文本）；非文本消息统一回「暂只支持文字提问」；剥离 mention 后空文本回引导文案。
+- 飞书只拥有模型指令语法、IM 会话映射和渲染。选择/默认/可用性由共享 AgentService 的 `model_state`、`use_model`、`chat` 解释，不保存另一份 override 字典。回答落款使用本轮 `AgentTurn` 身份；执行期间切换不影响本轮落款。生效默认与已保存默认不同时，current/list 明确提示重启后生效；普通场景文案保持。
 - 对话白名单每次现读 `credentials.feishu_bot()`（主循环内），配置页改白名单即时生效，不依赖连接重建。
 - 单轮对话超时 120s（`_CHAT_TIMEOUT_SECONDS`，构造参可注入，测试传小值）；超时后 dsh 侧 `harness.run` 线程不取消、跑完为止——已知取舍，不引入取消机制。
 - 连接测试包含 token、`/open-apis/bot/v3/info` 和真正发送消息。前端检查返回的 `connection_status`，不能只凭 HTTP 200 显示成功。
@@ -75,7 +77,8 @@ dispatcher 构造时注入这个 callable；SDK handlers 只负责入站路由�
 | 旧 `feishu` 数据行存在 | API 列表隐藏，专用路径 404 |
 | Actions 三项配置全空/部分缺失 | 全空跳过；部分缺失退出非零 |
 | Actions token 或消息 API 失败 | 退出非零，不输出 Secret/token/响应原文 |
-| 对话超时或 AgentError 一族 | 用户收兜底文案「出了点问题，请稍后重试」；日志含 error_type + error_code，不含异常 message（可能回显 secret） |
+| 对话超时或其他 AgentError | 用户收兜底文案「出了点问题，请稍后重试」；日志含 error_type + error_code，不含异常 message（可能回显 secret） |
+| 指定模型不可用 `AgentModelUnavailableError` | 明确模型不可用提示，保留选择，不回落其他模型；提示显式恢复路径 |
 | bot open_id 获取失败 | 群聊消息一律忽略 + warning；私聊正常 |
 | 白名单外用户任何消息 | 零回复、零 dispatch，仅 debug 日志 |
 | 「思考中…」占位发送失败 | 放弃本轮，不再发结果，避免时序错乱 |
@@ -101,6 +104,7 @@ dispatcher 构造时注入这个 callable；SDK handlers 只负责入站路由�
 - 对话路由矩阵：私聊 text/非文本、群聊无@/@他人/@bot 剥离/空文本引导、非 user sender、畸形 JSON；bot open_id 一律参数注入，测试零网络。
 - HTTP 交付矩阵：open_id、chat_id、reply 的真实请求形状；卡片成功、业务失败、网络异常、HTTP/非法响应、文本再次失败与标题保留。策略只在 HTTP 客户端 seam 验证，SDK 不再复制出站策略测试。
 - 组合回归：CRM 提醒 → 调度器 → 真实主动通知 adapter → MockTransport，卡片失败后文本仍含标题及客户信息；结构化通知降级保留阶段、摘要与链接。
+- 模型指令：解析/用法/正常文案、default/override 落款、默认漂移提示与拒绝切换；业务组合在真实 AgentService/runtime seam 验证，不把状态机复制到飞书 stub。
 - 对话桥接：`bind_loop(get_running_loop())` + `asyncio.to_thread(submit)`；dead loop 调度失败兜底且不泄漏协程（可加 `-W error::RuntimeWarning`）；超时注小值；AgentError 矩阵；非白名单零 reply；db 改白名单下一轮即时生效。
 
 ## 7. 错误与正确写法

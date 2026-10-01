@@ -134,14 +134,12 @@ def _build_feishu_bot_supervisor(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
     clients: ProviderClients | None,
-    agent_runtime: AgentRuntime,
+    agent_service: AgentService,
 ) -> FeishuBotSupervisor | None:
     """创建飞书机器人长连接 supervisor；无库或凭证降级时停用，不阻断进程。"""
     if factory is None or clients is None:
         return None
-    chat_dispatcher = FeishuChatDispatcher(
-        clients.credentials, AgentService(agent_runtime), reply=FeishuReplier(clients)
-    )
+    chat_dispatcher = FeishuChatDispatcher(clients.credentials, agent_service, reply=FeishuReplier(clients))
     supervisor = FeishuBotSupervisor(clients.credentials, chat_dispatcher=chat_dispatcher)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
@@ -221,7 +219,9 @@ async def _lifespan(
         clients.credentials if clients is not None else None, settings, mcp_context
     )
     current_app.state.agent_runtime = agent_runtime
-    feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory, clients, agent_runtime)
+    agent_service = AgentService(agent_runtime, clients.credentials if clients is not None else None)
+    current_app.state.agent_service = agent_service
+    feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory, clients, agent_service)
     async with _run_app_resources(
         agent_runtime=agent_runtime,
         feishu_bot_supervisor=feishu_bot_supervisor,

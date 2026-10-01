@@ -27,6 +27,7 @@ async def test_runtime_start_handshake_and_close(tmp_path: Path) -> None:
 
     await runtime.start()
     assert runtime.configured
+    assert runtime._harness is not None
 
     await runtime.close()
     await runtime.close()

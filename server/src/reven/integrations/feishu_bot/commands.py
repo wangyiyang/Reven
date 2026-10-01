@@ -4,11 +4,10 @@
 启用的模型（白名单校验）；指令回复直接返回，不进入 LLM、不计入会话历史。
 """
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from reven.integrations.credentials import AgentModelEntry
+from reven.agent.service import SessionModelState
 
 COMMAND_PREFIX = "/model"
 
@@ -59,28 +58,40 @@ def is_valid_model_ref(ref: str) -> bool:
     return bool(sep) and bool(provider.strip()) and bool(model.strip())
 
 
-def render_model_list(entries: Sequence[AgentModelEntry], current_ref: str | None) -> str:
+def render_model_list(state: SessionModelState) -> str:
     """可用模型清单：标注默认与当前会话所用；空注册表返回提示。"""
-    if not entries:
+    return _render_model_list(state, mark_current=True)
+
+
+def _render_model_list(state: SessionModelState, *, mark_current: bool) -> str:
+    if not state.available_refs:
         return NO_MODELS_TEXT
     lines = ["可用模型："]
-    for index, entry in enumerate(entries, start=1):
+    for index, ref in enumerate(state.available_refs, start=1):
         marks = ""
-        if entry.is_default:
+        if ref == state.default_ref:
             marks += "（默认）"
-        if entry.ref == current_ref:
+        if mark_current and state.is_override and ref == state.current_ref:
             marks += "（当前会话）"
-        lines.append(f"{index}. {entry.ref}{marks}")
+        if ref == state.pending_default_ref:
+            marks += "（重启后默认）"
+        lines.append(f"{index}. {ref}{marks}")
     lines.append("切换：/model use provider/model")
-    return "\n".join(lines)
+    return _with_pending_default("\n".join(lines), state)
 
 
-def render_current(current_ref: str | None, *, is_override: bool) -> str:
+def render_current(state: SessionModelState) -> str:
     """当前会话模型：override 标注「会话指定」，否则标注「默认」；无配置返回提示。"""
-    if current_ref is None:
-        return NO_MODELS_TEXT
-    suffix = "（会话指定）" if is_override else "（默认）"
-    return f"当前会话模型：{current_ref}{suffix}"
+    if state.current_ref is None:
+        return _with_pending_default(NO_MODELS_TEXT, state)
+    suffix = "（会话指定）" if state.is_override else "（默认）"
+    return _with_pending_default(f"当前会话模型：{state.current_ref}{suffix}", state)
+
+
+def _with_pending_default(text: str, state: SessionModelState) -> str:
+    if state.pending_default_ref is None:
+        return text
+    return f"{text}\n已保存默认模型：{state.pending_default_ref}，重启后生效。"
 
 
 def render_use_switched(ref: str) -> str:
@@ -91,9 +102,9 @@ def render_use_reset_to_default(ref: str) -> str:
     return f"已恢复默认模型：{ref}。"
 
 
-def render_use_rejected(ref: str, entries: Sequence[AgentModelEntry]) -> str:
+def render_use_rejected(ref: str, state: SessionModelState) -> str:
     """拒绝切换：明确原因并列出可选项（白名单语义）。"""
-    return f"无法切换到 {ref}：未配置或未启用。\n\n{render_model_list(entries, None)}"
+    return f"无法切换到 {ref}：未配置或未启用。\n\n{_render_model_list(state, mark_current=False)}"
 
 
 def render_model_unavailable(ref: str) -> str:

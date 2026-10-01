@@ -6,29 +6,18 @@
 
 import asyncio
 import time
-from collections.abc import Sequence
+from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
-from reven.agent.errors import AgentModelUnavailableError, AgentRuntimeError
-from reven.integrations.credentials import AgentModelEntry
+from agent_service_support import DEFAULT_ENTRY, DEFAULT_REF, EXTRA_ENTRY, EXTRA_REF, ServiceRig
+from deepseek_harness.errors import HarnessError
 from reven.integrations.feishu_bot.chat_dispatcher import FALLBACK_TEXT, FeishuChatDispatcher
 from reven.integrations.feishu_bot.commands import (
     USAGE_TEXT,
     is_valid_model_ref,
     parse_model_command,
 )
-from reven.integrations.feishu_bot.config import FeishuBotConfig
-
-WHITELISTED_CONFIG = FeishuBotConfig(app_id="cli_test", app_secret="s3cret", whitelist_open_ids=("ou_boss",))
-DEFAULT_ENTRY = AgentModelEntry(
-    api_key="sk-default", provider="deepseek-official", model="deepseek-v4-flash", base_url=None, is_default=True
-)
-EXTRA_ENTRY = AgentModelEntry(
-    api_key="sk-openai", provider="openai", model="gpt-5", base_url="https://api.openai.com/v1", is_default=False
-)
-DEFAULT_REF = DEFAULT_ENTRY.ref
-EXTRA_REF = EXTRA_ENTRY.ref
-
 
 # --- 指令解析（纯函数） ---
 
@@ -69,35 +58,7 @@ def test_is_valid_model_ref(ref: str, valid: bool) -> None:
     assert is_valid_model_ref(ref) is valid
 
 
-# --- 指令端到端（dispatcher 接线） ---
-
-
-class _StubCredentials:
-    """credentials seam 替身：固定白名单配置 + 固定模型注册表。"""
-
-    def __init__(self, entries: Sequence[AgentModelEntry] | None = (DEFAULT_ENTRY, EXTRA_ENTRY)) -> None:
-        self._entries = tuple(entries) if entries is not None else None
-
-    async def feishu_bot(self) -> FeishuBotConfig | None:
-        return WHITELISTED_CONFIG
-
-    async def agent_llm_models(self) -> tuple[AgentModelEntry, ...] | None:
-        return self._entries
-
-
-class _StubAgentService:
-    """记录 (message, session_id, model) 调用；可按模型脚本化抛错。"""
-
-    def __init__(self, *, answer: str = "答案", error: Exception | None = None) -> None:
-        self.calls: list[tuple[str, str | None, str | None]] = []
-        self._answer = answer
-        self._error = error
-
-    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
-        self.calls.append((message, session_id, model))
-        if self._error is not None:
-            raise self._error
-        return ("sid", f"{self._answer}@{model or 'default'}")
+# --- 指令适配：真实 AgentService + runtime，fake harness 零网络 ---
 
 
 class ReplyRecorder:
@@ -108,10 +69,17 @@ class ReplyRecorder:
         self.calls.append((message_id, text))
 
 
-def _dispatcher(
-    credentials: _StubCredentials, agent: _StubAgentService, *, reply: ReplyRecorder
-) -> FeishuChatDispatcher:
-    return FeishuChatDispatcher(credentials, agent, reply=reply)  # type: ignore[arg-type]
+@pytest.fixture
+async def model_chat(tmp_path, monkeypatch, request) -> AsyncIterator[tuple]:
+    rig = ServiceRig(tmp_path, monkeypatch)
+    if not getattr(request, "param", True):
+        rig.credentials.entries = None
+    service, runtime = await rig.build(DEFAULT_ENTRY if rig.credentials.entries else None)
+    recorder = ReplyRecorder()
+    dispatcher = FeishuChatDispatcher(rig.credentials, service, reply=recorder)  # type: ignore[arg-type]
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    yield rig, service, recorder, dispatcher
+    await runtime.close()
 
 
 async def _submit(dispatcher: FeishuChatDispatcher, text: str, **kwargs: str) -> None:
@@ -128,230 +96,120 @@ async def _wait_replies(recorder: ReplyRecorder, count: int, timeout: float = 5.
 
 
 @pytest.mark.anyio
-async def test_model_list_replies_registry_without_agent_call() -> None:
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
+async def test_model_commands_render_choices_and_turn_identity_without_inference(model_chat) -> None:
+    rig, service, recorder, dispatcher = model_chat
     await _submit(dispatcher, "/model list")
     await _wait_replies(recorder, 1)
-
-    [(message_id, text)] = recorder.calls
-    assert message_id == "om_1"
-    assert f"1. {DEFAULT_REF}（默认）" in text
-    assert f"2. {EXTRA_REF}" in text
-    assert "/model use provider/model" in text
-    assert agent.calls == []  # 指令不进入 Agent
-
-
-@pytest.mark.anyio
-async def test_model_use_switches_session_and_marks_following_answers() -> None:
-    """切换成功后：后续对话带 override 模型，回复末尾附当前模型行。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 1)
-    assert recorder.calls[0] == ("om_1", f"已切换：本会话后续回答使用 {EXTRA_REF}。")
-
-    await _submit(dispatcher, "你好")
-    await _wait_replies(recorder, 3)  # 占位 + 回答
-
-    assert recorder.calls[1] == ("om_1", "思考中…")
-    assert recorder.calls[2][1].startswith(f"答案@{EXTRA_REF}")
-    assert recorder.calls[2][1].endswith(f"—— 当前模型：{EXTRA_REF}")
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", EXTRA_REF)]
-
-
-@pytest.mark.anyio
-async def test_model_use_rejects_unregistered_model_with_options() -> None:
-    """白名单拒绝：未配置/未启用的模型明确拒绝并列出可选项。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, "/model use anthropic/claude-sonnet-4")
-    await _wait_replies(recorder, 1)
-
-    [(message_id, text)] = recorder.calls
-    assert "无法切换到 anthropic/claude-sonnet-4：未配置或未启用" in text
-    assert DEFAULT_REF in text and EXTRA_REF in text  # 列出可选项
-    assert agent.calls == []
-
-
-@pytest.mark.anyio
-async def test_model_use_default_clears_override() -> None:
-    """切回默认模型 = 清除会话 override；后续对话不再带 model 参数与落款。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 1)
-    await _submit(dispatcher, f"/model use {DEFAULT_REF}")
-    await _wait_replies(recorder, 2)
-    assert recorder.calls[1] == ("om_1", f"已恢复默认模型：{DEFAULT_REF}。")
-
-    await _submit(dispatcher, "你好")
-    await _wait_replies(recorder, 4)
-
-    assert recorder.calls[3] == ("om_1", "答案@default")  # 无模型落款
-    assert agent.calls[-1] == ("你好", "feishu:oc_1:ou_boss", None)
-
-
-@pytest.mark.anyio
-async def test_model_current_reports_default_then_override() -> None:
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, "/model current")
-    await _wait_replies(recorder, 1)
-    assert recorder.calls[0] == ("om_1", f"当前会话模型：{DEFAULT_REF}（默认）")
-
+    assert f"1. {DEFAULT_REF}（默认）" in recorder.calls[0][1]
+    assert f"2. {EXTRA_REF}" in recorder.calls[0][1]
+    assert "（当前会话）" not in recorder.calls[0][1]
     await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 2)
+    assert recorder.calls[1] == ("om_1", f"已切换：本会话后续回答使用 {EXTRA_REF}。")
     await _submit(dispatcher, "/model current")
     await _wait_replies(recorder, 3)
     assert recorder.calls[2] == ("om_1", f"当前会话模型：{EXTRA_REF}（会话指定）")
-
-
-@pytest.mark.anyio
-async def test_model_list_marks_current_override() -> None:
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 1)
     await _submit(dispatcher, "/model")
-    await _wait_replies(recorder, 2)
-
-    text = recorder.calls[1][1]
-    assert f"1. {DEFAULT_REF}（默认）" in text
-    assert f"2. {EXTRA_REF}（当前会话）" in text
-
-
-@pytest.mark.anyio
-async def test_unknown_subcommand_replies_usage() -> None:
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, "/model foo")
-    await _wait_replies(recorder, 1)
-
-    assert recorder.calls == [("om_1", USAGE_TEXT)]
-    assert agent.calls == []
-
-
-@pytest.mark.anyio
-async def test_commands_do_not_pollute_session_history() -> None:
-    """指令消息不进 Agent（不计入会话历史），会话内仅保留真实问答。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, "/model list")
-    await _submit(dispatcher, "/model current")
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 3)
+    await _wait_replies(recorder, 4)
+    assert f"2. {EXTRA_REF}（当前会话）" in recorder.calls[3][1]
+    assert all(instance.calls == [] for instance in rig.instances)
     await _submit(dispatcher, "真实问题")
+    await _wait_replies(recorder, 6)
+    assert recorder.calls[4] == ("om_1", "思考中…")
+    assert recorder.calls[5] == ("om_1", f"回复@{EXTRA_REF}\n\n—— 当前模型：{EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {DEFAULT_REF}")
+    await _wait_replies(recorder, 7)
+    assert recorder.calls[6] == ("om_1", f"已恢复默认模型：{DEFAULT_REF}。")
+    await _submit(dispatcher, "默认问题")
+    await _wait_replies(recorder, 9)
+    assert recorder.calls[8] == ("om_1", f"回复@{DEFAULT_REF}")
+    assert rig.instances[1].calls == [("真实问题", "feishu:oc_1:ou_boss")]
+    assert rig.instances[0].calls == [("默认问题", "feishu:oc_1:ou_boss")]
+
+
+@pytest.mark.anyio
+async def test_rejected_and_unknown_commands_keep_selection_without_chat(model_chat) -> None:
+    rig, service, recorder, dispatcher = model_chat
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
+    await _wait_replies(recorder, 1)
+    await _submit(dispatcher, "/model use unknown/model")
+    await _wait_replies(recorder, 2)
+    text = recorder.calls[1][1]
+    assert "无法切换到 unknown/model：未配置或未启用" in text
+    assert DEFAULT_REF in text and EXTRA_REF in text
+    assert "（当前会话）" not in text
+    assert (await service.model_state("feishu:oc_1:ou_boss")).current_ref == EXTRA_REF
+    await _submit(dispatcher, "/model foo")
+    await _wait_replies(recorder, 3)
+    assert recorder.calls[2] == ("om_1", USAGE_TEXT)
+    assert all(instance.calls == [] for instance in rig.instances)
+
+
+@pytest.mark.anyio
+async def test_group_members_have_distinct_external_sessions(model_chat) -> None:
+    rig, _, recorder, dispatcher = model_chat
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
+    await _wait_replies(recorder, 1)
+    await _submit(dispatcher, "另一用户", open_id="ou_other")
+    await _wait_replies(recorder, 3)
+    await _submit(dispatcher, "另一群", chat_id="oc_2")
     await _wait_replies(recorder, 5)
-
-    assert [call[0] for call in agent.calls] == ["真实问题"]
+    assert rig.instances[0].calls == [("另一用户", "feishu:oc_1:ou_other"), ("另一群", "feishu:oc_2:ou_boss")]
+    assert "—— 当前模型" not in recorder.calls[-1][1]
 
 
 @pytest.mark.anyio
-async def test_override_scope_is_per_conversation() -> None:
-    """切换仅影响当前会话：其他 chat_id/open_id 的对话仍走默认模型。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
+@pytest.mark.parametrize("failure", ["disabled", "run", "default"])
+async def test_failures_render_strict_override_or_default_fallback(model_chat, failure, caplog) -> None:
+    rig, service, recorder, dispatcher = model_chat
+    replies = 0
+    if failure != "default":
+        await _submit(dispatcher, f"/model use {EXTRA_REF}")
+        await _wait_replies(recorder, 1)
+        replies = 1
+    if failure == "disabled":
+        rig.credentials.entries = (DEFAULT_ENTRY,)
+    else:
+        rig.run_errors[DEFAULT_REF if failure == "default" else EXTRA_REF] = HarnessError("api_key=sk-leaked")
+    await _submit(dispatcher, "失败问题")
+    await _wait_replies(recorder, replies + 2)
+    text = recorder.calls[-1][1]
+    if failure == "default":
+        assert text == FALLBACK_TEXT
+    else:
+        assert f"模型 {EXTRA_REF} 当前不可用" in text
+        assert text != FALLBACK_TEXT and rig.instances[0].calls == []
+        assert (await service.model_state("feishu:oc_1:ou_boss")).current_ref == EXTRA_REF
+    assert "sk-leaked" not in text + caplog.text
 
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
+
+@pytest.mark.anyio
+async def test_saved_default_drift_renders_restart_hint_and_keeps_actual_default(model_chat) -> None:
+    rig, _, recorder, dispatcher = model_chat
+    rig.credentials.entries = (replace(EXTRA_ENTRY, is_default=True),)
+    await _submit(dispatcher, "/model current")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, "别人的消息", chat_id="oc_2", open_id="ou_boss")
-    await _wait_replies(recorder, 3)
-
-    assert agent.calls[-1] == ("别人的消息", "feishu:oc_2:ou_boss", None)
-
-
-@pytest.mark.anyio
-async def test_unavailable_override_model_replies_explicit_error_without_fallback() -> None:
-    """override 模型不可达：明确报错（非通用兜底文案），不静默降级到默认模型。"""
-    agent = _StubAgentService(error=AgentModelUnavailableError(EXTRA_REF))
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 1)
-    await _submit(dispatcher, "你好")
-    await _wait_replies(recorder, 3)
-
-    text = recorder.calls[2][1]
-    assert f"模型 {EXTRA_REF} 当前不可用" in text
-    assert text != FALLBACK_TEXT
-    assert "sk-openai" not in text and "sk-default" not in text  # 凭证红线：不回显 key
-
-
-@pytest.mark.anyio
-async def test_override_model_runtime_failure_also_explicit() -> None:
-    """override 模型调用失败（如上游 5xx）：同样明确报错并保留 override。"""
-    agent = _StubAgentService(
-        error=AgentRuntimeError("AGENT_CHAT_FAILED", "dsh 会话执行失败：upstream api_key=sk-leaked")
-    )
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
-    await _wait_replies(recorder, 1)
-    await _submit(dispatcher, "你好")
-    await _wait_replies(recorder, 3)
-
-    text = recorder.calls[2][1]
-    assert f"模型 {EXTRA_REF} 当前不可用" in text
-    assert "sk-leaked" not in text  # 上游异常 message 含凭证回显，禁止进回复
-
-
-@pytest.mark.anyio
-async def test_default_model_failure_keeps_existing_fallback() -> None:
-    """无 override 时调用失败维持既有兜底文案（回归：默认路径行为不变）。"""
-    agent = _StubAgentService(error=AgentRuntimeError("AGENT_CHAT_FAILED", "boom"))
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
-    await _submit(dispatcher, "你好")
-    await _wait_replies(recorder, 2)
-
-    assert recorder.calls[1] == ("om_1", FALLBACK_TEXT)
-
-
-@pytest.mark.anyio
-async def test_commands_with_empty_registry() -> None:
-    """未配置任何模型：list/current 提示未配置，use 拒绝。"""
-    agent = _StubAgentService()
-    recorder = ReplyRecorder()
-    dispatcher = _dispatcher(_StubCredentials(None), agent, reply=recorder)
-    dispatcher.bind_loop(asyncio.get_running_loop())
-
+    assert recorder.calls[0][1].startswith(f"当前会话模型：{DEFAULT_REF}（默认）")
+    assert f"已保存默认模型：{EXTRA_REF}，重启后生效。" in recorder.calls[0][1]
     await _submit(dispatcher, "/model list")
-    await _wait_replies(recorder, 1)
-    assert recorder.calls[0] == ("om_1", "尚未配置可用模型。")
-
-    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 2)
-    assert "无法切换" in recorder.calls[1][1]
+    assert f"1. {DEFAULT_REF}（默认）" in recorder.calls[1][1]
+    assert f"2. {EXTRA_REF}（重启后默认）" in recorder.calls[1][1]
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
+    await _wait_replies(recorder, 3)
+    assert "已切换" in recorder.calls[2][1]
+    await _submit(dispatcher, f"/model use {DEFAULT_REF}")
+    await _wait_replies(recorder, 4)
+    assert recorder.calls[3] == ("om_1", f"已恢复默认模型：{DEFAULT_REF}。")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("model_chat", [False], indirect=True)
+async def test_commands_without_configured_models(model_chat) -> None:
+    rig, _, recorder, dispatcher = model_chat
+    for index, command in enumerate(["/model list", "/model current", f"/model use {EXTRA_REF}"], start=1):
+        await _submit(dispatcher, command)
+        await _wait_replies(recorder, index)
+    assert recorder.calls[0] == recorder.calls[1] == ("om_1", "尚未配置可用模型。")
+    assert "无法切换" in recorder.calls[2][1]
+    assert rig.instances == []

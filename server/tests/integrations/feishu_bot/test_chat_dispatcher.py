@@ -13,6 +13,7 @@ import time
 
 import pytest
 from reven.agent.errors import AgentError, AgentNotConfiguredError, AgentRuntimeError
+from reven.agent.service import AgentTurn
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import (
@@ -78,21 +79,21 @@ class _StubCredentials:
 
 
 class _StubAgentService:
-    """记录 (message, session_id, model) 调用；可配置返回文本 / 抛错 / 延迟。"""
+    """记录对话调用；可配置返回文本 / 抛错 / 延迟。"""
 
     def __init__(self, *, answer: str = "答案", error: Exception | None = None, delay: float = 0.0) -> None:
-        self.calls: list[tuple[str, str | None, str | None]] = []
+        self.calls: list[tuple[str, str | None]] = []
         self._answer = answer
         self._error = error
         self._delay = delay
 
-    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
-        self.calls.append((message, session_id, model))
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn:
+        self.calls.append((message, session_id))
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._error is not None:
             raise self._error
-        return ("sid", self._answer)
+        return AgentTurn("sid", self._answer, None, False)
 
 
 class ReplyRecorder:
@@ -143,7 +144,7 @@ async def test_chat_submit_replies_thinking_then_answer() -> None:
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
     assert recorder.loops == [asyncio.get_running_loop()] * 2
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 @pytest.mark.anyio
@@ -358,7 +359,7 @@ async def test_answer_reply_failure_is_swallowed() -> None:
     await asyncio.sleep(0.3)  # 工作线程收敛异常，不向调用方抛
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 # --- 真实 credentials seam：db 配置接线与白名单现读 ---
@@ -376,7 +377,7 @@ async def test_chat_roundtrip_with_db_credentials(db_session: AsyncSession) -> N
     await _wait_replies(recorder, 2)
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 @pytest.mark.anyio
