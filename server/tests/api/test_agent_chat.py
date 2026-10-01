@@ -84,6 +84,19 @@ def test_chat_returns_502_on_runtime_error(workbench: tuple[TestClient, object])
     assert response.json()["code"] == "AGENT_CHAT_FAILED"
 
 
+def test_chat_error_response_carries_only_stable_code_and_session_id(workbench: tuple[TestClient, object]) -> None:
+    """#176 P1：chat 错误响应只含稳定 code 与脱敏 message（code+session_id），无 dsh 异常原文。"""
+    client, _ = workbench
+    client.app.state.agent_runtime = _StubRuntime(
+        error=AgentRuntimeError("AGENT_CHAT_FAILED", "dsh 会话执行失败（session_id=sess-abc）")
+    )
+
+    response = client.post("/api/agent/chat", json={"message": "你好", "session_id": "sess-abc"})
+
+    assert response.status_code == 502
+    assert response.json() == {"code": "AGENT_CHAT_FAILED", "message": "dsh 会话执行失败（session_id=sess-abc）"}
+
+
 def test_chat_success_and_session_id_passthrough(workbench: tuple[TestClient, object]) -> None:
     client, _ = workbench
     stub = _StubRuntime()

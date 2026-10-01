@@ -8,8 +8,10 @@ import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { AgentLlmModelsEditor } from "./agent-llm-models-editor"
+import { modelEntriesForSave, modelRefOf, parseModelEntries } from "./agent-llm-model-entries"
 import type { RssRunHealth } from "./integration-api"
-import type { FieldDefinition, Integration, Provider, ProviderController, ProviderDefinition } from "./types"
+import type { AgentModelEntry, FieldDefinition, Integration, Provider, ProviderController, ProviderDefinition } from "./types"
 
 interface IntegrationCardProps {
   definition: ProviderDefinition
@@ -23,12 +25,37 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const saveButtonRef = useRef<HTMLButtonElement>(null)
   const feishu = definition.provider === "feishu_bot"
+  const agentLlm = definition.provider === "agent-llm"
   const deleteLabel = `删除${definition.title}密钥`
+
+  // agent-llm 多模型管理（#173）：附加模型与独立密钥变更本地暂存，随「保存配置」统一提交
+  const [models, setModels] = useState<AgentModelEntry[]>([])
+  const [pendingKeys, setPendingKeys] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!agentLlm) return
+    setModels(parseModelEntries(integration?.public_config.models))
+    setPendingKeys({})
+  }, [agentLlm, integration])
 
   const secretPayload = Object.fromEntries(definition.secretFields.map((field) => [field.key, form.secrets[field.key] ?? ""]))
   const secretComplete = definition.secretFields.every((field) => form.secrets[field.key]?.trim())
   const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
   const publicConfig = publicConfigForSave(definition, form.publicConfig)
+  const fullPublicConfig = agentLlm ? { ...publicConfig, models: modelEntriesForSave(models) } : publicConfig
+  const modelsDirty = agentLlm && (
+    Object.keys(pendingKeys).length > 0
+    || JSON.stringify(modelEntriesForSave(models)) !== JSON.stringify(modelEntriesForSave(parseModelEntries(integration?.public_config.models)))
+  )
+  const fieldValue = (key: string) =>
+    (form.publicConfig[key] ?? "").trim() || definition.publicFields.find((field) => field.key === key)?.defaultValue || ""
+  const defaultRef = modelRefOf(fieldValue("provider") || "deepseek-official", fieldValue("model") || "deepseek-v4-flash")
+  const saveConfig = () => {
+    if (agentLlm && Object.keys(pendingKeys).length > 0) {
+      controller.actions.save(fullPublicConfig, { model_keys: pendingKeys })
+      return
+    }
+    controller.actions.save(fullPublicConfig)
+  }
   const runHealthSummary = RUN_HEALTH_PROVIDERS.includes(definition.provider) && runHealth !== undefined
     ? describeRunHealth(runHealth)
     : null
@@ -65,6 +92,22 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
             )}
           </div>
         ))}
+        {agentLlm && (
+          <AgentLlmModelsEditor
+            defaultRef={defaultRef}
+            dirty={modelsDirty}
+            disabled={disabled}
+            keyRefs={integration?.model_key_refs ?? []}
+            models={models}
+            onModelsChange={setModels}
+            onPendingKeysChange={setPendingKeys}
+            onSetDefault={controller.actions.setDefaultModel}
+            onTest={controller.actions.testModel}
+            pendingKeys={pendingKeys}
+            testingRef={controller.state.testingModelRef}
+            tests={controller.state.modelTests}
+          />
+        )}
       </div>
 
       {integration?.last_error && (
@@ -87,13 +130,13 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
         {!publicConfigComplete && <p className="mb-3 text-xs text-[var(--danger)]">{`请填写 ${formatFieldLabels(definition.publicFields.filter((field) => !field.optional))}后保存配置。`}</p>}
         {!integration?.secret_configured && publicConfigComplete && <p className="mb-3 text-xs text-[var(--muted)]">{`请先保存配置并设置 ${formatFieldLabels(definition.secretFields)} 后${feishu ? "发送测试消息" : "测试连接"}。`}</p>}
         <div className="flex flex-wrap items-center gap-3">
-        <Button aria-label={`保存${definition.title}配置`} disabled={disabled || !publicConfigComplete} onClick={() => controller.actions.save(publicConfig)} ref={saveButtonRef}>
+        <Button aria-label={`保存${definition.title}配置`} disabled={disabled || !publicConfigComplete} onClick={saveConfig} ref={saveButtonRef}>
           <Save aria-hidden size={15} />保存配置
         </Button>
         <Button
           aria-label={`${integration?.secret_configured ? "替换" : "保存"}${definition.title}密钥`}
           disabled={disabled || !publicConfigComplete || !secretComplete}
-          onClick={() => controller.actions.replace(publicConfig, secretPayload)}
+          onClick={() => controller.actions.replace(fullPublicConfig, secretPayload)}
           variant="outline"
         >
           <ShieldAlert aria-hidden size={15} />{integration?.secret_configured ? "替换密钥" : "保存密钥"}

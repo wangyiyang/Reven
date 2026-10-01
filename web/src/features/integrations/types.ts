@@ -5,7 +5,7 @@ export type Provider =
   | "translate_baidu" | "translate_aliyun" | "embedding" | "agent-llm"
 
 /** 集成动作种类，与 integration-api 的 IntegrationAction.action 对齐 */
-export type IntegrationActionKind = "save" | "delete" | "test"
+export type IntegrationActionKind = "save" | "delete" | "test" | "set-default-model" | "test-model"
 
 export interface Integration {
   provider: Provider
@@ -16,6 +16,32 @@ export interface Integration {
   last_tested_at: string | null
   last_error: string | null
   last_latency_ms: number | null
+  /** 仅 agent-llm：配有独立密钥的附加模型 ref 列表（后端 2026-10 起返回，旧响应可能缺省） */
+  model_key_refs?: string[] | null
+}
+
+/** agent-llm 附加模型条目（public_config.models[] 元素） */
+export interface AgentModelEntry {
+  provider: string
+  model: string
+  base_url?: string
+  enabled: boolean
+}
+
+/** 单个模型的连接测试结果（POST /integrations/agent-llm/test {model_ref} 响应） */
+export interface AgentModelTestResult {
+  ref: string
+  success: boolean
+  message: string | null
+  latency_ms: number | null
+  tested_at: string
+}
+
+/** 行内展示的模型测试状态（卡片本地，不持久化） */
+export interface ModelTestState {
+  status: "ok" | "failed"
+  message: string | null
+  latencyMs: number | null
 }
 
 export interface FieldDefinition {
@@ -122,12 +148,20 @@ export interface ProviderController {
     disabled: boolean
     /** 当前 provider 正在执行的动作；null 表示空闲 */
     busy: IntegrationActionKind | null
+    /** 正在执行行级测试的模型 ref；null 表示无行级测试进行中 */
+    testingModelRef: string | null
+    /** 各模型最近一次行级测试结果（按 ref 索引，卡片本地状态） */
+    modelTests: Record<string, ModelTestState>
   }
   actions: {
-    save: (publicConfig: Record<string, unknown>) => void
-    replace: (publicConfig: Record<string, unknown>, secret: Record<string, string>) => void
+    save: (publicConfig: Record<string, unknown>, secret?: Record<string, unknown>) => void
+    replace: (publicConfig: Record<string, unknown>, secret: Record<string, unknown>) => void
     /** 删除密钥；resolve 为是否成功，供卡片做焦点恢复 */
     remove: () => Promise<boolean>
     test: () => void
+    /** 把附加模型设为默认（服务端完成密钥交换）；ref 为 provider/model */
+    setDefaultModel: (ref: string) => void
+    /** 对单个模型做连接测试（默认模型请用 test 以刷新卡片状态） */
+    testModel: (ref: string) => void
   }
 }
