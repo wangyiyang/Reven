@@ -197,3 +197,47 @@ def test_nested_resources_and_customer_delete_are_scoped(workbench) -> None:  # 
     assert client.get(f"/api/crm/customers/{customer['id']}/contacts").status_code == 404
     assert client.get(f"/api/crm/customers/{customer['id']}/follow-ups").status_code == 404
     assert client.get(f"/api/crm/customers/{uuid4()}").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix", "payload", "code", "message"),
+    [
+        ("PUT", "", {"name": "改名"}, "CRM_CUSTOMER_NOT_FOUND", "客户不存在"),
+        ("DELETE", "", None, "CRM_CUSTOMER_NOT_FOUND", "客户不存在"),
+        ("POST", "/contacts", {"name": "联系人"}, "CRM_CUSTOMER_NOT_FOUND", "客户不存在"),
+        ("PUT", "/contacts/{id}", {"name": "改名"}, "CRM_CONTACT_NOT_FOUND", "联系人不存在"),
+        ("DELETE", "/contacts/{id}", None, "CRM_CONTACT_NOT_FOUND", "联系人不存在"),
+        (
+            "POST",
+            "/follow-ups",
+            {"kind": "电话", "occurred_on": "2026-10-01", "summary": "沟通"},
+            "CRM_CUSTOMER_NOT_FOUND",
+            "客户不存在",
+        ),
+        ("PUT", "/follow-ups/{id}", {"summary": "补充"}, "CRM_FOLLOW_UP_NOT_FOUND", "跟进记录不存在"),
+        ("DELETE", "/follow-ups/{id}", None, "CRM_FOLLOW_UP_NOT_FOUND", "跟进记录不存在"),
+    ],
+)
+def test_mutation_not_found_errors_keep_http_contract(workbench, method, suffix, payload, code, message) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    path = f"/api/crm/customers/{uuid4()}{suffix.format(id=uuid4())}"
+
+    response = client.request(method, path, json=payload)
+
+    assert response.status_code == 404
+    assert response.json() == {"code": code, "message": message}
+
+
+@pytest.mark.parametrize("resource", ["customer", "follow_up"])
+def test_invalid_merged_action_returns_domain_error_shape(workbench, resource: str) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    customer = _create_customer(client)
+    path = f"/api/crm/customers/{customer['id']}"
+    if resource == "follow_up":
+        history = _create_follow_up(client, customer["id"])
+        path += f"/follow-ups/{history['id']}"
+
+    response = client.put(path, json={"next_action": None})
+
+    assert response.status_code == 422
+    assert response.json() == {"code": "CRM_NEXT_ACTION_REQUIRED", "message": "设置跟进日期时必须提供下一步行动"}
