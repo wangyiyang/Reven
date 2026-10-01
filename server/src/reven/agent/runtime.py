@@ -13,7 +13,7 @@ from deepseek_harness.errors import HarnessError, JsonRpcError
 from reven.agent.config import AgentConfig
 from reven.agent.errors import AgentModelUnavailableError, AgentNotConfiguredError, AgentRuntimeError
 from reven.agent.mcp_server import AgentMcpContext
-from reven.integrations.credentials import model_ref_of
+from reven.integrations.providers import model_ref_of
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,13 @@ def _is_session_exists_conflict(exc: HarnessError) -> bool:
     if not isinstance(exc, JsonRpcError):
         return False
     return "already exists" in str(exc)
+
+
+def _chat_failed_error(session_id: str, exc: HarnessError) -> AgentRuntimeError:
+    """dsh 会话异常收敛为稳定错误：message 只含 session_id，不带异常原文——上游报错可能
+    回显凭证，禁止进 API 响应；日志同样只记 error_type（与 _harness_for 拉起失败同一纪律，#176）。"""
+    logger.error("dsh 会话执行失败（session_id=%s, error_type=%s）", session_id, type(exc).__name__)
+    return AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败（session_id={session_id}）")
 
 
 class AgentRuntime:
@@ -193,13 +200,13 @@ class AgentRuntime:
             result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
         except HarnessError as exc:
             if not session_id or not _is_session_exists_conflict(exc):
-                raise AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败：{exc}") from exc
+                raise _chat_failed_error(resolved_session_id, exc) from exc
             resolved_session_id = f"{session_id}~r{uuid4().hex[:8]}"
             logger.info("dsh 会话冲突，重铸活跃 id 重试（session_id=%s, resolved=%s）", session_id, resolved_session_id)
             try:
                 result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
             except HarnessError as retry_exc:
-                raise AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败：{retry_exc}") from retry_exc
+                raise _chat_failed_error(session_id, retry_exc) from retry_exc
             self._session_aliases[session_id] = resolved_session_id
         return result.session_id, result.final_response
 

@@ -257,6 +257,31 @@ async def test_chat_without_session_id_does_not_remint_on_conflict(
 
 
 @pytest.mark.anyio
+async def test_chat_error_strips_upstream_details_from_message_and_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#176 P1：dsh 异常原文（可能回显凭证）不进错误 message 与日志；响应只含稳定 code+session_id。"""
+
+    def _fail(message: str, session_id: str) -> object:
+        raise HarnessError("upstream 401 echoed api_key=sk-live-secret")
+
+    _stub_chat_harness(monkeypatch, _fail)
+    runtime = AgentRuntime(_make_config(tmp_path / "dsh-runtime"))
+    await runtime.start()
+
+    with caplog.at_level("ERROR", logger="reven.agent.runtime"):
+        with pytest.raises(AgentRuntimeError) as exc_info:
+            await runtime.chat("你好", EXTERNAL_SESSION_ID)
+
+    assert exc_info.value.code == "AGENT_CHAT_FAILED"
+    assert "sk-live-secret" not in exc_info.value.message
+    assert EXTERNAL_SESSION_ID in exc_info.value.message
+    assert "sk-live-secret" not in caplog.text  # 日志同样只记 error_type
+    assert "HarnessError" in caplog.text
+    await runtime.close()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("error", [HarnessError("transport closed"), JsonRpcError(-32000, "rate limited")])
 async def test_chat_does_not_retry_on_non_conflict_errors(
     error: HarnessError, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

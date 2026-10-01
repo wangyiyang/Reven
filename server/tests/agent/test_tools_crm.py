@@ -78,7 +78,7 @@ async def test_customer_create_get_update_delete_roundtrip(session_factory: asyn
     detail_after = await tools.get_customer(customer_id)
     assert "关注内容运营" not in detail_after
 
-    deleted = await tools.delete_customer(customer_id)
+    deleted = await tools.delete_customer(customer_id, confirm_customer_name="示例科技")
     assert "已删除客户「示例科技」" in deleted
     with pytest.raises(ToolError, match="客户不存在"):
         await tools.get_customer(customer_id)
@@ -137,7 +137,7 @@ async def test_customer_validation_and_not_found_errors(session_factory: async_s
     with pytest.raises(ToolError, match="客户不存在"):
         await tools.update_customer(uuid4(), name="x")
     with pytest.raises(ToolError, match="客户不存在"):
-        await tools.delete_customer(uuid4())
+        await tools.delete_customer(uuid4(), confirm_customer_name="任意名称")
 
 
 @pytest.mark.anyio
@@ -165,10 +165,10 @@ async def test_contact_crud_and_primary_switch(session_factory: async_sessionmak
     updated = await tools.update_contact(customer_id, first_id, phone="13800000000")
     assert "电话：13800000000" in updated
 
-    deleted = await tools.delete_contact(customer_id, second_id)
+    deleted = await tools.delete_contact(customer_id, second_id, confirm_customer_name="示例科技")
     assert "已删除联系人「李助理」" in deleted
     with pytest.raises(ToolError, match="联系人不存在"):
-        await tools.delete_contact(customer_id, second_id)
+        await tools.delete_contact(customer_id, second_id, confirm_customer_name="示例科技")
 
 
 @pytest.mark.anyio
@@ -211,10 +211,10 @@ async def test_follow_up_crud_and_set_as_current(session_factory: async_sessionm
     updated = await tools.update_follow_up(customer_id, follow_up_id, summary="拜访后补充：预算待确认")
     assert "已更新跟进记录" in updated and "预算待确认" in updated
 
-    deleted = await tools.delete_follow_up(customer_id, follow_up_id)
+    deleted = await tools.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
     assert "已删除" in deleted and "会议跟进" in deleted
     with pytest.raises(ToolError, match="跟进记录不存在"):
-        await tools.delete_follow_up(customer_id, follow_up_id)
+        await tools.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
 
 
 @pytest.mark.anyio
@@ -324,7 +324,7 @@ async def test_delete_customer_cascades_contacts_and_follow_ups(
         summary="拜访记录",
     )
 
-    await tools.delete_customer(customer_id)
+    await tools.delete_customer(customer_id, confirm_customer_name="示例科技")
 
     with pytest.raises(ToolError, match="客户不存在"):
         await tools.list_contacts(customer_id)
@@ -332,6 +332,65 @@ async def test_delete_customer_cascades_contacts_and_follow_ups(
         await tools.list_follow_ups(customer_id)
     assert "共 0 个客户" not in await tools.list_customers()  # 列表不再包含已删客户
     assert "示例科技" not in await tools.list_customers()
+
+
+@pytest.mark.anyio
+async def test_delete_customer_requires_exact_name_confirmation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """#176 server 侧防呆：confirm_customer_name 与客户名称逐字不等时拒绝删除，记录仍在。"""
+    tools = CrmTools(session_factory)
+    customer_id = await _create_customer(tools)
+
+    with pytest.raises(ToolError, match="confirm_customer_name 与客户名称不完全一致"):
+        await tools.delete_customer(customer_id, confirm_customer_name="示例")
+    with pytest.raises(ToolError, match="confirm_customer_name 与客户名称不完全一致"):
+        await tools.delete_customer(customer_id, confirm_customer_name="示例科技 ")
+
+    assert "客户「示例科技」" in await tools.get_customer(customer_id)  # 未删除
+    deleted = await tools.delete_customer(customer_id, confirm_customer_name="示例科技")
+    assert "已删除客户「示例科技」" in deleted
+
+
+@pytest.mark.anyio
+async def test_delete_contact_requires_exact_name_confirmation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """#176 server 侧防呆：删除联系人也须逐字确认所属客户名称。"""
+    tools = CrmTools(session_factory)
+    customer_id = await _create_customer(tools)
+    contact_id = _extract_id(await tools.create_contact(customer_id, name="王经理"))
+
+    with pytest.raises(ToolError, match="confirm_customer_name 与客户名称不完全一致"):
+        await tools.delete_contact(customer_id, contact_id, confirm_customer_name="别的客户")
+
+    assert "王经理" in await tools.list_contacts(customer_id)  # 未删除
+    deleted = await tools.delete_contact(customer_id, contact_id, confirm_customer_name="示例科技")
+    assert "已删除联系人「王经理」" in deleted
+
+
+@pytest.mark.anyio
+async def test_delete_follow_up_requires_exact_name_confirmation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """#176 server 侧防呆：删除跟进记录也须逐字确认所属客户名称。"""
+    tools = CrmTools(session_factory)
+    customer_id = await _create_customer(tools)
+    follow_up_id = _extract_id(
+        await tools.create_follow_up(
+            customer_id,
+            kind="会议",  # type: ignore[arg-type]
+            occurred_on=_today(),
+            summary="拜访记录",
+        )
+    )
+
+    with pytest.raises(ToolError, match="confirm_customer_name 与客户名称不完全一致"):
+        await tools.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="")
+
+    assert "拜访记录" in await tools.list_follow_ups(customer_id)  # 未删除
+    deleted = await tools.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
+    assert "已删除" in deleted
 
 
 @pytest.mark.anyio
@@ -358,6 +417,14 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
             "crm_lead_funnel",
             "crm_due_follow_ups",
         }
+
+        # #176：三个 CRM 删除工具的 confirm_customer_name 在协议层为必填参数（缺参即被协议拒绝）
+        crm_delete_tools = [
+            t for t in tools if t.name in {"crm_customer_delete", "crm_contact_delete", "crm_follow_up_delete"}
+        ]
+        assert len(crm_delete_tools) == 3
+        for delete_tool in crm_delete_tools:
+            assert "confirm_customer_name" in delete_tool.input_schema.get("required", []), delete_tool.name
 
         created = await client.call_tool(
             "crm_customer_create",

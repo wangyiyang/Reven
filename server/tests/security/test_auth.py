@@ -8,14 +8,16 @@ from http.cookies import SimpleCookie
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from reven.api.routes.auth import _client_key
 from reven.app import create_app
 from reven.config import Settings
 from reven.scheduling import utc_now
-from reven.security.auth import SESSION_COOKIE, hash_token, issue_token, reset_login_throttle
+from reven.security.auth import SESSION_COOKIE, LoginThrottle, hash_token, issue_token, reset_login_throttle
 from reven.security.models import AuthSession
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from starlette.requests import Request
 
 ORIGIN = "http://dev.wangyiyang.cc:3001"
 TEST_ADMIN_PASSWORD = "test-admin-password"
@@ -219,6 +221,71 @@ def test_login_locks_after_five_failures(auth_client: tuple[TestClient, async_se
 
     # 锁定期间正确密码同样被拒
     assert _login(client).status_code == 429
+
+
+def test_forged_x_forwarded_for_does_not_bypass_lockout(auth_client: tuple[TestClient, async_sessionmaker]) -> None:
+    """#176 P0：每次请求伪造不同 XFF 不再绕过限流——key 只取直连对端地址。"""
+    client, _ = auth_client
+    for index in range(5):
+        response = client.post(
+            "/api/auth/login",
+            json={"password": "wrong-password"},
+            headers={"X-Forwarded-For": f"203.0.113.{index}"},
+        )
+        assert response.status_code == 401
+
+    locked = client.post(
+        "/api/auth/login",
+        json={"password": "wrong-password"},
+        headers={"X-Forwarded-For": "203.0.113.99"},
+    )
+    assert locked.status_code == 429
+    assert locked.json()["code"] == "login_locked"
+
+
+def _probe_request(xff: str | None, client_host: str | None) -> Request:
+    headers = [(b"x-forwarded-for", xff.encode())] if xff is not None else []
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/login",
+            "headers": headers,
+            "client": (client_host, 50000) if client_host is not None else None,
+        }
+    )
+
+
+def test_client_key_ignores_x_forwarded_for() -> None:
+    """#176 P0：限流 key 只认 request.client.host，XFF（含多段链路伪造）一律不参与。"""
+    request = _probe_request("198.51.100.7, 10.0.0.1", "172.16.0.2")
+    assert _client_key(request) == "172.16.0.2"
+    assert _client_key(_probe_request(None, "172.16.0.2")) == "172.16.0.2"
+    assert _client_key(_probe_request("198.51.100.7", None)) == "unknown"
+
+
+def test_login_throttle_bounds_tracked_keys() -> None:
+    """#176 P0：轮换来源 key 时计数字典容量有界，不会无界增长（内存 DoS 防呆）。"""
+    throttle = LoginThrottle(max_attempts=5, lock_seconds=900, max_keys=3)
+    for index in range(20):
+        throttle.record_failure(f"10.0.0.{index}")
+
+    assert len(throttle._failures) <= 3
+    assert len(throttle._failures) + len(throttle._locked_until) <= 3
+
+
+def test_login_throttle_reclaims_expired_locks_before_evicting() -> None:
+    """#176 P0：容量满时优先回收已过期的锁定项，未过期锁定不受新 key 挤占。"""
+    throttle = LoginThrottle(max_attempts=1, lock_seconds=60, max_keys=2)
+    throttle.record_failure("10.0.0.1")  # 立即锁定
+    assert throttle.locked("10.0.0.1")
+
+    # 手工造一个已过期锁定，再让字典满员：过期项被回收，未过期的 10.0.0.1 锁定保留
+    throttle._locked_until["10.0.0.2"] = 0.0
+    throttle.record_failure("10.0.0.3")
+
+    assert "10.0.0.2" not in throttle._locked_until
+    assert throttle.locked("10.0.0.1")
 
 
 def test_settings_require_admin_password(monkeypatch: pytest.MonkeyPatch) -> None:

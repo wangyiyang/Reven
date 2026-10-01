@@ -68,6 +68,14 @@ class RunScreener(Protocol):
 
 
 class RssDiscoveryService:
+    """每日 RSS 发现：按源分段提交 checkpoint，支持中断续跑与死源自动治理（#178）。
+
+    - 每个 source 一个事务：fetch + localize + 持久化 + 标记 processed_source_ids，
+      进程中断后下一轮跳过已提交源，避免单轮超时全部重来。
+    - 翻译失败超阈值（绝对数或占比）时在当日汇总后追加一条告警通知。
+    - source 连续 N 轮抓取失败自动禁用并在 errors 中标注 source_governance。
+    """
+
     def __init__(
         self,
         factory: async_sessionmaker[AsyncSession],
@@ -77,6 +85,9 @@ class RssDiscoveryService:
         *,
         screener: RunScreener | None = None,
         candidate_url: str | None = None,
+        translation_alert_count: int = 10,
+        translation_alert_ratio: float = 0.3,
+        source_max_consecutive_failures: int = 3,
     ) -> None:
         self._factory = factory
         self._feed_reader = feed_reader
@@ -84,6 +95,9 @@ class RssDiscoveryService:
         self._notifier = notifier
         self._screener = screener
         self._candidate_url = candidate_url
+        self._translation_alert_count = translation_alert_count
+        self._translation_alert_ratio = translation_alert_ratio
+        self._source_max_consecutive_failures = source_max_consecutive_failures
 
     async def run(self, run_date: date) -> RssRunSummary:
         existing = await self._existing_run(run_date)
@@ -94,32 +108,107 @@ class RssDiscoveryService:
                 return await self._notify_if_needed(existing)
             run_id = existing.run_id
             sources = await self._enabled_sources()
+            processed = await self._processed_source_ids(run_id)
         else:
             run, sources = await self._start_run(run_date)
             run_id = run.id
-        fetched: list[tuple[RssSource, FeedEntry]] = []
-        errors: list[dict[str, object]] = []
+            processed = set()
         for source in sources:
-            try:
-                fetched.extend((source, entry) for entry in await self._feed_reader.fetch(source))
-            except Exception as exc:
-                errors.append({"source_id": str(source.id), "error_type": type(exc).__name__})
-        entries = tuple(entry for _source, entry in fetched)
-        try:
-            localized = await self._localizer.localize(entries)
-        except PartialLocalizationError as exc:
-            localized = exc.localized
-            errors.extend({"stage": "translation", "error_type": name} for name in exc.error_types)
-        except Exception as exc:
-            errors.append({"stage": "translation", "error_type": type(exc).__name__})
-            localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
-        if len(localized) != len(fetched):
-            errors.append({"stage": "translation", "error_type": "RuntimeError"})
-            localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
-        summary = await self._persist_result(run_id, sources, fetched, localized, errors)
+            if str(source.id) in processed:
+                continue
+            await self._process_source(run_id, source)
+        summary = await self._finalize_run(run_id, sources)
         if self._screener is not None:
             summary = await self._screen(summary)
         return await self._notify_if_needed(summary)
+
+    async def _process_source(self, run_id: UUID, source: RssSource) -> None:
+        """单源分段：网络/翻译在事务外执行，持久化与 checkpoint 在同一事务提交。"""
+        fetch_error: str | None = None
+        entries: tuple[FeedEntry, ...] = ()
+        try:
+            entries = await self._feed_reader.fetch(source)
+        except Exception as exc:
+            fetch_error = type(exc).__name__
+
+        localized: tuple[LocalizedEntry, ...] = ()
+        translation_errors: list[str] = []
+        if entries:
+            try:
+                localized = await self._localizer.localize(entries)
+            except PartialLocalizationError as exc:
+                localized = exc.localized
+                translation_errors = list(exc.error_types)
+            except Exception as exc:
+                # 整批 localize 失败 = 本批所有条目翻译失败，按条目计数以对齐告警阈值口径
+                translation_errors = [type(exc).__name__] * len(entries)
+                localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
+            if len(localized) != len(entries):
+                translation_errors.append("RuntimeError")
+                localized = tuple(LocalizedEntry(entry, entry.title, entry.summary) for entry in entries)
+
+        async with self._factory.begin() as session:
+            run = await session.get(RssDiscoveryRun, run_id, with_for_update=True)
+            if run is None:
+                raise RuntimeError("RSS 任务记录不存在")
+            db_source = await session.get(RssSource, source.id, with_for_update=True)
+            if db_source is None:
+                return  # 源在本轮中被人工删除：跳过且不占 checkpoint
+            new_count = 0
+            for entry, translated in zip(entries, localized, strict=True):
+                new_count += await _save_if_new(session, run_id, db_source, entry, translated)
+
+            now = utc_now()
+            db_source.last_fetched_at = now
+            if fetch_error is not None:
+                db_source.consecutive_failures += 1
+                db_source.last_error = fetch_error
+                run.failure_count += 1
+                run.errors = [*run.errors, {"source_id": str(db_source.id), "error_type": fetch_error}]
+                if db_source.enabled and db_source.consecutive_failures >= self._source_max_consecutive_failures:
+                    db_source.enabled = False
+                    db_source.disabled_at = now
+                    db_source.disabled_reason = (
+                        f"连续 {db_source.consecutive_failures} 轮抓取失败（最近一次：{fetch_error}），自动禁用"
+                    )
+                    run.errors = [
+                        *run.errors,
+                        {
+                            "stage": "source_governance",
+                            "action": "auto_disable",
+                            "source_id": str(db_source.id),
+                            "source_name": db_source.name,
+                            "consecutive_failures": db_source.consecutive_failures,
+                            "error_type": fetch_error,
+                        },
+                    ]
+            else:
+                db_source.consecutive_failures = 0
+                db_source.last_error = None
+
+            for error_type in translation_errors:
+                run.failure_count += 1
+                run.errors = [*run.errors, {"stage": "translation", "error_type": error_type}]
+
+            run.fetched_count += len(entries)
+            run.new_count += new_count
+            run.processed_source_ids = [*run.processed_source_ids, str(db_source.id)]
+            await session.flush()
+
+    async def _finalize_run(self, run_id: UUID, sources: list[RssSource]) -> RssRunSummary:
+        async with self._factory.begin() as session:
+            run = await session.get(RssDiscoveryRun, run_id, with_for_update=True)
+            if run is None:
+                raise RuntimeError("RSS 任务记录不存在")
+            run.source_count = len(sources)
+            if self._screener is not None:
+                run.status = "screening"
+                run.finished_at = None
+            else:
+                run.status = "partial" if run.errors else "completed"
+                run.finished_at = utc_now()
+            await session.flush()
+            return _summary(run)
 
     async def _screen(self, summary: RssRunSummary) -> RssRunSummary:
         screener = self._screener
@@ -151,6 +240,13 @@ class RssDiscoveryService:
             run = await session.scalar(select(RssDiscoveryRun).where(RssDiscoveryRun.run_date == run_date))
             return _summary(run) if run is not None else None
 
+    async def _processed_source_ids(self, run_id: UUID) -> set[str]:
+        async with self._factory() as session:
+            value = await session.scalar(
+                select(RssDiscoveryRun.processed_source_ids).where(RssDiscoveryRun.id == run_id)
+            )
+        return set(value or [])
+
     async def _start_run(self, run_date: date) -> tuple[RssDiscoveryRun, list[RssSource]]:
         async with self._factory.begin() as session:
             run = RssDiscoveryRun(run_date=run_date)
@@ -163,40 +259,66 @@ class RssDiscoveryService:
         async with self._factory() as session:
             return await _enabled_sources(session)
 
-    async def _persist_result(
-        self,
-        run_id: UUID,
-        sources: list[RssSource],
-        fetched: list[tuple[RssSource, FeedEntry]],
-        localized: tuple[LocalizedEntry, ...],
-        errors: list[dict[str, object]],
-    ) -> RssRunSummary:
-        async with self._factory.begin() as session:
-            run = await session.get(RssDiscoveryRun, run_id, with_for_update=True)
-            if run is None:
-                raise RuntimeError("RSS 任务记录不存在")
-            new_count = 0
-            for (source, entry), translated in zip(fetched, localized, strict=True):
-                new_count += await _save_if_new(session, run_id, source, entry, translated)
-            run.status = "screening" if self._screener is not None else "partial" if errors else "completed"
-            run.source_count = len(sources)
-            run.fetched_count = len(fetched)
-            run.new_count = new_count
-            run.failure_count = len(errors)
-            run.errors = errors
-            run.finished_at = None if self._screener is not None else utc_now()
-            await session.flush()
-            return _summary(run)
-
     async def _notify_if_needed(self, summary: RssRunSummary) -> RssRunSummary:
         async with self._factory() as session:
             run = await session.get(RssDiscoveryRun, summary.run_id)
             if run is None or run.finished_at is None:
                 return summary
             needs_summary = run.notification_sent_at is None
+            needs_translation_alert = self._translation_alert_pending(run)
         if needs_summary:
             await self._send_summary(summary)
+        if needs_translation_alert:
+            await self._send_translation_alert(summary)
         return summary
+
+    def _translation_alert_pending(self, run: RssDiscoveryRun) -> bool:
+        """翻译失败数/占比任一超阈值且本 run 尚未发送告警。"""
+        if any(error.get("stage") == "translation_alert_sent" for error in run.errors):
+            return False
+        translation_failures = sum(1 for error in run.errors if error.get("stage") == "translation")
+        if translation_failures == 0:
+            return False
+        if translation_failures >= self._translation_alert_count:
+            return True
+        if run.fetched_count <= 0:
+            return False
+        return translation_failures / run.fetched_count >= self._translation_alert_ratio
+
+    async def _send_translation_alert(self, summary: RssRunSummary) -> None:
+        async with self._factory() as session:
+            run = await session.get(RssDiscoveryRun, summary.run_id)
+            if run is None:
+                return
+            translation_failures = sum(1 for error in run.errors if error.get("stage") == "translation")
+            fetched = run.fetched_count
+            ratio = (translation_failures / fetched) if fetched > 0 else 0.0
+        notification = Notification(
+            "Reven RSS 翻译失败告警",
+            "RSS 翻译告警",
+            (
+                f"本轮翻译失败 {translation_failures} 条"
+                f"（抓取 {fetched} 条，占比 {ratio:.0%}），"
+                f"已超阈值（数量 {self._translation_alert_count} 或占比 {self._translation_alert_ratio:.0%}）。"
+                "请检查翻译供应商额度与限速。"
+            ),
+            {"打开候选工作台": self._candidate_url} if self._candidate_url else {},
+        )
+        try:
+            await self._notifier.send(notification)
+        except Exception as exc:
+            async with self._factory.begin() as session:
+                run = await session.get(RssDiscoveryRun, summary.run_id, with_for_update=True)
+                if run is not None:
+                    run.notification_error = type(exc).__name__
+            return
+        async with self._factory.begin() as session:
+            run = await session.get(RssDiscoveryRun, summary.run_id, with_for_update=True)
+            if run is not None and not any(e.get("stage") == "translation_alert_sent" for e in run.errors):
+                run.errors = [
+                    *run.errors,
+                    {"stage": "translation_alert_sent", "translation_failures": translation_failures},
+                ]
 
     async def _send_summary(self, summary: RssRunSummary) -> None:
         pending_review = await self._pending_review_count()

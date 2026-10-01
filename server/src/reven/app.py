@@ -145,7 +145,12 @@ def _build_feishu_exit_alerter(clients: ProviderClients, supervisor: FeishuBotSu
         loop = supervisor.main_loop
         if loop is None or loop.is_closed():
             return
-        asyncio.run_coroutine_threadsafe(_send_feishu_exit_alert(clients, message), loop)
+        coro = _send_feishu_exit_alert(clients, message)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as exc:
+            coro.close()
+            logger.warning("飞书机器人死亡告警调度失败（error_type=%s）", type(exc).__name__)
 
     return alert
 

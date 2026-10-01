@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     siliconflow_chat_model: str = "Qwen/Qwen3-8B"
     rss_model_review_enabled: bool = True
     rss_scheduler_interval_seconds: int = Field(default=60, ge=5)
+    # RSS 批韧性（#178）：翻译失败告警阈值与死源连续失败禁用阈值
+    # ratio 设为 >1.0 可关闭占比通道（仅看绝对数阈值）
+    rss_translation_alert_count: int = Field(default=10, ge=1)
+    rss_translation_alert_ratio: float = Field(default=0.3, ge=0.0)
+    rss_source_max_consecutive_failures: int = Field(default=3, ge=1)
     # 定时主动推送（#171）：每日 run_at（Asia/Shanghai）触发挂载场景；chat_id 为空时降级机器人白名单接收人
     notify_push_enabled: bool = True
     notify_push_time: str = "09:00"

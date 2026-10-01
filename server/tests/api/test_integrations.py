@@ -199,7 +199,9 @@ def test_get_list_and_detail_shapes(client: TestClient) -> None:
         "last_tested_at",
         "last_error",
         "last_latency_ms",
+        "model_key_refs",
     }
+    assert embedding["model_key_refs"] is None
     assert items["feishu_bot"]["secret_hint"] == "已配置 · ****1234"
 
     detail_response = client.get("/api/integrations/embedding")

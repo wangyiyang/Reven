@@ -76,11 +76,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 class LoginThrottle:
-    """In-memory per-IP login failure counter: 5 failures lock the IP for 15 minutes."""
+    """In-memory per-IP login failure counter: 5 failures lock the IP for 15 minutes.
 
-    def __init__(self, *, max_attempts: int = 5, lock_seconds: float = 900) -> None:
+    字典容量有界（max_keys）：新 key 入库前若已满，先清理已过期锁定项，仍满则按插入
+    顺序逐出最旧项——防止伪造/轮换来源 key 使 _failures/_locked_until 无界增长（内存 DoS）。
+    """
+
+    def __init__(self, *, max_attempts: int = 5, lock_seconds: float = 900, max_keys: int = 10_000) -> None:
         self.max_attempts = max_attempts
         self.lock_seconds = lock_seconds
+        self.max_keys = max_keys
         self._failures: dict[str, int] = {}
         self._locked_until: dict[str, float] = {}
 
@@ -95,6 +100,8 @@ class LoginThrottle:
         return False
 
     def record_failure(self, key: str) -> None:
+        if key not in self._failures and key not in self._locked_until:
+            self._evict_overflow()
         failures = self._failures.get(key, 0) + 1
         self._failures[key] = failures
         if failures >= self.max_attempts:
@@ -104,6 +111,18 @@ class LoginThrottle:
     def reset(self, key: str) -> None:
         self._failures.pop(key, None)
         self._locked_until.pop(key, None)
+
+    def _evict_overflow(self) -> None:
+        if len(self._failures) + len(self._locked_until) < self.max_keys:
+            return
+        now = monotonic()
+        for locked_key in [key for key, until in self._locked_until.items() if until <= now]:
+            del self._locked_until[locked_key]
+        while len(self._failures) + len(self._locked_until) >= self.max_keys:
+            if self._failures:
+                self._failures.pop(next(iter(self._failures)))
+            else:
+                self._locked_until.pop(next(iter(self._locked_until)))
 
 
 login_throttle = LoginThrottle()

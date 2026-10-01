@@ -106,3 +106,36 @@ def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest
     with TestClient(create_app(start_background_tasks=False, session_factory=factory)) as client:
         assert client.get("/api/health").status_code == 503  # DB 不可达即 503（#177 健康检查语义）
         assert getattr(client.app.state, "feishu_bot_supervisor", None) is None
+
+
+def test_lifespan_cleanup_logs_redact_exception_messages(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#176 P1 回归：lifespan 清理路径只记 error_type——组件异常原文（可能含凭证）不进日志。"""
+
+    class SecretBearingSupervisor:
+        def __init__(self, credentials: object, *, chat_dispatcher: object) -> None:
+            del credentials, chat_dispatcher
+
+        async def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            raise RuntimeError("cleanup failed, credential=sk-live-secret")
+
+    settings = Settings(
+        database_url=DUMMY_DATABASE_URL,
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        agent_api_key=None,
+        _env_file=None,
+    )
+    monkeypatch.setattr("reven.app.FeishuBotSupervisor", SecretBearingSupervisor)
+    engine, factory = _factory()
+
+    with caplog.at_level("ERROR", logger="reven.app"), pytest.raises(RuntimeError, match="sk-live-secret"):
+        with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)):
+            pass
+
+    assert "sk-live-secret" not in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
