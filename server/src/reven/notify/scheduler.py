@@ -123,7 +123,6 @@ class DailyPushScheduler:
                 chat_id=self._config.chat_id,
                 title=scene.title,
                 markdown=content,
-                fallback_text=content,
             )
         except PushTargetMissingError as exc:
             if not self._warned_no_target:

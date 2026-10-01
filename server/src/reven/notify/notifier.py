@@ -27,7 +27,6 @@ class ProactiveNotifier(Protocol):
         chat_id: str | None,
         title: str,
         markdown: str,
-        fallback_text: str,
     ) -> str: ...
 
 
@@ -43,14 +42,13 @@ class FeishuProactiveNotifier:
         chat_id: str | None,
         title: str,
         markdown: str,
-        fallback_text: str,
     ) -> str:
         async with self._clients.feishu_bot() as bot:
             if bot is None:
                 raise PushTargetMissingError("飞书应用机器人未启用或凭证不可用")
             if chat_id:
                 try:
-                    await bot.api.send_markdown_to_chat(chat_id, markdown, title=title, fallback_text=fallback_text)
+                    await bot.api.send_markdown_to_chat(chat_id, markdown, title=title)
                     return "chat"
                 except FeishuBotApiError as exc:
                     # 脱敏纪律（#176）：只记异常类型与稳定平台码；异常 message 不进日志
@@ -67,6 +65,5 @@ class FeishuProactiveNotifier:
                 bot.config.whitelist_open_ids,
                 markdown,
                 title=title,
-                fallback_text=fallback_text,
             )
             return "whitelist"

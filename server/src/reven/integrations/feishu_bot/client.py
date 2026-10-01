@@ -3,11 +3,14 @@
 import json
 import time
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from reven.integrations.feishu_bot.cards import build_markdown_card
+from reven.notifications import Notification
 
 TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v3/info"
@@ -84,39 +87,61 @@ class FeishuBotApiClient:
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
 
-    async def send_text_to_chat(self, chat_id: str, text: str) -> None:
-        await self._send_message(chat_id, "text", {"text": text}, receive_id_type="chat_id")
+    async def send_markdown(self, open_id: str, markdown: str, *, title: str | None = None) -> None:
+        await self._deliver(
+            partial(self._send_message, open_id),
+            build_markdown_card(markdown, title=title),
+            _markdown_text(markdown, title),
+        )
 
-    async def send_markdown(
-        self, open_id: str, markdown: str, *, title: str | None = None, fallback_text: str | None = None
-    ) -> None:
-        """优先发 interactive 卡片渲染 markdown；卡片失败降级纯文本保证可达。"""
-        try:
-            await self._send_message(open_id, "interactive", build_markdown_card(markdown, title=title))
-        except FeishuBotApiError:
-            await self.send_text(open_id, fallback_text if fallback_text is not None else markdown)
+    async def send_markdown_to_chat(self, chat_id: str, markdown: str, *, title: str | None = None) -> None:
+        await self._deliver(
+            partial(self._send_message, chat_id, receive_id_type="chat_id"),
+            build_markdown_card(markdown, title=title),
+            _markdown_text(markdown, title),
+        )
 
-    async def send_markdown_to_chat(
-        self, chat_id: str, markdown: str, *, title: str | None = None, fallback_text: str | None = None
-    ) -> None:
-        """定向会话（群/私聊）发卡片；卡片失败降级纯文本，会话不可达等错误照常抛出。"""
-        try:
-            await self._send_message(
-                chat_id, "interactive", build_markdown_card(markdown, title=title), receive_id_type="chat_id"
-            )
-        except FeishuBotApiError:
-            await self.send_text_to_chat(chat_id, fallback_text if fallback_text is not None else markdown)
+    async def reply_markdown(self, message_id: str, markdown: str, *, title: str | None = None) -> None:
+        await self._deliver(
+            partial(self._reply_message, message_id),
+            build_markdown_card(markdown, title=title),
+            _markdown_text(markdown, title),
+        )
 
     async def send_text_to_recipients(self, recipients: tuple[str, ...], text: str) -> None:
         await self._send_to_recipients(recipients, lambda open_id: self.send_text(open_id, text))
 
     async def send_markdown_to_recipients(
-        self, recipients: tuple[str, ...], markdown: str, *, title: str | None = None, fallback_text: str | None = None
+        self, recipients: tuple[str, ...], markdown: str, *, title: str | None = None
     ) -> None:
         await self._send_to_recipients(
             recipients,
-            lambda open_id: self.send_markdown(open_id, markdown, title=title, fallback_text=fallback_text),
+            lambda open_id: self.send_markdown(open_id, markdown, title=title),
         )
+
+    async def send_notification_to_recipients(self, recipients: tuple[str, ...], notification: Notification) -> None:
+        markdown = f"**当前阶段**：{notification.stage}\n\n{notification.summary}"
+        if notification.links:
+            markdown += "\n\n" + "　".join(f"[{label}]({url})" for label, url in notification.links.items())
+        lines = [notification.title, f"当前阶段：{notification.stage}", notification.summary]
+        lines.extend(f"{label}：{url}" for label, url in notification.links.items())
+        card = build_markdown_card(markdown, title=notification.title)
+        await self._send_to_recipients(
+            recipients,
+            lambda open_id: self._deliver(partial(self._send_message, open_id), card, "\n".join(lines)),
+        )
+
+    async def _deliver(
+        self,
+        send: Callable[[str, dict[str, Any]], Awaitable[None]],
+        card: dict[str, Any],
+        text: str,
+    ) -> None:
+        """同目标卡片失败才尝试文本；两种表示都失败则显式传播。"""
+        try:
+            await send("interactive", card)
+        except FeishuBotApiError:
+            await send("text", {"text": text})
 
     async def _send_to_recipients(
         self, recipients: tuple[str, ...], send_one: Callable[[str], Awaitable[None]]
@@ -142,6 +167,15 @@ class FeishuBotApiClient:
             token=await self._tenant_token(),
             body={"receive_id": receive_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
             error="飞书消息发送失败",
+        )
+
+    async def _reply_message(self, message_id: str, msg_type: str, content: dict[str, Any]) -> None:
+        await self._request(
+            "POST",
+            f"{MESSAGES_URL}/{quote(message_id, safe='')}/reply",
+            token=await self._tenant_token(),
+            body={"msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
+            error="飞书消息回复失败",
         )
 
     async def _request(
@@ -186,6 +220,10 @@ class FeishuBotApiClient:
                 return payload
         except httpx.HTTPError as exc:
             raise FeishuBotApiError(f"飞书应用连接失败（{type(exc).__name__}）") from None
+
+
+def _markdown_text(markdown: str, title: str | None) -> str:
+    return f"{title}\n{markdown}" if title else markdown
 
 
 async def _read_payload(response: httpx.Response) -> dict[str, Any]:

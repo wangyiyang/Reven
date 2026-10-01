@@ -102,9 +102,9 @@ def _to_response(service: IntegrationService, integration: Integration) -> Integ
 
 
 def _model_refs_in_use(request: Request) -> frozenset[str]:
-    """飞书会话 override 正在引用的模型 ref 快照；supervisor 缺失/不支持时降级为空集。"""
-    supervisor = getattr(request.app.state, "feishu_bot_supervisor", None)
-    getter = getattr(supervisor, "model_refs_in_use", None)
+    """读取 REST 与飞书共享的会话选择；服务未初始化时返回空集。"""
+    service = getattr(request.app.state, "agent_service", None)
+    getter = getattr(service, "model_refs_in_use", None)
     if not callable(getter):
         return frozenset()
     refs = getter()

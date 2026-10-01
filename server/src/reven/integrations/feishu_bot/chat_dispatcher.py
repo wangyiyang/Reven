@@ -1,8 +1,8 @@
-"""飞书入站对话分发：SDK 连接线程同步 submit，daemon 工作线程编排两座协程桥。
+"""飞书入站对话分发：SDK 连接线程同步 submit，daemon 工作线程编排协程桥。
 
 lark-oapi 的消息处理器与 SDK ping 循环（间隔 120s）跑在同一连接事件循环上，
 处理器内阻塞等待 Agent（单轮上限 120s）会心跳超时掉线——因此 submit() 必须
-立即返回；白名单预检与 Agent 调用都经 run_coroutine_threadsafe 桥到 FastAPI
+立即返回；白名单预检、回复与 Agent 调用都经 run_coroutine_threadsafe 桥到 FastAPI
 主事件循环执行，等待发生在每条消息一个的 daemon 工作线程内。
 
 错误纪律：一切异常收敛为兜底文案 + 脱敏日志（provider + 异常类型），绝不向
@@ -14,10 +14,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Literal, Protocol, TypeVar
 
-from reven.agent.errors import AgentError, AgentModelUnavailableError
+from reven.agent.errors import AgentModelUnavailableError
+from reven.agent.service import AgentTurn, SessionModelState
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.commands import (
     USAGE_TEXT,
@@ -44,8 +45,8 @@ THINKING_TEXT = "思考中…"
 FALLBACK_TEXT = "出了点问题，请稍后重试。"
 UNSUPPORTED_TEXT = "暂只支持文字提问。"
 
-# (message_id, text) -> None；回复失败时抛出异常，由调用处捕获记日志
-MessageReplier = Callable[[str, str], None]
+# 回复必须在共享 HTTP 客户端所属的主循环执行，失败由桥接收敛。
+AsyncMessageReplier = Callable[[str, str], Awaitable[None]]
 
 RouteKind = Literal["chat", "guide", "unsupported"]
 
@@ -53,9 +54,11 @@ RouteKind = Literal["chat", "guide", "unsupported"]
 class AgentChatService(Protocol):
     """Agent 对话口（reven.agent.service.AgentService 满足该协议）；本地定义避免跨层依赖 api 层。"""
 
-    async def chat(
-        self, message: str, session_id: str | None = None, *, model: str | None = None
-    ) -> tuple[str, str]: ...
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn: ...
+
+    async def model_state(self, session_id: str) -> SessionModelState: ...
+
+    async def use_model(self, session_id: str, model_ref: str) -> SessionModelState: ...
 
 
 class ChatDispatch(Protocol):
@@ -67,7 +70,6 @@ class ChatDispatch(Protocol):
         self,
         *,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -81,9 +83,8 @@ _T = TypeVar("_T")
 class FeishuChatDispatcher:
     """消息对话分发器：白名单现读 + Agent 调用桥到主事件循环，工作线程内等待并回消息。
 
-    会话级模型 override（#163）存于 `_overrides` 内存字典：读写都只发生在主事件
-    循环的桥接协程内（工作线程不直接触碰），单线程无锁；不持久化，重启丢失（MVP
-    已拍板）。指令消息（/model …）直接回复，不发「思考中…」占位、不进入 Agent。
+    指令消息（/model …）直接回复，不发「思考中…」占位、不进入 LLM。
+    会话模型选择与本轮身份由共享 Agent 业务对象解释。
     """
 
     def __init__(
@@ -91,33 +92,25 @@ class FeishuChatDispatcher:
         credentials: IntegrationCredentials,
         agent_service: AgentChatService,
         *,
+        reply: AsyncMessageReplier,
         timeout_seconds: float = _CHAT_TIMEOUT_SECONDS,
         precheck_timeout_seconds: float = _PRECHECK_TIMEOUT_SECONDS,
     ) -> None:
         self._credentials = credentials
         self._agent = agent_service
+        self._reply = reply
         self._timeout_seconds = timeout_seconds
         self._precheck_timeout_seconds = precheck_timeout_seconds
         self._main_loop: asyncio.AbstractEventLoop | None = None
-        self._overrides: dict[str, str] = {}
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """绑定主事件循环（supervisor.start 时调用）；进程生命周期内不变。"""
         self._main_loop = loop
 
-    def model_refs_in_use(self) -> frozenset[str]:
-        """会话 override 正在引用的模型 ref 快照（#173 删除保护）。
-
-        只读操作：_overrides 仅由主事件循环的桥接协程写入，路由 handler 同在主循环
-        读取，单线程无锁安全。
-        """
-        return frozenset(self._overrides.values())
-
     def submit(
         self,
         *,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -130,7 +123,7 @@ class FeishuChatDispatcher:
             return
         threading.Thread(
             target=self._run,
-            args=(loop, kind, reply, message_id, chat_id, open_id, text),
+            args=(loop, kind, message_id, chat_id, open_id, text),
             daemon=True,
             name="feishu-chat-worker",
         ).start()
@@ -139,7 +132,6 @@ class FeishuChatDispatcher:
         self,
         loop: asyncio.AbstractEventLoop,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -150,10 +142,10 @@ class FeishuChatDispatcher:
         if allowed is not True:
             return  # 非白名单/配置缺失/预检失败：全静默（连「思考中…」都不发）
         if kind == "guide":
-            self._safe_reply(reply, message_id, GUIDE_TEXT)
+            self._reply_via(loop, message_id, GUIDE_TEXT)
             return
         if kind == "unsupported":
-            self._safe_reply(reply, message_id, UNSUPPORTED_TEXT)
+            self._reply_via(loop, message_id, UNSUPPORTED_TEXT)
             return
         command = parse_model_command(text)
         if command is not None:
@@ -161,21 +153,15 @@ class FeishuChatDispatcher:
             answer = self._bridge(
                 loop, self._handle_model_command(chat_id, open_id, command), timeout=self._timeout_seconds
             )
-            self._safe_reply(reply, message_id, answer if answer is not None else FALLBACK_TEXT)
+            self._reply_via(loop, message_id, answer if answer is not None else FALLBACK_TEXT)
             return
-        try:
-            reply(message_id, THINKING_TEXT)
-        except Exception as exc:
-            # 占位都发不出就直接放弃本轮（不再尝试发结果，避免时序错乱）
-            logger.warning(
-                "飞书机器人占位回复失败，放弃本轮对话（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__
-            )
-            return
+        if not self._reply_via(loop, message_id, THINKING_TEXT):
+            return  # 占位未送达时放弃本轮，避免后续结果破坏回复顺序
         answer = self._bridge(loop, self._chat(chat_id, open_id, text), timeout=self._timeout_seconds)
         if answer is None:
-            self._safe_reply(reply, message_id, FALLBACK_TEXT)
+            self._reply_via(loop, message_id, FALLBACK_TEXT)
             return
-        self._safe_reply(reply, message_id, answer)
+        self._reply_via(loop, message_id, answer)
 
     def _bridge(self, loop: asyncio.AbstractEventLoop, coro: Coroutine[Any, Any, _T], *, timeout: float) -> _T | None:
         """run_coroutine_threadsafe 桥：调度失败 close 协程；超时/异常收敛为 None + 脱敏日志。"""
@@ -198,12 +184,12 @@ class FeishuChatDispatcher:
             )
             return None
 
-    @staticmethod
-    def _safe_reply(reply: MessageReplier, message_id: str, text: str) -> None:
-        try:
-            reply(message_id, text)
-        except Exception as exc:
-            logger.warning("飞书机器人对话回复失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
+    def _reply_via(self, loop: asyncio.AbstractEventLoop, message_id: str, text: str) -> bool:
+        return self._bridge(loop, self._send_reply(message_id, text), timeout=self._timeout_seconds) is True
+
+    async def _send_reply(self, message_id: str, text: str) -> bool:
+        await self._reply(message_id, text)
+        return True  # reply 的 None 是成功返回值，bridge 的 None 则表示失败
 
     async def _is_allowed(self, open_id: str) -> bool:
         """主循环内每次现读白名单（配置页改动即时生效）；配置缺失/禁用/读取失败视为空白名单。"""
@@ -211,52 +197,33 @@ class FeishuChatDispatcher:
         return config is not None and open_id in config.whitelist_open_ids
 
     @staticmethod
-    def _override_key(chat_id: str, open_id: str) -> str:
-        """会话 override 的作用域键：chat_id + open_id（与会话 session_id 同粒度）。"""
-        return f"{chat_id}:{open_id}"
+    def _session_id(chat_id: str, open_id: str) -> str:
+        return f"feishu:{chat_id}:{open_id}"
 
     async def _handle_model_command(self, chat_id: str, open_id: str, command: ModelCommand) -> str:
-        """处理 /model 指令（主循环内）：注册表现读，白名单语义——只允许切到已配置且启用的模型。"""
-        key = self._override_key(chat_id, open_id)
-        entries = await self._credentials.agent_llm_models() or ()
+        session_id = self._session_id(chat_id, open_id)
         if command.action == "list":
-            return render_model_list(entries, self._overrides.get(key))
+            return render_model_list(await self._agent.model_state(session_id))
         if command.action == "current":
-            override = self._overrides.get(key)
-            if override is not None:
-                return render_current(override, is_override=True)
-            default = next((entry for entry in entries if entry.is_default), None)
-            return render_current(default.ref if default is not None else None, is_override=False)
+            return render_current(await self._agent.model_state(session_id))
         if command.action == "use":
             ref = command.model_ref
             if ref is None or not is_valid_model_ref(ref):
                 return USAGE_TEXT
-            for entry in entries:
-                if entry.ref == ref:
-                    if entry.is_default:
-                        # 切回默认模型 = 清除 override（语义等价，避免无意义的池实例）
-                        self._overrides.pop(key, None)
-                        return render_use_reset_to_default(ref)
-                    self._overrides[key] = ref
-                    return render_use_switched(ref)
-            return render_use_rejected(ref, entries)
+            try:
+                state = await self._agent.use_model(session_id, ref)
+            except AgentModelUnavailableError:
+                return render_use_rejected(ref, await self._agent.model_state(session_id))
+            return render_use_switched(ref) if state.is_override else render_use_reset_to_default(ref)
         return USAGE_TEXT
 
     async def _chat(self, chat_id: str, open_id: str, text: str) -> str:
-        session_id = f"feishu:{chat_id}:{open_id}"
-        override = self._overrides.get(self._override_key(chat_id, open_id))
         try:
-            _, answer = await self._agent.chat(text, session_id, model=override)
+            turn = await self._agent.chat(text, self._session_id(chat_id, open_id))
         except AgentModelUnavailableError as exc:
             # 严格语义：override 模型不可达时明确报错，绝不静默回落默认模型
             logger.warning("飞书机器人会话模型不可用（model=%s, error_code=%s）", exc.model_ref, exc.code)
             return render_model_unavailable(exc.model_ref)
-        except AgentError as exc:
-            if override is None:
-                raise
-            # error_code 为稳定脱敏码；异常 message 可能含上游凭证回显，禁止进日志与回复
-            logger.warning("飞书机器人会话模型调用失败（model=%s, error_code=%s）", override, exc.code)
-            return render_model_unavailable(override)
-        if override is not None:
-            return render_answer_with_model(answer, override)
-        return answer
+        if turn.is_override and turn.model_ref is not None:
+            return render_answer_with_model(turn.response, turn.model_ref)
+        return turn.response

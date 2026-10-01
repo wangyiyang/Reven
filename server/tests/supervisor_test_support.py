@@ -49,6 +49,12 @@ class FakeBotApiClient:
         self.get_calls = 0
         FakeBotApiClient.instances.append(self)
 
+    async def __aenter__(self) -> "FakeBotApiClient":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
     async def get_bot_open_id(self) -> str:
         self.get_calls += 1
         if FakeBotApiClient.error is not None:

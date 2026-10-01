@@ -6,21 +6,20 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from reven.agent.service import AgentTurn
 from reven.config import Settings
 from reven.rss.review_service import CandidateReviewService
 
 
 class AgentChatService(Protocol):
-    async def chat(self, message: str, session_id: str | None = None) -> tuple[str, str]: ...
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn: ...
 
 
 def get_agent_service(request: Request) -> AgentChatService:
-    runtime = getattr(request.app.state, "agent_runtime", None)
-    if runtime is None:
-        raise RuntimeError("Agent 运行时未初始化")
-    from reven.agent.service import AgentService
-
-    return AgentService(runtime)
+    service = getattr(request.app.state, "agent_service", None)
+    if service is None:
+        raise RuntimeError("Agent 服务未初始化")
+    return cast(AgentChatService, service)
 
 
 AgentServiceDep = Annotated[AgentChatService, Depends(get_agent_service)]

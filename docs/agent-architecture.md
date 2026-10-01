@@ -4,8 +4,9 @@
 > #120（Vercel 部署，在本层拍板结论上继续），#121（多租户，届时隔离会话与凭证）。
 
 Reven 的 Agent 核心由 DeepSeek Harness（dsh，sdk profile）以**嵌入式子进程**
-形态承载 LLM 推理与工具编排：FastAPI 进程在 lifespan 中拉起并持有唯一的 dsh
-实例，工具调用经 MCP streamable-http loopback 回到本进程执行。**dsh 不是独立
+形态承载 LLM 推理与工具编排：FastAPI 进程在 lifespan 中拉起默认 dsh 主实例，
+按会话指定模型惰性创建并复用模型池中的实例。工具调用经 MCP streamable-http
+loopback 回到本进程执行。**dsh 不是独立
 部署的 sidecar 服务**——它没有自己的端口、容器或生命周期，全部由内嵌于
 `reven.agent` 包的 `AgentRuntime` 管理。
 
@@ -15,7 +16,7 @@ Reven 的 Agent 核心由 DeepSeek Harness（dsh，sdk profile）以**嵌入式�
 ┌─ 一个容器 / 一台 VPS（唯一部署单元）──────────────────────────────┐
 │  FastAPI 进程（uvicorn，端口 8000）                                │
 │   ├─ lifespan: AgentRuntime.start()/close()                       │
-│   │    └─ 子进程: dsh（sdk profile，同步 SDK，stdio 通信，无端口）  │
+│   │    └─ 子进程: dsh（默认主实例 + 模型池，stdio 通信，无端口）  │
 │   ├─ POST /api/agent/chat → AgentService → AgentRuntime.chat()    │
 │   │      （同步 SDK 调用经 anyio.to_thread 包装，不阻塞事件循环）    │
 │   ├─ MCP streamable-http 端点 /agent/mcp（loopback + Bearer token）│
@@ -30,15 +31,15 @@ Reven 的 Agent 核心由 DeepSeek Harness（dsh，sdk profile）以**嵌入式�
 dsh 子进程调用 LLM 推理 → 模型决定调用工具时，经 patch 注入的
 `@deepseek-ai/dsh-mcp-client` 以 streamable-http 回调本进程 `/agent/mcp` →
 FastMCP 校验 Bearer token 后执行工具（直连 Repository）→ 结果回包给 dsh →
-模型生成最终响应 → API 返回 `(session_id, response)`。
+模型生成最终响应 → AgentService 返回 `AgentTurn` → API 返回既有 `{session_id, response}` JSON。
 
-模块边界（`server/src/reven/agent/`，封装层刻意保持薄，隔离上游 0.1.x 变动）：
+模块边界（`server/src/reven/agent/`，业务状态与上游运行机制各自集中）：
 
 | 文件 | 职责 |
 |---|---|
 | `config.py` | `AgentConfig` 与 `resolve_agent_config()`：integrations 表优先、env fallback，未配置返回 None |
-| `runtime.py` | `AgentRuntime`：持有 `DeepSeekHarness` 单例，start/close/chat，启动失败降级 |
-| `service.py` | `AgentService`：API 层业务入口，薄封装 runtime |
+| `runtime.py` | `AgentRuntime`：默认主实例与 per-ref 惰性模型池、start/close/chat、别名重铸及启动失败降级 |
+| `service.py` | 共享 `AgentService`：会话模型选择、可用性解释与单轮生效身份，REST/飞书复用 |
 | `mcp_server.py` | FastMCP streamable-http 子应用：工具注册、Bearer token 校验、挂载进 FastAPI |
 | `tools_rss.py` | RSS 关键词 CRUD 工具集（首个工具集），直连 `RssSettingsRepository` |
 | `dsh.patch.yml` | profile patch：insert mcp-client + disable 内建 coding 工具 |
@@ -68,8 +69,9 @@ FastMCP 校验 Bearer token 后执行工具（直连 Repository）→ 结果回�
   端点或接入兼容 OpenAI 的服务）。
 - 密钥：`api_key`，经 `encrypted_secret` + `REVEN_MASTER_KEY` 既有模式加密入库，
   接口只回显掩码 hint，不回显明文。密钥类信息禁止硬编码、禁止进 git。
-- 配置变更**需重启进程生效**：dsh 只在 lifespan 启动时读取一次配置，本版不做热
-  更新（已知限制，见第 7 节）。
+- 默认配置变更**需重启进程生效**：主实例使用 lifespan 启动快照。会话指定模型
+  每轮现读注册表可用性，首次使用时启动对应池实例；已启动实例的参数不热重建
+  （见第 7 节）。
 
 ### 2.2 env fallback
 
@@ -107,8 +109,24 @@ PRD 字面 `POST /agent/chat` 的安全必要修正）。`session_id` 可传入�
 
 - 飞书应用机器人的事件订阅、卡片协议；
 - **确定性指令/卡片路径**（固定指令直调业务接口、不经 LLM 推理），自研实现；
-- IM 侧的会话映射。未来飞书路径的 session_id 约定为
-  `feishu:{chat_id}:{user_id}`，与本层 `AgentService.chat()` 复用同一服务层。
+- IM 侧的会话映射：session_id 为 `feishu:{chat_id}:{open_id}`，群内用户隔离；
+  指令语法和回复渲染归飞书，模型选择和生效语义调用共享 `AgentService`。
+
+### 会话模型状态
+
+lifespan 创建一个 `app.state.agent_service`，REST 与飞书使用同一对象；未配置时
+也保留共享对象并沿既有错误路径降级。服务提供 `model_state`、`use_model`、`chat`，
+只向调用方返回模型 ref 等事实，不返回凭证。`chat` 返回不可变 `AgentTurn`，
+包含本轮实际模型身份；REST 对外 JSON 不扩展，飞书据此标注回答。
+
+会话选择按外部 session_id 在主循环内存保存，重启丢失；runtime 独立管理模型池
+和 dsh 会话重铸。指定模型失效时明确报错并保留选择，只有用户显式恢复才回默认。
+回答开始后再切换只影响下一轮，本轮落款保持原模型身份。
+
+生效默认来自 runtime 的启动快照。注册表中已保存的默认变更需重启生效，
+飞书 current/list 会提示“重启后默认”。保存默认 B 时，正在运行的 A 仍为默认；
+选择 B 是会话 override，恢复 A 才清除 override。A 即使从注册表移除，
+已有 main harness 仍可作为恢复选项。这里不引入热重建、持久化或全局锁。
 
 ## 4. 部署形态拍板结论
 
@@ -165,13 +183,13 @@ serverless。
 
 | 事项 | 现状 | 方向 |
 |---|---|---|
-| 配置热更新 | 不支持，改配置需重启进程 | 后续迭代评估 |
+| 配置热更新 | 默认及已有池实例参数需重启；指定模型可用性每轮现读 | 后续迭代评估 |
 | 崩溃自愈 | 502 + 日志，手动重启 | 自动拉起留后续迭代 |
 | 会话日志清理 | 无策略，挂卷持久化 | 清理策略后续迭代 |
 | 多租户隔离 | 全局单实例单凭证 | #121 按租户隔离会话与凭证 |
 | 多 provider | schema 不堵死（provider/base_url 可配），但仅实测 `deepseek-official` | 需要时逐个验证 |
 | 工具子代理 | `tool-subagent` 本体仍启用（其控制面 `tool-subagent-control` 已禁用） | 是否一并禁用待拍板 |
-| 飞书接入 | 本层只提供 `/api/agent/chat` 与 `AgentService` | #119 接入同一服务层 |
+| 飞书接入 | 已复用共享 AgentService；SDK WS 入站、统一 HTTP 回复 | 保持 IM 与模型业务职责边界 |
 
 ## 8. 调试端点契约
 

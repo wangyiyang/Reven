@@ -35,7 +35,7 @@ class FakeNotifier:
         self.sent: list[dict[str, str | None]] = []
         self.error: Exception | None = None
 
-    async def send_markdown(self, *, chat_id: str | None, title: str, markdown: str, fallback_text: str) -> str:
+    async def send_markdown(self, *, chat_id: str | None, title: str, markdown: str) -> str:
         if self.error is not None:
             raise self.error
         self.sent.append({"chat_id": chat_id, "title": title, "markdown": markdown})

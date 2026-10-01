@@ -15,8 +15,9 @@ from pydantic import SecretStr
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.errors import IntegrationConfigurationError
+from reven.integrations.feishu_bot.client import FeishuBotApiError
 from reven.integrations.models import Integration
-from reven.provider_clients import ProviderClients
+from reven.provider_clients import FeishuReplier, ProviderClients
 from reven.rss.ai import SiliconFlowChatClient
 from reven.rss.embedding import BGE_M3_MODEL, SiliconFlowEmbeddingClient
 from reven.security.secrets import SecretBox
@@ -170,6 +171,41 @@ async def test_aclose_closes_shared_http_and_is_idempotent(
     assert http.is_closed
     assert clients._feishu_http is None
     await clients.aclose()  # 幂等
+
+
+@pytest.mark.anyio
+async def test_replier_rereads_credentials_reuses_http_and_rejects_disabled_bot(
+    db_session: AsyncSession, make_clients: Callable[..., ProviderClients]
+) -> None:
+    await _save_feishu_bot(db_session, app_id="cli_old")
+    app_ids, targets = [], []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/auth/" in request.url.path:
+            app_ids.append(json.loads(request.content)["app_id"])
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token"})
+        targets.append(request.url.path)
+        assert set(json.loads(request.content)) == {"msg_type", "content"}
+        return httpx.Response(200, json={"code": 0})
+
+    clients = make_clients(feishu_transport=httpx.MockTransport(handler))
+    reply = FeishuReplier(clients)
+    await reply("om_first", "第一条")
+    shared_http = clients._feishu_http
+    integration = await db_session.scalar(select(Integration).where(Integration.provider == "feishu_bot"))
+    assert integration is not None
+    integration.encrypted_secret = _box().encrypt({"app_id": "cli_new", "app_secret": "updated-secret"})
+    await db_session.commit()
+    await reply("om_second", "第二条")
+    assert clients._feishu_http is shared_http
+    assert app_ids == ["cli_old", "cli_new"]
+    assert targets == ["/open-apis/im/v1/messages/om_first/reply", "/open-apis/im/v1/messages/om_second/reply"]
+
+    integration.public_config = {"enabled": False, "whitelist_open_ids": ["ou_first"]}
+    await db_session.commit()
+    with pytest.raises(FeishuBotApiError, match="未启用或凭证不可用"):
+        await reply("om_third", "第三条")
+    assert len(app_ids) == 2 and len(targets) == 2
 
 
 # --- embedding ---

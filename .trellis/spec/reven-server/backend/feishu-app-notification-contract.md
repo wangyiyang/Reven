@@ -11,8 +11,37 @@
 - `POST /api/integrations/feishu_bot/test -> IntegrationResponse`：显式发送测试消息。
 - `reven.notifications.DeliveryNotifier.send(Notification)`：RSS 的统一通知口。
 - `python3 scripts/notify_feishu_deploy.py`：Actions 部署通知，使用环境中的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_NOTIFY_OPEN_IDS`。
-- 对话入站（`integrations/feishu_bot/`）：`handlers.route_message(sender, message, bot_open_id) -> RouteDecision | None`（纯函数路由）；`chat_dispatcher.FeishuChatDispatcher.submit(*, kind, reply, message_id, chat_id, open_id, text) -> None`（立即返回）；`client.FeishuBotApiClient.get_bot_open_id() -> str`（`/bot/v3/info`）。
+- 对话入站（`integrations/feishu_bot/`）：`handlers.route_message(sender, message, bot_open_id) -> RouteDecision | None`（纯函数路由）；`chat_dispatcher.FeishuChatDispatcher.submit(*, kind, message_id, chat_id, open_id, text) -> None`（立即返回）；`client.FeishuBotApiClient.get_bot_open_id() -> str`（`/bot/v3/info`）。
+- 模型指令：`parse_model_command(text) -> ModelCommand | None`，支持 `/model`、`/model list`、`/model current`、`/model use provider/model`；renderer 消费 `SessionModelState`，不接收含凭证的注册表条目。
 - 对话会话：session_id = `feishu:{chat_id}:{open_id}`，传入 `AgentService.chat(message, session_id)`；群内每人独立会话。
+
+### 统一 HTTP 交付入口
+
+`FeishuBotApiClient` 提供：
+
+```python
+send_markdown(open_id: str, markdown: str, *, title: str | None = None) -> None
+send_markdown_to_chat(chat_id: str, markdown: str, *, title: str | None = None) -> None
+send_markdown_to_recipients(recipients: tuple[str, ...], markdown: str, *, title: str | None = None) -> None
+reply_markdown(message_id: str, markdown: str, *, title: str | None = None) -> None
+send_notification_to_recipients(recipients: tuple[str, ...], notification: Notification) -> None
+```
+
+入口内部调用同一个 `_deliver`，调用方不提供 `fallback_text`。
+普通 markdown 的文本表示为非空标题加换行加原正文；结构化 `Notification`
+由客户端生成卡片与文本，文本保留标题、阶段、摘要以及 `label：URL`。
+既有 `send_text*` 保留给连接测试等明确文本调用。
+
+引用回复使用 tenant token，发送
+`POST /open-apis/im/v1/messages/{quote(message_id, safe="")}/reply`；
+JSON 仅包含 `msg_type` 与 JSON 字符串 `content`，不提交 `receive_id`、
+`receive_id_type`、`uuid` 或 `reply_in_thread`。
+
+`provider_clients.FeishuReplier(clients)` 是异步 callable：
+`await reply(message_id, text)` 成功返回 `None`。每次调用进入
+`clients.feishu_bot()` 现读配置，复用 ProviderClients 的共享 HTTP 生命周期。
+dispatcher 构造时注入这个 callable；SDK handlers 只负责入站路由，
+不构造 SDK 出站 client 或消息发送闭包。
 
 ## 3. 行为契约
 
@@ -20,10 +49,13 @@
 - `enabled` 控制应用机器人运行时通知与入站连接；显式发送测试由用户触发，可验证未启用配置。
 - 白名单是「可使用机器人的用户」：既是主动通知接收人，也是唯一能与机器人对话的用户。Open ID 必须属于该应用；空白名单不能被当作发送成功。
 - 通知与对话回复统一以 interactive 卡片（schema 2.0，`cards.build_markdown_card`）发送：标题入 header，阶段/摘要/链接等渲染在 markdown 正文；卡片发送失败必须降级为纯文本（标题、阶段、摘要、链接全部保留）保证可达，纯文本也失败才报错。每日汇总（含本次统计、待审核总数与候选工作台入口）是唯一候选相关主动通知，每位接收人每天最多一条；候选审核收敛到网页候选工作台，不存在任何审核卡片推送、补发或卡片按钮回调链路。只由飞书应用客户端负责出站 API 边界。
+- 同目标交付与渠道选择分开：卡片遇业务码、HTTP、网络或响应格式错误时，在同一目标尝试文本；两种表示均失败才抛脱敏 `FeishuBotApiError`。引用回复绝不改投白名单。主动定向 chat 两种表示均失败后，`ProactiveNotifier` 才按已有流程尝试白名单。
+- daemon 的所有引用回复都经已有 `_bridge` 调度到主循环；异步 `_send_reply` 成功返回 `True`，避免将 callable 的 `None` 成功值误认为 bridge 失败哨兵。占位回复成功后才执行 Agent，调度失败仍关闭未被 await 的协程。
 - 对话路径白名单外用户**全静默**：私聊、群聊@、非文本消息一律不回，连「思考中…」占位回复也不发；白名单预检必须先于一切外显回复。
 - 对话入站只经 lark-oapi WS 长连接。消息处理器在 SDK 连接事件循环上**同步执行**，SDK 的 ping 循环（间隔约 120s）跑在同一循环上——**处理器必须立即返回，严禁在处理器内阻塞等待 Agent 或任何慢 IO**，否则心跳超时掉线。等待一律挪到 daemon 工作线程；慢调用用 `bind_loop()` 绑定主循环 + `asyncio.run_coroutine_threadsafe` 桥接，`run_coroutine_threadsafe` 调度失败必须 `coro.close()`；一切异常收敛为兜底文案 + 脱敏日志，绝不向 SDK 抛。
 - 群聊@判定只用 `mentions[*].id.open_id == bot open_id`（`name`/`mentioned_type` 不可靠，禁用）；mention 占位符用 `mentions[*].key` 从正文剥离。bot open_id 在 `supervisor.start()` 获取，失败降级为群聊忽略 + warning 日志，**私聊不受影响**（私聊无需 bot open_id）。
 - 对话回复策略：先引用回复「思考中…」再引用回复最终结果（均按触发消息 message_id reply，卡片优先、失败降级纯文本）；非文本消息统一回「暂只支持文字提问」；剥离 mention 后空文本回引导文案。
+- 飞书只拥有模型指令语法、IM 会话映射和渲染。选择/默认/可用性由共享 AgentService 的 `model_state`、`use_model`、`chat` 解释，不保存另一份 override 字典。回答落款使用本轮 `AgentTurn` 身份；执行期间切换不影响本轮落款。生效默认与已保存默认不同时，current/list 明确提示重启后生效；普通场景文案保持。
 - 对话白名单每次现读 `credentials.feishu_bot()`（主循环内），配置页改白名单即时生效，不依赖连接重建。
 - 单轮对话超时 120s（`_CHAT_TIMEOUT_SECONDS`，构造参可注入，测试传小值）；超时后 dsh 侧 `harness.run` 线程不取消、跑完为止——已知取舍，不引入取消机制。
 - 连接测试包含 token、`/open-apis/bot/v3/info` 和真正发送消息。前端检查返回的 `connection_status`，不能只凭 HTTP 200 显示成功。
@@ -45,10 +77,14 @@
 | 旧 `feishu` 数据行存在 | API 列表隐藏，专用路径 404 |
 | Actions 三项配置全空/部分缺失 | 全空跳过；部分缺失退出非零 |
 | Actions token 或消息 API 失败 | 退出非零，不输出 Secret/token/响应原文 |
-| 对话超时或 AgentError 一族 | 用户收兜底文案「出了点问题，请稍后重试」；日志含 error_type + error_code，不含异常 message（可能回显 secret） |
+| 对话超时或其他 AgentError | 用户收兜底文案「出了点问题，请稍后重试」；日志含 error_type + error_code，不含异常 message（可能回显 secret） |
+| 指定模型不可用 `AgentModelUnavailableError` | 明确模型不可用提示，保留选择，不回落其他模型；提示显式恢复路径 |
 | bot open_id 获取失败 | 群聊消息一律忽略 + warning；私聊正常 |
 | 白名单外用户任何消息 | 零回复、零 dispatch，仅 debug 日志 |
 | 「思考中…」占位发送失败 | 放弃本轮，不再发结果，避免时序错乱 |
+| 卡片失败、同目标文本成功 | 整次交付成功；标题和正文必要内容保留 |
+| 卡片和文本均失败 | 显式脱敏失败；不得提前切换目标或记录成功 |
+| reply 失败 | 始终引用原 message_id，不转主动通知渠道 |
 
 ## 5. 正常、默认与错误案例
 
@@ -66,6 +102,9 @@
 - 前端无 Webhook 入口、类型化保存、重复点击保护、失败不报成功。
 - CI 脚本解析环境与接收人、真实请求形状、API/网络错误、同一操作稳定 UUID。
 - 对话路由矩阵：私聊 text/非文本、群聊无@/@他人/@bot 剥离/空文本引导、非 user sender、畸形 JSON；bot open_id 一律参数注入，测试零网络。
+- HTTP 交付矩阵：open_id、chat_id、reply 的真实请求形状；卡片成功、业务失败、网络异常、HTTP/非法响应、文本再次失败与标题保留。策略只在 HTTP 客户端 seam 验证，SDK 不再复制出站策略测试。
+- 组合回归：CRM 提醒 → 调度器 → 真实主动通知 adapter → MockTransport，卡片失败后文本仍含标题及客户信息；结构化通知降级保留阶段、摘要与链接。
+- 模型指令：解析/用法/正常文案、default/override 落款、默认漂移提示与拒绝切换；业务组合在真实 AgentService/runtime seam 验证，不把状态机复制到飞书 stub。
 - 对话桥接：`bind_loop(get_running_loop())` + `asyncio.to_thread(submit)`；dead loop 调度失败兜底且不泄漏协程（可加 `-W error::RuntimeWarning`）；超时注小值；AgentError 矩阵；非白名单零 reply；db 改白名单下一轮即时生效。
 
 ## 7. 错误与正确写法
@@ -99,5 +138,14 @@ def on_message(data):
 def on_message(data):
     decision = route_message(data.event.sender, data.event.message, bot_open_id)
     if decision is not None:
-        dispatcher.submit(kind=decision.kind, reply=reply, ...)  # 立即返回
+        dispatcher.submit(kind=decision.kind, ...)  # 立即返回，reply 在构造时注入
+```
+
+```python
+# 错误：调用方构造另一份降级正文，或 SDK handler 直接执行发送策略。
+await bot.api.send_markdown(open_id, markdown, fallback_text=separate_text)
+
+# 正确：交付 module 拥有内容表示和降级；调用方只提供业务消息。
+await bot.api.send_notification_to_recipients(recipients, notification)
+await replier(message_id, answer)
 ```

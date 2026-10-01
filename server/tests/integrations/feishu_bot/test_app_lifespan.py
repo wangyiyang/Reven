@@ -2,12 +2,19 @@
 
 import asyncio
 import base64
+from typing import cast
 
 import pytest
+from agent_service_support import DEFAULT_REF, EXTRA_REF, ServiceRig
+from fastapi import Request
 from fastapi.testclient import TestClient
+from reven.agent.service import AgentService
+from reven.api.dependencies import get_agent_service
 from reven.app import create_app
 from reven.config import Settings
+from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
+from reven.provider_clients import FeishuReplier, ProviderClients
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -38,6 +45,12 @@ def _factory() -> tuple[AsyncEngine, async_sessionmaker]:
 
 
 def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply_clients: list[ProviderClients] = []
+
+    def build_replier(clients: ProviderClients) -> FeishuReplier:
+        reply_clients.append(clients)
+        return FeishuReplier(clients)
+
     settings = Settings(
         database_url=DUMMY_DATABASE_URL,
         reven_master_key=TEST_MASTER_KEY,
@@ -47,6 +60,7 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
     )
     FakeSupervisor.instances = []
     monkeypatch.setattr("reven.app.FeishuBotSupervisor", FakeSupervisor)
+    monkeypatch.setattr("reven.app.FeishuReplier", build_replier)
     engine, factory = _factory()
 
     with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
@@ -56,6 +70,12 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
         assert supervisor.started == 1
         assert client.app.state.feishu_bot_supervisor is supervisor
         assert isinstance(supervisor.chat_dispatcher, FeishuChatDispatcher)  # 对话分发器随 supervisor 装配
+        assert reply_clients == [client.app.state.provider_clients]
+        service = client.app.state.agent_service
+        assert isinstance(service, AgentService)
+        assert supervisor.chat_dispatcher._agent is service
+        request = Request({"type": "http", "app": client.app})
+        assert get_agent_service(request) is get_agent_service(request) is service
         assert callable(supervisor.on_unexpected_exit)  # 死亡告警钩子随 clients 装配（#177）
 
     assert supervisor.stopped == 1
@@ -74,7 +94,7 @@ async def test_exit_alerter_schedules_notification_on_main_loop(monkeypatch: pyt
         def __init__(self, clients: object) -> None:
             del clients
 
-        async def send_markdown(self, *, chat_id: str | None, title: str, markdown: str, fallback_text: str) -> str:
+        async def send_markdown(self, *, chat_id: str | None, title: str, markdown: str) -> str:
             sent.append({"chat_id": chat_id, "title": title, "markdown": markdown})
             return "whitelist"
 
@@ -106,6 +126,42 @@ def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest
     with TestClient(create_app(start_background_tasks=False, session_factory=factory)) as client:
         assert client.get("/api/health").status_code == 503  # DB 不可达即 503（#177 健康检查语义）
         assert getattr(client.app.state, "feishu_bot_supervisor", None) is None
+        assert isinstance(client.app.state.agent_service, AgentService)
+
+
+def test_each_app_lifespan_has_independent_model_choices(tmp_path, monkeypatch) -> None:
+    rig = ServiceRig(tmp_path, monkeypatch)
+    monkeypatch.setattr("reven.app.FeishuBotSupervisor", FakeSupervisor)
+
+    def clients_for_app(factory, settings):
+        return ProviderClients(cast(IntegrationCredentials, rig.credentials), settings)
+
+    async def runtime_for_app(credentials, settings, mcp):
+        _, runtime = await rig.build()
+        return runtime
+
+    monkeypatch.setattr("reven.app._build_provider_clients", clients_for_app)
+    monkeypatch.setattr("reven.app._build_agent_runtime", runtime_for_app)
+    _, factory = _factory()
+    first_app = create_app(start_background_tasks=False, session_factory=factory, settings=rig.settings)
+    second_app = create_app(start_background_tasks=False, session_factory=factory, settings=rig.settings)
+    with TestClient(first_app) as first, TestClient(second_app) as second:
+        first_service, second_service = first.app.state.agent_service, second.app.state.agent_service
+        assert first_service is not second_service
+        first.portal.call(first_service.use_model, "sid", EXTRA_REF)
+        assert first.portal.call(first_service.model_state, "sid").current_ref == EXTRA_REF
+        second_state = second.portal.call(second_service.model_state, "sid")
+        assert second_state.current_ref == DEFAULT_REF and not second_state.is_override
+        assert first.app.state.feishu_bot_supervisor.chat_dispatcher._agent is first_service
+        assert second.app.state.feishu_bot_supervisor.chat_dispatcher._agent is second_service
+    assert all(instance.closed for instance in rig.instances)
+
+
+def test_agent_dependency_requires_initialized_service() -> None:
+    app = create_app(start_background_tasks=False)
+    request = Request({"type": "http", "app": app})
+    with pytest.raises(RuntimeError, match="Agent 服务未初始化"):
+        get_agent_service(request)
 
 
 def test_lifespan_cleanup_logs_redact_exception_messages(

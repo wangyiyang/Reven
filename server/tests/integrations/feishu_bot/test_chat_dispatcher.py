@@ -13,6 +13,7 @@ import time
 
 import pytest
 from reven.agent.errors import AgentError, AgentNotConfiguredError, AgentRuntimeError
+from reven.agent.service import AgentTurn
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import (
@@ -78,42 +79,46 @@ class _StubCredentials:
 
 
 class _StubAgentService:
-    """记录 (message, session_id, model) 调用；可配置返回文本 / 抛错 / 延迟。"""
+    """记录对话调用；可配置返回文本 / 抛错 / 延迟。"""
 
     def __init__(self, *, answer: str = "答案", error: Exception | None = None, delay: float = 0.0) -> None:
-        self.calls: list[tuple[str, str | None, str | None]] = []
+        self.calls: list[tuple[str, str | None]] = []
         self._answer = answer
         self._error = error
         self._delay = delay
 
-    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
-        self.calls.append((message, session_id, model))
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn:
+        self.calls.append((message, session_id))
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._error is not None:
             raise self._error
-        return ("sid", self._answer)
+        return AgentTurn("sid", self._answer, None, False)
 
 
 class ReplyRecorder:
     def __init__(self, *, fail_on: frozenset[int] = frozenset()) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.loops: list[asyncio.AbstractEventLoop] = []
         self._fail_on = fail_on
 
-    def __call__(self, message_id: str, text: str) -> None:
+    async def __call__(self, message_id: str, text: str) -> None:
         self.calls.append((message_id, text))
+        self.loops.append(asyncio.get_running_loop())
         if len(self.calls) in self._fail_on:
             raise RuntimeError("飞书 API 不可用")
 
 
-def _dispatcher(credentials: object, agent: _StubAgentService, **kwargs: float) -> FeishuChatDispatcher:
-    return FeishuChatDispatcher(credentials, agent, **kwargs)  # type: ignore[arg-type]
+def _dispatcher(
+    credentials: object, agent: _StubAgentService, *, reply: ReplyRecorder, **kwargs: float
+) -> FeishuChatDispatcher:
+    return FeishuChatDispatcher(credentials, agent, reply=reply, **kwargs)  # type: ignore[arg-type]
 
 
-async def _submit(dispatcher: FeishuChatDispatcher, reply: ReplyRecorder, *, kind: str = "chat", **kwargs: str) -> None:
+async def _submit(dispatcher: FeishuChatDispatcher, *, kind: str = "chat", **kwargs: str) -> None:
     """以 SDK 连接线程视角投递一条消息（submit 必须立即返回）。"""
     params = {"message_id": "om_1", "chat_id": "oc_1", "open_id": "ou_boss", "text": "你好", **kwargs}
-    await asyncio.to_thread(dispatcher.submit, kind=kind, reply=reply, **params)  # type: ignore[arg-type]
+    await asyncio.to_thread(dispatcher.submit, kind=kind, **params)  # type: ignore[arg-type]
 
 
 async def _wait_replies(recorder: ReplyRecorder, count: int, timeout: float = 5.0) -> None:
@@ -130,25 +135,26 @@ async def _wait_replies(recorder: ReplyRecorder, count: int, timeout: float = 5.
 @pytest.mark.anyio
 async def test_chat_submit_replies_thinking_then_answer() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await _wait_replies(recorder, 2)
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert recorder.loops == [asyncio.get_running_loop()] * 2
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 @pytest.mark.anyio
 async def test_guide_kind_replies_guide_text_without_agent() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, kind="guide", text="")
+    await _submit(dispatcher, kind="guide", text="")
     await _wait_replies(recorder, 1)
 
     assert recorder.calls == [("om_1", GUIDE_TEXT)]
@@ -158,11 +164,11 @@ async def test_guide_kind_replies_guide_text_without_agent() -> None:
 @pytest.mark.anyio
 async def test_unsupported_kind_replies_unsupported_text_without_agent() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, kind="unsupported", text="")
+    await _submit(dispatcher, kind="unsupported", text="")
     await _wait_replies(recorder, 1)
 
     assert recorder.calls == [("om_1", UNSUPPORTED_TEXT)]
@@ -173,14 +179,52 @@ async def test_unsupported_kind_replies_unsupported_text_without_agent() -> None
 
 
 @pytest.mark.anyio
+async def test_submit_returns_while_async_reply_is_waiting() -> None:
+    started, release = asyncio.Event(), asyncio.Event()
+    agent = _StubAgentService()
+    recorder = ReplyRecorder()
+
+    async def reply(message_id: str, text: str) -> None:
+        started.set()
+        await release.wait()
+        await recorder(message_id, text)
+
+    dispatcher = FeishuChatDispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=reply)  # type: ignore[arg-type]
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    await asyncio.wait_for(_submit(dispatcher), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert recorder.calls == [] and agent.calls == []
+    release.set()
+    await _wait_replies(recorder, 2)
+
+
+@pytest.mark.anyio
+async def test_reply_schedule_failure_closes_coroutine_and_aborts_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    schedule = asyncio.run_coroutine_threadsafe
+
+    def fail_reply(coro, loop):
+        if coro.cr_code.co_name == "_send_reply":
+            raise RuntimeError("closed loop")
+        return schedule(coro, loop)
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", fail_reply)
+    agent, recorder = _StubAgentService(), ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    await _submit(dispatcher)
+    await asyncio.sleep(0.2)
+    assert recorder.calls == [] and agent.calls == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["chat", "guide", "unsupported"])
 async def test_non_whitelisted_user_is_fully_silent(kind: str) -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, kind=kind, open_id="ou_stranger")
+    await _submit(dispatcher, kind=kind, open_id="ou_stranger")
     await asyncio.sleep(0.3)  # 宽限工作线程收尾：任何消息都不应发出
 
     assert recorder.calls == []
@@ -190,11 +234,11 @@ async def test_non_whitelisted_user_is_fully_silent(kind: str) -> None:
 @pytest.mark.anyio
 async def test_missing_config_is_fully_silent() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(None), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(None), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.3)
 
     assert recorder.calls == []
@@ -204,10 +248,10 @@ async def test_missing_config_is_fully_silent() -> None:
 @pytest.mark.anyio
 async def test_submit_without_bound_loop_is_ignored() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.2)
 
     assert recorder.calls == []
@@ -217,13 +261,13 @@ async def test_submit_without_bound_loop_is_ignored() -> None:
 @pytest.mark.anyio
 async def test_dead_loop_schedule_failure_closes_coroutine_and_stays_silent() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
+    recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
     dead_loop = asyncio.new_event_loop()
     dead_loop.close()
     dispatcher.bind_loop(dead_loop)
-    recorder = ReplyRecorder()
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.3)
 
     assert recorder.calls == []  # 预检桥调度失败：协程已 close，本轮全静默
@@ -233,11 +277,13 @@ async def test_dead_loop_schedule_failure_closes_coroutine_and_stays_silent() ->
 @pytest.mark.anyio
 async def test_precheck_timeout_is_fully_silent() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG, delay=0.3), agent, precheck_timeout_seconds=0.05)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(
+        _StubCredentials(WHITELISTED_CONFIG, delay=0.3), agent, reply=recorder, precheck_timeout_seconds=0.05
+    )
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.6)  # 宽限慢预检协程跑完：超时后仍不得补发任何消息
 
     assert recorder.calls == []
@@ -250,11 +296,11 @@ async def test_precheck_timeout_is_fully_silent() -> None:
 @pytest.mark.anyio
 async def test_agent_timeout_falls_back() -> None:
     agent = _StubAgentService(delay=0.3)
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, timeout_seconds=0.05)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder, timeout_seconds=0.05)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await _wait_replies(recorder, 2)
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", FALLBACK_TEXT)]
@@ -272,12 +318,12 @@ async def test_agent_timeout_falls_back() -> None:
 )
 async def test_agent_error_falls_back_and_log_is_sanitized(error: Exception, caplog: pytest.LogCaptureFixture) -> None:
     agent = _StubAgentService(error=error)
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
     with caplog.at_level(logging.WARNING):
-        await _submit(dispatcher, recorder)
+        await _submit(dispatcher)
         await _wait_replies(recorder, 2)
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", FALLBACK_TEXT)]
@@ -291,11 +337,11 @@ async def test_agent_error_falls_back_and_log_is_sanitized(error: Exception, cap
 @pytest.mark.anyio
 async def test_thinking_placeholder_failure_aborts_turn() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder(fail_on=frozenset({1}))
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.3)
 
     assert recorder.calls == [("om_1", THINKING_TEXT)]  # 占位发不出即放弃本轮，不再尝试发结果
@@ -305,15 +351,15 @@ async def test_thinking_placeholder_failure_aborts_turn() -> None:
 @pytest.mark.anyio
 async def test_answer_reply_failure_is_swallowed() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder(fail_on=frozenset({2}))  # 结果回复失败：工作线程收敛异常，不向调用方抛
+    dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await asyncio.sleep(0.3)  # 工作线程收敛异常，不向调用方抛
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 # --- 真实 credentials seam：db 配置接线与白名单现读 ---
@@ -323,52 +369,35 @@ async def test_answer_reply_failure_is_swallowed() -> None:
 async def test_chat_roundtrip_with_db_credentials(db_session: AsyncSession) -> None:
     await _write_bot_config(db_session)
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_credentials(db_session), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_credentials(db_session), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder)
+    await _submit(dispatcher)
     await _wait_replies(recorder, 2)
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
-    assert agent.calls == [("你好", "feishu:oc_1:ou_boss", None)]
+    assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
 
 
 @pytest.mark.anyio
 async def test_whitelist_is_reread_on_every_turn(db_session: AsyncSession) -> None:
     integration = await _write_bot_config(db_session)
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_credentials(db_session), agent)
+    recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_credentials(db_session), agent, reply=recorder)
     dispatcher.bind_loop(asyncio.get_running_loop())
-    first = ReplyRecorder()
 
-    await _submit(dispatcher, first)
-    await _wait_replies(first, 2)
-    assert [text for _, text in first.calls] == [THINKING_TEXT, "答案"]
+    await _submit(dispatcher)
+    await _wait_replies(recorder, 2)
+    assert [text for _, text in recorder.calls] == [THINKING_TEXT, "答案"]
 
     integration.public_config = {"whitelist_open_ids": ["ou_other"], "enabled": True}
     await db_session.commit()
 
-    second = ReplyRecorder()
-    await _submit(dispatcher, second)
+    recorder.calls.clear()
+    await _submit(dispatcher)
     await asyncio.sleep(0.3)  # 白名单收紧即时生效：全静默，不进 Agent
 
-    assert second.calls == []
+    assert recorder.calls == []
     assert len(agent.calls) == 1
-
-
-# --- 模型 override 快照（#173 删除保护接缝） ---
-
-
-def test_model_refs_in_use_reflects_overrides() -> None:
-    dispatcher = _dispatcher(_StubCredentials(None), _StubAgentService())
-
-    assert dispatcher.model_refs_in_use() == frozenset()
-
-    dispatcher._overrides["oc_1:ou_boss"] = "deepseek-official/deepseek-v4-pro"
-    dispatcher._overrides["oc_2:ou_ops"] = "siliconflow/Qwen/Qwen3-32B"
-    dispatcher._overrides["oc_3:ou_boss"] = "deepseek-official/deepseek-v4-pro"
-
-    assert dispatcher.model_refs_in_use() == frozenset(
-        {"deepseek-official/deepseek-v4-pro", "siliconflow/Qwen/Qwen3-32B"}
-    )

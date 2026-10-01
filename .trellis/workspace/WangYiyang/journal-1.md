@@ -322,3 +322,28 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 三项架构深化实施与验收
+
+**Date**: 2026-10-01
+**Task**: 三项架构深化实施与验收
+**Package**: web
+**Branch**: `codex/architecture-deepening`
+
+### Summary
+
+按CRM→飞书交付→会话模型顺序完成三项架构深化并独立验收：修复仅关联/解除跟进联系人的空更新误判，统一HTTP卡片/文本及引用回复，REST/飞书复用AgentService并区分保存默认与生效默认。完整后端787 passed、0 skipped、coverage90.30%，ruff/format/strict mypy与500/50规模检查通过，真实dsh握手通过。用户确认4个工作提交，本轮4个任务已归档；uv.lock原有改动保留，专用测试库和临时凭证已清理，未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc10725ccdc6e3f7c987c473c3865b82b6ce7e64` | (see git log) |
+| `40c2f30383bddf917f98aab93fd0f06099bd8622` | (see git log) |
+| `501fcffebd26e5a32742e5d04cc8dd8a8a2cf64d` | (see git log) |
+| `2940ef26427ada583e6815c098a17c2283d7aa97` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [集成 Provider 契约](./integration-provider-contract.md) | 配置、API、凭证与退役迁移的跨层一致性 | Active |
 | [飞书应用机器人契约](./feishu-app-notification-contract.md) | 应用机器人通知、测试发送、RSS 审核、部署通知与机器人对话（私聊/群@） | Active |
 | [Brand Publishing Contract](./brand-publishing-contract.md) | 品牌档案、素材与模板配置，稿件发布已退役 | Active |
+| [CRM Aggregate Contract](./crm-contract.md) | CRM 领域输入、完整写操作、范围与事务约定 | Active |
 | [Finance Summary Contract](./finance-summary-contract.md) | Cash-status semantics for the finance summary API and UI | Active |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
