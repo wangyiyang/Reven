@@ -9,10 +9,12 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
+    ConfirmCustomerNameParam,
     CustomerIdParam,
     FollowUpIdParam,
     FollowUpKindParam,
     _collect_updates,
+    _confirm_customer_name,
     _customer_not_found,
     _mutation_errors,
     _plan_text,
@@ -113,13 +115,19 @@ class CrmFollowUpTools:
                 updated = await CrmService(session).update_follow_up(customer_id, follow_up_id, payload)
         return f"已更新跟进记录：{_follow_up_line(0, updated).removeprefix('0. ')}"
 
-    async def delete_follow_up(self, customer_id: CustomerIdParam, follow_up_id: FollowUpIdParam) -> str:
+    async def delete_follow_up(
+        self,
+        customer_id: CustomerIdParam,
+        follow_up_id: FollowUpIdParam,
+        confirm_customer_name: ConfirmCustomerNameParam,
+    ) -> str:
         """删除一条跟进（拜访）记录，不可恢复；不影响客户的当前跟进计划。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        调用前必须与用户确认删除意图，并把所属客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
             async with self._session_factory() as session:
+                await _confirm_customer_name(session, customer_id, confirm_customer_name)
                 follow_up = await CrmService(session).delete_follow_up(customer_id, follow_up_id)
                 label = f"{follow_up.occurred_on.isoformat()} 的{follow_up.kind}跟进"
         return f"已删除{label}（id={follow_up_id}）。"

@@ -7,10 +7,12 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
+    ConfirmCustomerNameParam,
     CustomerIdParam,
     CustomerStatusParam,
     DueFilterParam,
     _collect_updates,
+    _confirm_customer_name,
     _customer_not_found,
     _mutation_errors,
     _plan_text,
@@ -133,13 +135,16 @@ class CrmCustomerTools:
                 updated = await CrmService(session).update_customer(customer_id, payload)
         return f"已更新客户：{_customer_line(updated)}"
 
-    async def delete_customer(self, customer_id: CustomerIdParam) -> str:
+    async def delete_customer(
+        self, customer_id: CustomerIdParam, confirm_customer_name: ConfirmCustomerNameParam
+    ) -> str:
         """删除一个客户，其名下联系人、跟进（拜访）记录会一并删除，不可恢复。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        调用前必须与用户确认删除意图，并把客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
             async with self._session_factory() as session:
+                await _confirm_customer_name(session, customer_id, confirm_customer_name)
                 customer = await CrmService(session).delete_customer(customer_id)
                 name = customer.name
         return f"已删除客户「{name}」（id={customer_id}），其名下联系人与跟进记录已一并删除。"

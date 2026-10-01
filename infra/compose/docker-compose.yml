@@ -2,6 +2,12 @@ services:
   reven:
     image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full Alibaba ACR sha256 digest, tags are forbidden}
     restart: unless-stopped
+    # json 日志轮转上限：单文件 50m 保留 3 份，防磁盘写满（2026-10-01 评审 P1-9）
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     env_file:
       - ../../.env
     environment:
@@ -38,11 +44,20 @@ services:
   caddy:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     depends_on:
       reven:
         condition: service_healthy
     ports:
       - "3001:3001"
+      # 2026-10-01 全站 TLS 化：发布 80（ACME 签发/HTTP 跳转）与 443（HTTPS 主站）
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - reven-static:/srv/reven:ro

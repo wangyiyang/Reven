@@ -35,6 +35,10 @@ class AgentService:
         self._credentials = credentials
         self._overrides: dict[str, str] = {}
 
+    def model_refs_in_use(self) -> frozenset[str]:
+        """主循环中读取会话选择快照，供模型删除保护使用。"""
+        return frozenset(self._overrides.values())
+
     async def model_state(self, session_id: str) -> SessionModelState:
         entries = await self._credentials.agent_llm_models() if self._credentials is not None else None
         available_refs = tuple(entry.ref for entry in entries or ())

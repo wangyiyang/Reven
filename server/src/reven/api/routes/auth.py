@@ -27,9 +27,8 @@ class LoginBody(BaseModel):
 
 
 def _client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # 限流 key 只认直连对端地址（部署形态固定 Caddy 前置）：X-Forwarded-For 可由客户端
+    # 伪造，取首段作 key 会让爆破者无限换 key 绕过锁定（#176 P0）。
     return request.client.host if request.client is not None else "unknown"
 
 

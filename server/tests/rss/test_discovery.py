@@ -95,12 +95,21 @@ async def test_translation_failure_is_explicitly_degraded_and_still_notifies(
     await db_session.commit()
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     notifier = RecordingNotifier()
-    service = RssDiscoveryService(factory, StubFeedReader(), FailingLocalizer(), notifier)
+    # 调高告警阈值，仅关注"显式降级 + 仍发送汇总"语义；阈值告警由专门用例覆盖
+    service = RssDiscoveryService(
+        factory,
+        StubFeedReader(),
+        FailingLocalizer(),
+        notifier,
+        translation_alert_count=999,
+        translation_alert_ratio=999.0,
+    )
 
     result = await service.run(date(2026, 8, 12))
 
     assert result.status == "partial"
-    assert result.failure_count == 1
+    # #178：整批 localize 失败按条目计数（与生产 rss_discovery_runs 每日 25-35 条 failed 口径一致）
+    assert result.failure_count == 2
     assert len(notifier.notifications) == 1
     async with factory() as session:
         item = await session.scalar(select(RssItem))
@@ -108,7 +117,10 @@ async def test_translation_failure_is_explicitly_degraded_and_still_notifies(
         assert item is not None and run is not None
         assert item.title_zh == item.title
         assert item.summary_zh == item.summary
-        assert run.errors == [{"stage": "translation", "error_type": "RuntimeError"}]
+        assert run.errors == [
+            {"stage": "translation", "error_type": "RuntimeError"},
+            {"stage": "translation", "error_type": "RuntimeError"},
+        ]
 
 
 @pytest.mark.anyio
@@ -125,6 +137,8 @@ async def test_partial_translation_failure_preserves_successful_entries(
         StubFeedReader(),
         PartiallyFailingLocalizer(),
         RecordingNotifier(),
+        translation_alert_count=999,
+        translation_alert_ratio=999.0,
     ).run(date(2026, 8, 14))
 
     assert result.status == "partial"

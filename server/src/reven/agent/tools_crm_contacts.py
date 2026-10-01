@@ -6,9 +6,11 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
+    ConfirmCustomerNameParam,
     ContactIdParam,
     CustomerIdParam,
     _collect_updates,
+    _confirm_customer_name,
     _customer_not_found,
     _mutation_errors,
     _validate,
@@ -97,13 +99,16 @@ class CrmContactTools:
                 updated = await CrmService(session).update_contact(customer_id, contact_id, payload)
         return f"已更新联系人：{_contact_line(0, updated).removeprefix('0. ')}"
 
-    async def delete_contact(self, customer_id: CustomerIdParam, contact_id: ContactIdParam) -> str:
+    async def delete_contact(
+        self, customer_id: CustomerIdParam, contact_id: ContactIdParam, confirm_customer_name: ConfirmCustomerNameParam
+    ) -> str:
         """删除一个联系人；相关跟进记录会保留，其中的联系人信息以姓名快照形式留存。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        调用前必须与用户确认删除意图，并把所属客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
             async with self._session_factory() as session:
+                await _confirm_customer_name(session, customer_id, confirm_customer_name)
                 contact = await CrmService(session).delete_contact(customer_id, contact_id)
                 name = contact.name
         return f"已删除联系人「{name}」（id={contact_id}）；相关跟进记录已保留，联系人信息以快照留存。"

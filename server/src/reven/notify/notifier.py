@@ -2,7 +2,7 @@
 
 通道降级顺序：chat_id 定向群聊/私聊 → 机器人白名单 open_id 广播。
 出向 webhook 已在 0022 迁移中退役，不再作为降级通道。
-日志脱敏纪律：只记通道与异常类型，不带 chat_id、open_id 或消息内容。
+日志脱敏纪律：只记通道、异常类型与稳定平台码，不带 chat_id、open_id、消息内容或异常原文。
 """
 
 import logging
@@ -51,7 +51,12 @@ class FeishuProactiveNotifier:
                     await bot.api.send_markdown_to_chat(chat_id, markdown, title=title)
                     return "chat"
                 except FeishuBotApiError as exc:
-                    logger.warning("飞书定向会话推送失败，降级白名单接收人（error=%s）", exc)
+                    # 脱敏纪律（#176）：只记异常类型与稳定平台码；异常 message 不进日志
+                    logger.warning(
+                        "飞书定向会话推送失败，降级白名单接收人（error_type=%s, code=%s）",
+                        type(exc).__name__,
+                        exc.code,
+                    )
             if not bot.config.whitelist_open_ids:
                 if chat_id:
                     raise FeishuBotApiError("飞书定向会话推送失败且无白名单接收人可降级")

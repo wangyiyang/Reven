@@ -10,6 +10,25 @@ from reven.agent.errors import AgentModelUnavailableError, AgentNotConfiguredErr
 
 
 @pytest.mark.anyio
+async def test_model_refs_in_use_retains_shared_choice_until_all_sessions_restore(tmp_path, monkeypatch) -> None:
+    rig = ServiceRig(tmp_path, monkeypatch)
+    service, runtime = await rig.build()
+    try:
+        assert service.model_refs_in_use() == frozenset()
+        await service.use_model("rest-session", EXTRA_REF)
+        await service.use_model("feishu:chat:user", EXTRA_REF)
+        snapshot = service.model_refs_in_use()
+        assert snapshot == frozenset({EXTRA_REF})
+        await service.use_model("rest-session", DEFAULT_REF)
+        assert service.model_refs_in_use() == snapshot
+        await service.use_model("feishu:chat:user", DEFAULT_REF)
+        assert service.model_refs_in_use() == frozenset()
+        assert snapshot == frozenset({EXTRA_REF})
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_saved_default_drift_keeps_active_default_and_allows_recovery(tmp_path, monkeypatch) -> None:
     rig = ServiceRig(tmp_path, monkeypatch)
     service, runtime = await rig.build()

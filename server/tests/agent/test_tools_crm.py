@@ -1,11 +1,11 @@
 """CRM 人才库 MCP 工具测试（#169）：CRUD 行为、筛选、漏斗/待跟进统计、错误映射与 MCP 协议面。"""
 
-import os
-from collections.abc import AsyncIterator
-from datetime import date, datetime, timedelta
-from uuid import UUID, uuid4
+from datetime import timedelta
+from uuid import uuid4
 
 import pytest
+from crm_tools_support import _create_customer, _extract_id, _today
+from crm_tools_support import session_factory as session_factory
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
@@ -13,43 +13,7 @@ from reven.agent.mcp_server import create_agent_mcp_server
 from reven.agent.tools_crm_contacts import CrmContactTools
 from reven.agent.tools_crm_customers import CrmCustomerTools
 from reven.agent.tools_crm_follow_ups import CrmFollowUpTools
-from reven.scheduling import SHANGHAI
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-
-def _today() -> date:
-    # 与工具实现同一时钟（上海时区），避免 CI UTC 16:00-24:00 窗口内两侧日期串天
-    return datetime.now(SHANGHAI).date()
-
-
-@pytest.fixture
-async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    database_url = os.environ.get("TEST_DATABASE_URL")
-    if database_url is None:
-        pytest.skip("TEST_DATABASE_URL is not set, skipping integration tests")
-    engine = create_async_engine(database_url)
-    async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE crm_follow_ups, crm_contacts, crm_customers RESTART IDENTITY CASCADE"))
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
-
-
-async def _create_customer(tools: CrmCustomerTools, name: str = "示例科技", **overrides: object) -> UUID:
-    kwargs: dict[str, object] = {"name": name}
-    kwargs.update(overrides)
-    result = await tools.create_customer(**kwargs)  # type: ignore[arg-type]
-    return _extract_id(result)
-
-
-def _extract_id(text_result: str) -> UUID:
-    marker = "id="
-    start = text_result.index(marker) + len(marker)
-    end = start
-    while end < len(text_result) and text_result[end] in "0123456789abcdef-":
-        end += 1
-    return UUID(text_result[start:end])
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 @pytest.mark.anyio
@@ -80,7 +44,7 @@ async def test_customer_create_get_update_delete_roundtrip(session_factory: asyn
     detail_after = await customers.get_customer(customer_id)
     assert "关注内容运营" not in detail_after
 
-    deleted = await customers.delete_customer(customer_id)
+    deleted = await customers.delete_customer(customer_id, confirm_customer_name="示例科技")
     assert "已删除客户「示例科技」" in deleted
     with pytest.raises(ToolError, match="客户不存在"):
         await customers.get_customer(customer_id)
@@ -140,7 +104,7 @@ async def test_customer_validation_and_not_found_errors(session_factory: async_s
     with pytest.raises(ToolError, match="客户不存在"):
         await customers.update_customer(uuid4(), name="x")
     with pytest.raises(ToolError, match="客户不存在"):
-        await customers.delete_customer(uuid4())
+        await customers.delete_customer(uuid4(), confirm_customer_name="任意名称")
 
 
 @pytest.mark.anyio
@@ -169,10 +133,10 @@ async def test_contact_crud_and_primary_switch(session_factory: async_sessionmak
     updated = await contacts.update_contact(customer_id, first_id, phone="13800000000")
     assert "电话：13800000000" in updated
 
-    deleted = await contacts.delete_contact(customer_id, second_id)
+    deleted = await contacts.delete_contact(customer_id, second_id, confirm_customer_name="示例科技")
     assert "已删除联系人「李助理」" in deleted
     with pytest.raises(ToolError, match="联系人不存在"):
-        await contacts.delete_contact(customer_id, second_id)
+        await contacts.delete_contact(customer_id, second_id, confirm_customer_name="示例科技")
 
 
 @pytest.mark.anyio
@@ -218,10 +182,10 @@ async def test_follow_up_crud_and_set_as_current(session_factory: async_sessionm
     updated = await follow_ups.update_follow_up(customer_id, follow_up_id, summary="拜访后补充：预算待确认")
     assert "已更新跟进记录" in updated and "预算待确认" in updated
 
-    deleted = await follow_ups.delete_follow_up(customer_id, follow_up_id)
+    deleted = await follow_ups.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
     assert "已删除" in deleted and "会议跟进" in deleted
     with pytest.raises(ToolError, match="跟进记录不存在"):
-        await follow_ups.delete_follow_up(customer_id, follow_up_id)
+        await follow_ups.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
 
 
 @pytest.mark.anyio
@@ -412,7 +376,7 @@ async def test_delete_customer_cascades_contacts_and_follow_ups(
         summary="拜访记录",
     )
 
-    await customers.delete_customer(customer_id)
+    await customers.delete_customer(customer_id, confirm_customer_name="示例科技")
 
     with pytest.raises(ToolError, match="客户不存在"):
         await contacts.list_contacts(customer_id)
@@ -446,6 +410,14 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
             "crm_lead_funnel",
             "crm_due_follow_ups",
         }
+
+        # #176：三个 CRM 删除工具的 confirm_customer_name 在协议层为必填参数（缺参即被协议拒绝）
+        crm_delete_tools = [
+            t for t in tools if t.name in {"crm_customer_delete", "crm_contact_delete", "crm_follow_up_delete"}
+        ]
+        assert len(crm_delete_tools) == 3
+        for delete_tool in crm_delete_tools:
+            assert "confirm_customer_name" in delete_tool.input_schema.get("required", []), delete_tool.name
 
         created = await client.call_tool(
             "crm_customer_create",

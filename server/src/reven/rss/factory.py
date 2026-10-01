@@ -88,6 +88,9 @@ class RssDiscoveryJob:
                 _UnavailableSiliconFlow(),
                 self._notifier,
                 candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                translation_alert_count=self._settings.rss_translation_alert_count,
+                translation_alert_ratio=self._settings.rss_translation_alert_ratio,
+                source_max_consecutive_failures=self._settings.rss_source_max_consecutive_failures,
             ).run(run_date)
             await self._remember_completion(run_date)
             return result
@@ -113,6 +116,9 @@ class RssDiscoveryJob:
                         self._notifier,
                         screener=screening,
                         candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                        translation_alert_count=self._settings.rss_translation_alert_count,
+                        translation_alert_ratio=self._settings.rss_translation_alert_ratio,
+                        source_max_consecutive_failures=self._settings.rss_source_max_consecutive_failures,
                     )
                     result = await discovery.run(run_date)
                     await self._backfill_degraded(screening, result.run_id)

@@ -8,9 +8,11 @@ from uuid import UUID
 
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.crm.errors import ContactNotFoundError, CustomerNotFoundError, FollowUpNotFoundError, InvalidActionPairError
 from reven.crm.models import CustomerStatus, FollowUpKind
+from reven.crm.repository import CrmRepository
 from reven.scheduling import SHANGHAI
 
 CustomerIdParam = Annotated[UUID, Field(description="客户 ID（由 crm_customer_list / crm_customer_get 返回）")]
@@ -27,6 +29,10 @@ FollowUpKindParam = Annotated[
 DueFilterParam = Annotated[
     Literal["overdue", "today", "upcoming", "none"],
     Field(description="跟进日期筛选：overdue=已逾期，today=今天到期，upcoming=未来到期，none=未安排跟进日期"),
+]
+ConfirmCustomerNameParam = Annotated[
+    str,
+    Field(description="删除确认（必填）：逐字填写要删除实体的客户名称，与客户实际名称不完全相等时拒绝执行"),
 ]
 _FIELD_LABELS = {
     "name": "名称",
@@ -96,6 +102,14 @@ def _plan_text(next_action: str | None, next_follow_up_on: date | None) -> str:
 
 def _customer_not_found(customer_id: UUID) -> ToolError:
     return ToolError(f"客户不存在（id={customer_id}），请先调用 crm_customer_list 确认可用的客户 ID")
+
+
+async def _confirm_customer_name(session: AsyncSession, customer_id: UUID, confirm: str) -> None:
+    customer = await CrmRepository(session).get_customer(customer_id)
+    if customer is None:
+        raise _customer_not_found(customer_id)
+    if confirm != customer.name:
+        raise ToolError("删除未执行：confirm_customer_name 与客户名称不完全一致，请先用 crm_customer_get 核对后重试")
 
 
 def _contact_not_found(contact_id: UUID | None) -> ToolError:

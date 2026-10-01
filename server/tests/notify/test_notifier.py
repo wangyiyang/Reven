@@ -111,6 +111,27 @@ async def test_chat_failure_falls_back_to_whitelist(db_session: AsyncSession) ->
 
 
 @pytest.mark.anyio
+async def test_chat_failure_log_contains_only_error_type_and_code(
+    db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#176 P2：降级日志只记异常类型与稳定平台码，异常原文不进日志（文件头脱敏纪律）。"""
+    captured: list[dict[str, object]] = []
+    await configure_bot(db_session)
+
+    with caplog.at_level("WARNING", logger="reven.notify.notifier"):
+        channel = await build_notifier(db_session, token_then_messages(captured, fail_chat=True)).send_markdown(
+            chat_id="oc_group", title="标题", markdown="正文"
+        )
+
+    assert channel == "whitelist"
+    warning = next(record for record in caplog.records if "降级白名单" in record.getMessage())
+    message = warning.getMessage()
+    assert "FeishuBotApiError" in message
+    assert "230002" in message
+    assert "飞书消息发送失败" not in message  # 异常原文（含固定提示）不进日志
+
+
+@pytest.mark.anyio
 async def test_whitelist_is_used_when_chat_id_missing(db_session: AsyncSession) -> None:
     captured: list[dict[str, object]] = []
     await configure_bot(db_session)
