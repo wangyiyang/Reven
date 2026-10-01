@@ -37,6 +37,10 @@ describe("integration response validation", () => {
       connection_status: "未测试",
     })))
 
-    await expect(runIntegrationAction({ action: "test", provider: "feishu_bot" })).rejects.toThrow("测试消息发送失败")
+    // 业务失败不抛错：以 ok:false + 最新集成状态返回，由控制器 toast.error 并局部更新缓存（#179）
+    const result = await runIntegrationAction({ action: "test", provider: "feishu_bot" })
+    expect(result.ok).toBe(false)
+    expect(result.message).toBe("测试消息发送失败")
+    expect(result.integration?.connection_status).toBe("未测试")
   })
 })

@@ -275,4 +275,210 @@ describe("Agent LLM 多模型管理", () => {
     await userEvent.click(section.getByRole("button", { name: `启用${QWEN_REF}` }))
     expect(section.getByRole("button", { name: `把${QWEN_REF}设为默认模型` })).toBeDisabled()
   })
+
+  it("暂存模型编辑后点卡片级测试连接，暂存保留且状态局部更新（#179）", async () => {
+    useAgentLlm()
+    server.use(
+      http.post("/api/integrations/agent-llm/test", () => HttpResponse.json({
+        ...configuredAgentLlm,
+        connection_status: "连接正常",
+        last_tested_at: "2026-10-01T00:00:00Z",
+        last_latency_ms: 88,
+      })),
+    )
+    renderPage()
+    const section = await findModelsSection()
+
+    await userEvent.click(section.getByRole("button", { name: `停用${PRO_REF}` }))
+    expect(section.getByText(/模型列表有未保存的更改/)).toBeInTheDocument()
+
+    const card = await findCard("Agent LLM")
+    await userEvent.click(card.getByRole("button", { name: "测试Agent LLM连接" }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("连接测试已完成"))
+
+    // 缓存局部更新为「连接正常」（GET 恒返回未测试，若触发 refetch 会回退）
+    expect(card.getByText("连接正常")).toBeInTheDocument()
+    // 暂存未被清空：PRO 行仍为暂存的停用态（服务端副本是启用），dirty 提示仍在
+    expect(section.getByText(/模型列表有未保存的更改/)).toBeInTheDocument()
+    expect(section.getByRole("button", { name: `启用${PRO_REF}` })).toBeInTheDocument()
+  })
+
+  it("暂存期间对未改动行做行级测试，暂存保留（#179）", async () => {
+    useAgentLlm()
+    server.use(
+      http.post("/api/integrations/agent-llm/test", async ({ request }) => {
+        const body = await request.json() as { model_ref?: string }
+        return HttpResponse.json({ ref: body.model_ref, success: true, message: null, latency_ms: 42, tested_at: "2026-10-01T00:00:00Z" })
+      }),
+    )
+    renderPage()
+    const section = await findModelsSection()
+
+    await userEvent.click(section.getByRole("button", { name: `停用${PRO_REF}` }))
+    await userEvent.click(section.getByRole("button", { name: `测试${QWEN_REF}连接` }))
+    expect(await section.findByText(/连接正常 · 42 ms/)).toBeInTheDocument()
+
+    expect(section.getByText(/模型列表有未保存的更改/)).toBeInTheDocument()
+    expect(section.getByRole("button", { name: `启用${PRO_REF}` })).toBeInTheDocument()
+  })
+
+  it("改 base_url 未保存的行禁用测试、隐藏过期结果并提示保存后可测试（#179）", async () => {
+    useAgentLlm()
+    server.use(
+      http.post("/api/integrations/agent-llm/test", async ({ request }) => {
+        const body = await request.json() as { model_ref?: string }
+        return HttpResponse.json({ ref: body.model_ref, success: true, message: null, latency_ms: 42, tested_at: "2026-10-01T00:00:00Z" })
+      }),
+    )
+    renderPage()
+    const section = await findModelsSection()
+
+    // 先测一次：展示「连接正常」（测的是服务端已保存配置）
+    await userEvent.click(section.getByRole("button", { name: `测试${QWEN_REF}连接` }))
+    expect(await section.findByText(/连接正常 · 42 ms/)).toBeInTheDocument()
+
+    // 改 base_url 未保存：行级测试若放行会误测旧配置
+    await userEvent.click(section.getByRole("button", { name: `编辑${QWEN_REF}` }))
+    const baseUrlInput = section.getByLabelText("Base URL（可选）")
+    await userEvent.clear(baseUrlInput)
+    await userEvent.type(baseUrlInput, "https://invalid.example.com")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+
+    const testButton = section.getByRole("button", { name: `测试${QWEN_REF}连接` })
+    expect(testButton).toBeDisabled()
+    expect(testButton).toHaveAttribute("title", "保存后可测试")
+    expect(section.getByText("已暂存更改，保存后可测试")).toBeInTheDocument()
+    // 过期测试结果不再展示，避免误导
+    expect(section.queryByText(/连接正常/)).not.toBeInTheDocument()
+  })
+
+  it("新增未保存的行禁用测试（服务端按已保存条目测试，未保存条目会 404）（#179）", async () => {
+    useAgentLlm()
+    renderPage()
+    const section = await findModelsSection()
+
+    await userEvent.click(section.getByRole("button", { name: "新增模型" }))
+    await userEvent.type(section.getByLabelText("Provider"), "openai")
+    await userEvent.type(section.getByLabelText("模型"), "gpt-5-mini")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+
+    expect(section.getByRole("button", { name: "测试openai/gpt-5-mini连接" })).toBeDisabled()
+    expect(section.getByText("已暂存更改，保存后可测试")).toBeInTheDocument()
+  })
+
+  it("重命名附加模型时暂存独立密钥随迁新 ref（#179）", async () => {
+    let requestBody: unknown
+    useAgentLlm()
+    server.use(
+      http.put("/api/integrations/agent-llm", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json(configuredAgentLlm)
+      }),
+    )
+    renderPage()
+    const section = await findModelsSection()
+
+    // QWEN 暂存新独立密钥
+    await userEvent.click(section.getByRole("button", { name: `编辑${QWEN_REF}` }))
+    await userEvent.type(section.getByLabelText("独立 API Key（可选）"), "sk-qwen-new")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+    expect(section.getByText("独立密钥待保存")).toBeInTheDocument()
+
+    // 重命名 model：ref 变化，暂存密钥随迁而非静默丢弃
+    await userEvent.click(section.getByRole("button", { name: `编辑${QWEN_REF}` }))
+    const modelInput = section.getByLabelText("模型")
+    await userEvent.clear(modelInput)
+    await userEvent.type(modelInput, "Qwen/Qwen3-30B-A3B")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+
+    const renamedRef = "siliconflow/Qwen/Qwen3-30B-A3B"
+    expect(section.getByText(renamedRef)).toBeInTheDocument()
+    expect(section.getByText("独立密钥待保存")).toBeInTheDocument()
+
+    const card = await findCard("Agent LLM")
+    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: {
+        provider: "deepseek-official",
+        model: "deepseek-v4-flash",
+        models: [
+          { provider: "deepseek-official", model: "deepseek-v4-pro", enabled: true },
+          { provider: "siliconflow", model: "Qwen/Qwen3-30B-A3B", base_url: "https://api.siliconflow.cn", enabled: false },
+        ],
+      },
+      secret: { model_keys: { [renamedRef]: "sk-qwen-new" } },
+    }))
+  })
+
+  it("重命名配有已保存独立密钥的模型时提示密钥将被清除（#179）", async () => {
+    useAgentLlm()
+    renderPage()
+    const section = await findModelsSection()
+
+    await userEvent.click(section.getByRole("button", { name: `编辑${PRO_REF}` }))
+    expect(section.queryByText(/重命名后原独立密钥将被清除/)).not.toBeInTheDocument()
+
+    const modelInput = section.getByLabelText("模型")
+    await userEvent.clear(modelInput)
+    await userEvent.type(modelInput, "deepseek-v4-pro-max")
+    expect(section.getByText(/重命名后原独立密钥将被清除/)).toBeInTheDocument()
+
+    // 重新输入新密钥后警告消失
+    await userEvent.type(section.getByLabelText("独立 API Key（可选）"), "sk-pro-new")
+    expect(section.queryByText(/重命名后原独立密钥将被清除/)).not.toBeInTheDocument()
+  })
+
+  it("「保存配置」合并提交已输入的主 API Key 与暂存模型密钥（#179）", async () => {
+    let requestBody: unknown
+    useAgentLlm()
+    server.use(
+      http.put("/api/integrations/agent-llm", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json(configuredAgentLlm)
+      }),
+    )
+    renderPage()
+    const card = await findCard("Agent LLM")
+    const section = await findModelsSection()
+
+    await userEvent.type(card.getByLabelText("API Key"), "sk-main-new")
+    await userEvent.click(section.getByRole("button", { name: `编辑${PRO_REF}` }))
+    await userEvent.type(section.getByLabelText("独立 API Key（可选）"), "sk-pro-new")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+
+    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: {
+        provider: "deepseek-official",
+        model: "deepseek-v4-flash",
+        models: [
+          { provider: "deepseek-official", model: "deepseek-v4-pro", enabled: true },
+          { provider: "siliconflow", model: "Qwen/Qwen3-32B", base_url: "https://api.siliconflow.cn", enabled: false },
+        ],
+      },
+      secret: { api_key: "sk-main-new", model_keys: { [PRO_REF]: "sk-pro-new" } },
+    }))
+    expect(toast.success).toHaveBeenCalledWith("配置与密钥已保存")
+  })
+
+  it.each([true, false])("仅保存独立密钥时按保存结果清理暂存（成功=%s）", async (success) => {
+    useAgentLlm()
+    server.use(http.put("/api/integrations/agent-llm", () => success
+      ? HttpResponse.json(configuredAgentLlm)
+      : HttpResponse.json({ code: "failed", message: "保存失败" }, { status: 503 })))
+    renderPage()
+    const section = await findModelsSection()
+    await userEvent.click(section.getByRole("button", { name: `编辑${PRO_REF}` }))
+    await userEvent.type(section.getByLabelText("独立 API Key（可选）"), "sk-pro-new")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+    const card = await findCard("Agent LLM")
+    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
+    await waitFor(() => expect(success ? toast.success : toast.error)
+      .toHaveBeenCalledWith(success ? "配置与密钥已保存" : "保存失败"))
+    await waitFor(() => {
+      expect(section.queryByText(/模型列表有未保存的更改/) !== null).toBe(!success)
+      expect(section.queryByText("独立密钥待保存") !== null).toBe(!success)
+      expect(section.getByRole("button", { name: `测试${PRO_REF}连接` }).hasAttribute("disabled")).toBe(!success)
+    })
+  })
 })
