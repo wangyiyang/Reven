@@ -105,6 +105,14 @@ class FeishuChatDispatcher:
         """绑定主事件循环（supervisor.start 时调用）；进程生命周期内不变。"""
         self._main_loop = loop
 
+    def model_refs_in_use(self) -> frozenset[str]:
+        """会话 override 正在引用的模型 ref 快照（#173 删除保护）。
+
+        只读操作：_overrides 仅由主事件循环的桥接协程写入，路由 handler 同在主循环
+        读取，单线程无锁安全。
+        """
+        return frozenset(self._overrides.values())
+
     def submit(
         self,
         *,
