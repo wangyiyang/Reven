@@ -1,0 +1,46 @@
+{
+  "id": "architecture-review",
+  "name": "architecture-review",
+  "title": "架构深化三项落地：CRM、飞书交付与会话模型",
+  "description": "三项顺序实施、独立检查及完整后端验收通过，具体工作提交已确认并完成，准备归档。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "reven-server",
+  "package": "reven-server",
+  "priority": "P2",
+  "creator": "WangYiyang",
+  "assignee": "WangYiyang",
+  "createdAt": "2026-10-01",
+  "completedAt": "2026-10-01",
+  "branch": "codex/architecture-deepening",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "2940ef26427ada583e6815c098a17c2283d7aa97",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-01-crm-deepening",
+    "10-01-feishu-delivery-deepening",
+    "10-01-session-model-deepening"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "implementationApproved": "2026-10-01：用户回复“请你开始实施。”，批准已呈现的整批具体方案。",
+    "integrationPassed": {
+      "testsPassed": 787,
+      "testsSkipped": 0,
+      "coveragePercent": 90.3,
+      "quality": "ruff/format/strict mypy/500-50通过",
+      "userLockUnchanged": true
+    },
+    "workCommits": [
+      "cc10725ccdc6e3f7c987c473c3865b82b6ce7e64",
+      "40c2f30383bddf917f98aab93fd0f06099bd8622",
+      "501fcffebd26e5a32742e5d04cc8dd8a8a2cf64d",
+      "2940ef26427ada583e6815c098a17c2283d7aa97"
+    ],
+    "commitPlanApproved": "2026-10-01：用户确认按方案提交并收尾。"
+  }
+}

@@ -1,0 +1,13 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "后端相关契约入口"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "组合根、显式装配与质量约束"}
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "凭证现读、HTTP 生命周期与敏感信息约束"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨调用方契约和状态迁移纪律"}
+{"file": "GLOSSARY.md", "reason": "已确认领域语言，避免混淆历史计划和生效模型"}
+{"file": ".trellis/tasks/10-01-architecture-review/research/hotspot-deepening.md", "reason": "原始问题证据、既有测试和不重议的决定"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "CRM 外部校验、客户范围和事务语义"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "使用真测试库与已有迁移链"}
+{"file": ".trellis/tasks/10-01-architecture-review/research/crm-delivery-plan.md", "reason": "领域输入、ID 操作、MCP 仅关联/解除联系人的回归与调用迁移"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "白名单、卡片降级、线程桥接、引用回复与失败约束"}
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "模型超时和既定运行时不重议"}
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "lifespan 降级与安全访问约束"}
+{"file": ".trellis/tasks/10-01-architecture-review/research/session-plan.md", "reason": "共享 AgentService 的模型状态、单轮身份、装配与组合测试"}
