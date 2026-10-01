@@ -187,6 +187,44 @@ describe("Integration providers", () => {
     expect(toast.success).toHaveBeenCalledWith("连接测试已完成")
   })
 
+  it("merges typed secrets into save config instead of silently dropping them (#179)", async () => {
+    let requestBody: unknown
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredEmbedding])),
+      http.put("/api/integrations/embedding", async ({ request }) => {
+        requestBody = await request.json()
+        return HttpResponse.json(configuredEmbedding)
+      }),
+    )
+    renderPage()
+    const card = await findCard("Embedding")
+    await userEvent.type(card.getByLabelText("API Key"), "sk-embed-new")
+    await userEvent.click(card.getByRole("button", { name: "保存Embedding配置" }))
+
+    await waitFor(() => expect(requestBody).toEqual({
+      public_config: { base_url: "https://api.siliconflow.cn", model: "BAAI/bge-m3" },
+      secret: { api_key: "sk-embed-new" },
+    }))
+    expect(toast.success).toHaveBeenCalledWith("配置与密钥已保存")
+  })
+
+  it("updates the card locally when the connection test fails (#179)", async () => {
+    server.use(
+      http.get("/api/integrations", () => HttpResponse.json([configuredEmbedding])),
+      http.post("/api/integrations/embedding/test", () =>
+        HttpResponse.json({ ...configuredEmbedding, connection_status: "连接失败", last_error: "Embedding 端点不可达" })),
+    )
+    renderPage()
+
+    const card = await findCard("Embedding")
+    await userEvent.click(card.getByRole("button", { name: "测试Embedding连接" }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Embedding 端点不可达"))
+    // 失败状态以 setQueryData 局部写回（GET 恒返回未测试，若触发 refetch 会回退）
+    expect(card.getByText("连接失败")).toBeInTheDocument()
+    expect(card.getByRole("alert")).toHaveTextContent("Embedding 端点不可达")
+  })
+
   it("shows the last test latency next to the test time", async () => {
     server.use(http.get("/api/integrations", () => HttpResponse.json([configuredBaidu])))
     renderPage()

@@ -8,7 +8,7 @@ import {
   runIntegrationAction,
   type IntegrationAction,
 } from "./integration-api"
-import type { ModelTestState, Provider, ProviderController } from "./types"
+import type { Integration, ModelTestState, Provider, ProviderController } from "./types"
 
 export function useIntegrationsController() {
   const queryClient = useQueryClient()
@@ -23,8 +23,16 @@ export function useIntegrationsController() {
   })
   const mutation = useMutation({
     mutationFn: runIntegrationAction,
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["integrations"] })
+    onSuccess: async (result, action) => {
+      if (action.action === "test" && result.integration) {
+        // 测试连接：以响应局部更新缓存，避免整表 refetch 清空卡片未保存的暂存（#179）
+        const updated = result.integration
+        queryClient.setQueryData<Integration[]>(["integrations"], (current) =>
+          (current ?? []).map((item) => (item.provider === updated.provider ? updated : item)))
+      } else if (action.action !== "test-model") {
+        // test-model 为只读探测：不改服务端状态，完全不触碰缓存
+        await queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      }
       if (result.modelTest !== undefined) {
         const test = result.modelTest
         setModelTests((current) => ({
@@ -40,10 +48,14 @@ export function useIntegrationsController() {
           return
         }
       }
+      if (result.ok === false) {
+        toast.error(result.message)
+        return
+      }
       toast.success(result.message)
     },
-    onError: async (error: Error) => {
-      await queryClient.invalidateQueries({ queryKey: ["integrations"] })
+    onError: (error: Error) => {
+      // 失败的动作未改变服务端状态：仅提示，不 refetch（整表刷新会清空卡片暂存，#179）
       toast.error(error.message)
     },
   })
@@ -76,7 +88,7 @@ export function useIntegrationsController() {
       modelTests,
     },
     actions: {
-      save: (publicConfig, secret) => void execute({ action: "save", provider, publicConfig, ...(secret ? { secret } : {}) }),
+      save: (publicConfig, secret) => execute({ action: "save", provider, publicConfig, ...(secret ? { secret } : {}) }),
       replace: (publicConfig, secret) => void execute({ action: "save", provider, publicConfig, secret }),
       remove: () => execute({ action: "delete", provider }),
       test: () => void execute({ action: "test", provider }),

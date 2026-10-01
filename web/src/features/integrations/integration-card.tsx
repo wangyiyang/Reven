@@ -31,30 +31,44 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
   // agent-llm 多模型管理（#173）：附加模型与独立密钥变更本地暂存，随「保存配置」统一提交
   const [models, setModels] = useState<AgentModelEntry[]>([])
   const [pendingKeys, setPendingKeys] = useState<Record<string, string>>({})
+  // 最近一次从服务端采纳的 models 快照：判脏与行级测试可用性的基准
+  const [syncedModels, setSyncedModels] = useState<AgentModelEntry[]>([])
+  const stagedModelsJson = JSON.stringify(modelEntriesForSave(models))
+  const syncedModelsJson = JSON.stringify(modelEntriesForSave(syncedModels))
+  const modelsDirty = agentLlm && (Object.keys(pendingKeys).length > 0 || stagedModelsJson !== syncedModelsJson)
   useEffect(() => {
     if (!agentLlm) return
-    setModels(parseModelEntries(integration?.public_config.models))
+    const next = parseModelEntries(integration?.public_config.models)
+    const nextJson = JSON.stringify(modelEntriesForSave(next))
+    // 服务端 models 未变（测试连接等只读动作的回写）：保留暂存（#179）
+    if (nextJson === syncedModelsJson) return
+    // 服务端 models 与暂存不一致且暂存未落库：保留暂存，避免被静默清空；
+    // 与暂存一致（保存成功后的回显）则采纳并清空待提交密钥
+    if (modelsDirty && nextJson !== stagedModelsJson) return
+    setModels(next)
+    setSyncedModels(next)
     setPendingKeys({})
-  }, [agentLlm, integration])
+  }, [agentLlm, integration, modelsDirty, stagedModelsJson, syncedModelsJson])
 
   const secretPayload = Object.fromEntries(definition.secretFields.map((field) => [field.key, form.secrets[field.key] ?? ""]))
   const secretComplete = definition.secretFields.every((field) => form.secrets[field.key]?.trim())
   const publicConfigComplete = hasCompletePublicConfig(definition, form.publicConfig)
   const publicConfig = publicConfigForSave(definition, form.publicConfig)
   const fullPublicConfig = agentLlm ? { ...publicConfig, models: modelEntriesForSave(models) } : publicConfig
-  const modelsDirty = agentLlm && (
-    Object.keys(pendingKeys).length > 0
-    || JSON.stringify(modelEntriesForSave(models)) !== JSON.stringify(modelEntriesForSave(parseModelEntries(integration?.public_config.models)))
-  )
   const fieldValue = (key: string) =>
     (form.publicConfig[key] ?? "").trim() || definition.publicFields.find((field) => field.key === key)?.defaultValue || ""
   const defaultRef = modelRefOf(fieldValue("provider") || "deepseek-official", fieldValue("model") || "deepseek-v4-flash")
-  const saveConfig = () => {
-    if (agentLlm && Object.keys(pendingKeys).length > 0) {
-      controller.actions.save(fullPublicConfig, { model_keys: pendingKeys })
-      return
-    }
-    controller.actions.save(fullPublicConfig)
+  const saveConfig = async () => {
+    // 已输入的密钥随「保存配置」合并提交，不再静默丢弃（#179）
+    const secret: Record<string, unknown> = Object.fromEntries(
+      Object.entries(secretPayload).filter(([, value]) => value.trim() !== ""),
+    )
+    if (agentLlm && Object.keys(pendingKeys).length > 0) secret.model_keys = pendingKeys
+    if (!await controller.actions.save(fullPublicConfig, Object.keys(secret).length > 0 ? secret : undefined)) return
+    setSyncedModels(models)
+    setPendingKeys((current) => Object.fromEntries(
+      Object.entries(current).filter(([ref, value]) => pendingKeys[ref] !== value),
+    ))
   }
   const runHealthSummary = RUN_HEALTH_PROVIDERS.includes(definition.provider) && runHealth !== undefined
     ? describeRunHealth(runHealth)
@@ -104,6 +118,7 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
             onSetDefault={controller.actions.setDefaultModel}
             onTest={controller.actions.testModel}
             pendingKeys={pendingKeys}
+            savedModels={syncedModels}
             testingRef={controller.state.testingModelRef}
             tests={controller.state.modelTests}
           />

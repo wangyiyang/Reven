@@ -10,6 +10,10 @@ export type IntegrationAction =
 
 export interface IntegrationActionResult {
   message: string
+  /** false 表示业务失败（如连接测试未通过）：不抛错，由控制器 toast.error 并局部更新缓存 */
+  ok?: boolean
+  /** test 动作回传的最新集成状态，供控制器 setQueryData 局部更新（避免整表 refetch 清空暂存） */
+  integration?: Integration
   /** test-model 动作的行级测试结果（其他动作无此字段） */
   modelTest?: AgentModelTestResult
 }
@@ -53,7 +57,7 @@ export async function runIntegrationAction(action: IntegrationAction): Promise<I
   if (action.action === "save") {
     const body = { public_config: action.publicConfig, ...(action.secret ? { secret: action.secret } : {}) }
     await requestIntegration(`/integrations/${action.provider}`, { method: "PUT", body: JSON.stringify(body) })
-    return { message: "配置已保存" }
+    return { message: action.secret ? "配置与密钥已保存" : "配置已保存" }
   }
   if (action.action === "delete") {
     await requestIntegration(`/integrations/${action.provider}/secret`, { method: "DELETE" })
@@ -77,10 +81,15 @@ export async function runIntegrationAction(action: IntegrationAction): Promise<I
   }
   const result = await requestIntegration(`/integrations/${action.provider}/test`, { method: "POST" })
   const sendsMessage = action.provider === "feishu_bot"
+  // 连接未通过不作为异常抛出：回传最新集成状态，控制器据此局部更新缓存并 toast.error（#179）
   if (result.connection_status !== "连接正常") {
-    throw new ApiError(200, "integration_test_failed", result.last_error || (sendsMessage ? "测试消息发送失败" : "连接测试失败"))
+    return {
+      message: result.last_error || (sendsMessage ? "测试消息发送失败" : "连接测试失败"),
+      ok: false,
+      integration: result,
+    }
   }
-  return { message: sendsMessage ? "测试消息已发送" : "连接测试已完成" }
+  return { message: sendsMessage ? "测试消息已发送" : "连接测试已完成", ok: true, integration: result }
 }
 
 async function requestIntegration(path: string, init: RequestInit): Promise<Integration> {
