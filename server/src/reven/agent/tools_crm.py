@@ -46,6 +46,10 @@ DueFilterParam = Annotated[
     Literal["overdue", "today", "upcoming", "none"],
     Field(description="跟进日期筛选：overdue=已逾期，today=今天到期，upcoming=未来到期，none=未安排跟进日期"),
 ]
+ConfirmCustomerNameParam = Annotated[
+    str,
+    Field(description="删除确认（必填）：逐字填写要删除实体的客户名称，与客户实际名称不完全相等时拒绝执行"),
+]
 
 # 参数中文标签：把 pydantic 校验错误的字段路径翻译成用户可读的字段名
 _FIELD_LABELS = {
@@ -203,16 +207,22 @@ class CrmTools:
                 raise _action_pair_error() from exc
         return f"已更新客户：{_customer_line(updated)}"
 
-    async def delete_customer(self, customer_id: CustomerIdParam) -> str:
+    async def delete_customer(
+        self,
+        customer_id: CustomerIdParam,
+        confirm_customer_name: ConfirmCustomerNameParam,
+    ) -> str:
         """删除一个客户，其名下联系人、跟进（拜访）记录会一并删除，不可恢复。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        server 侧防呆（#176）：调用前必须在对话中与用户确认删除意图，得到明确同意后，
+        把客户名称逐字填入 confirm_customer_name；与客户实际名称不完全相等时拒绝执行。
         """
         async with self._session_factory() as session:
             service = CrmService(session)
             customer = await service.repository.get_customer(customer_id)
             if customer is None:
                 raise _customer_not_found(customer_id)
+            _confirm_customer_name(confirm_customer_name, customer.name)
             name = customer.name
             await service.delete_customer(customer)
         return f"已删除客户「{name}」（id={customer_id}），其名下联系人与跟进记录已一并删除。"
@@ -299,16 +309,26 @@ class CrmTools:
             updated = await service.update_contact(contact, payload.model_dump(exclude_unset=True))
         return f"已更新联系人：{_contact_line(0, updated).removeprefix('0. ')}"
 
-    async def delete_contact(self, customer_id: CustomerIdParam, contact_id: ContactIdParam) -> str:
+    async def delete_contact(
+        self,
+        customer_id: CustomerIdParam,
+        contact_id: ContactIdParam,
+        confirm_customer_name: ConfirmCustomerNameParam,
+    ) -> str:
         """删除一个联系人；相关跟进记录会保留，其中的联系人信息以姓名快照形式留存。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        server 侧防呆（#176）：调用前必须在对话中与用户确认删除意图，得到明确同意后，
+        把该联系人所属客户的名称逐字填入 confirm_customer_name；与客户实际名称不完全相等时拒绝执行。
         """
         async with self._session_factory() as session:
             service = CrmService(session)
+            customer = await service.repository.get_customer(customer_id)
+            if customer is None:
+                raise _customer_not_found(customer_id)
             contact = await service.repository.get_contact(customer_id, contact_id)
             if contact is None:
                 raise _contact_not_found(contact_id)
+            _confirm_customer_name(confirm_customer_name, customer.name)
             name = contact.name
             await service.delete_contact(contact)
         return f"已删除联系人「{name}」（id={contact_id}）；相关跟进记录已保留，联系人信息以快照留存。"
@@ -414,16 +434,26 @@ class CrmTools:
                 raise _action_pair_error() from exc
         return f"已更新跟进记录：{_follow_up_line(0, updated).removeprefix('0. ')}"
 
-    async def delete_follow_up(self, customer_id: CustomerIdParam, follow_up_id: FollowUpIdParam) -> str:
+    async def delete_follow_up(
+        self,
+        customer_id: CustomerIdParam,
+        follow_up_id: FollowUpIdParam,
+        confirm_customer_name: ConfirmCustomerNameParam,
+    ) -> str:
         """删除一条跟进（拜访）记录，不可恢复；不影响客户的当前跟进计划。
 
-        调用前必须在对话中与用户确认删除意图，得到明确同意后再执行。
+        server 侧防呆（#176）：调用前必须在对话中与用户确认删除意图，得到明确同意后，
+        把该记录所属客户的名称逐字填入 confirm_customer_name；与客户实际名称不完全相等时拒绝执行。
         """
         async with self._session_factory() as session:
             service = CrmService(session)
+            customer = await service.repository.get_customer(customer_id)
+            if customer is None:
+                raise _customer_not_found(customer_id)
             follow_up = await service.repository.get_follow_up(customer_id, follow_up_id)
             if follow_up is None:
                 raise _follow_up_not_found(follow_up_id)
+            _confirm_customer_name(confirm_customer_name, customer.name)
             label = f"{follow_up.occurred_on.isoformat()} 的{follow_up.kind}跟进"
             await service.delete_follow_up(follow_up)
         return f"已删除{label}（id={follow_up_id}）。"
@@ -568,6 +598,16 @@ def _follow_up_line(index: int, follow_up: FollowUp) -> str:
     if follow_up.next_action or follow_up.next_follow_up_on:
         parts.append(f"下一步：{_plan_text(follow_up.next_action, follow_up.next_follow_up_on)}")
     return "｜".join(parts)
+
+
+def _confirm_customer_name(confirm: str, actual: str) -> None:
+    """server 侧删除防呆：确认串与客户名称逐字相等才放行。
+
+    工具描述里的"请先与用户确认"只是 prompt 层约定，注入即可绕过（#176）；
+    名称在 list/get 工具结果中本就对模型可见，名校验强制模型执行一次"读取→复述"动作。
+    """
+    if confirm != actual:
+        raise ToolError("删除未执行：confirm_customer_name 与客户名称不完全一致，请先用 crm_customer_get 核对后重试")
 
 
 def _customer_not_found(customer_id: UUID) -> ToolError:
