@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from reven.notify.models import NotificationLog
 from reven.notify.notifier import PushTargetMissingError
+from reven.notify.repository import PENDING_CHANNEL
 from reven.notify.scheduler import DailyPushConfig, DailyPushScheduler
-from reven.scheduling import SHANGHAI
+from reven.scheduling import SHANGHAI, utc_now
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -132,6 +133,44 @@ async def test_restart_after_missed_slot_pushes_once(db_session: AsyncSession) -
     await restarted.tick()
     assert len(notifier.sent) == 2
     assert other.renders == [DAY]
+
+
+@pytest.mark.anyio
+async def test_stale_pending_from_crash_is_recycled_and_redelivered(db_session: AsyncSession) -> None:
+    """容器在投递前崩溃（#177 验收）：陈旧 pending 占位（≥30 分钟未确认）被回收，当日重投。"""
+    db_session.add(
+        NotificationLog(
+            biz_key="test:scene",
+            notified_on=DAY,
+            channel=PENDING_CHANNEL,
+            created_at=utc_now() - timedelta(minutes=40),
+        )
+    )
+    await db_session.commit()
+
+    scene, notifier = FakeScene(), FakeNotifier()
+    scheduler = build_scheduler(db_session, scene, notifier, clock_now=at(DAY, 9, 0))
+    await scheduler.tick()
+
+    assert len(notifier.sent) == 1
+    db_session.expire_all()
+    rows = await notification_rows(db_session)
+    assert [(row.biz_key, row.notified_on, row.channel) for row in rows] == [("test:scene", DAY, "chat")]
+
+
+@pytest.mark.anyio
+async def test_fresh_pending_blocks_tick_redelivery(db_session: AsyncSession) -> None:
+    """新鲜 pending（他人在途投递/崩溃未满 30 分钟）：本轮 tick 不重复投递（#177）。"""
+    db_session.add(
+        NotificationLog(biz_key="test:scene", notified_on=DAY, channel=PENDING_CHANNEL, created_at=utc_now())
+    )
+    await db_session.commit()
+
+    scene, notifier = FakeScene(), FakeNotifier()
+    scheduler = build_scheduler(db_session, scene, notifier, clock_now=at(DAY, 9, 0))
+    await scheduler.tick()
+
+    assert notifier.sent == []
 
 
 @pytest.mark.anyio

@@ -79,6 +79,30 @@ async def test_tick_cancellation_stops_the_loop() -> None:
     await runner.stop()
 
 
+@pytest.mark.anyio
+async def test_healthy_reflects_loop_task_liveness() -> None:
+    """healthy 供 /api/health 内省（#177）：未启动/主循环任务死亡为 False，运行中为 True。"""
+    started = asyncio.Event()
+
+    async def tick() -> None:
+        started.set()
+        await asyncio.Future()
+
+    runner = BackgroundRunner(tick)
+    assert runner.healthy is False  # 未启动：无任务
+
+    await runner.start()
+    await started.wait()
+    assert runner.healthy is True
+
+    for task in runner.tasks:
+        task.cancel()
+    await asyncio.gather(*runner.tasks, return_exceptions=True)
+    assert runner.healthy is False  # 主循环任务死亡：degraded
+
+    await runner.stop()
+
+
 def test_default_runner_builds_rss_with_notification_service() -> None:
     factory = object()
     clients = SimpleNamespace(credentials=object())

@@ -1,9 +1,12 @@
 import asyncio
 import base64
+import os
 
 import pytest
 from fastapi.testclient import TestClient
+from reven.agent.config import AgentConfig
 from reven.app import create_app
+from reven.background import BackgroundRunner
 from reven.config import Settings
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -11,15 +14,17 @@ DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 
 
-def _settings() -> Settings:
+def _settings(database_url: str = DUMMY_DATABASE_URL, **overrides: object) -> Settings:
     """显式构造测试 Settings：不读进程 env（含 .env），lifespan 不再依赖外部环境。"""
-    return Settings(
-        database_url=DUMMY_DATABASE_URL,
-        reven_master_key=TEST_MASTER_KEY,
-        reven_admin_password="test-admin-password",
-        agent_api_key=None,
-        _env_file=None,
-    )
+    values: dict[str, object] = {
+        "database_url": database_url,
+        "reven_master_key": TEST_MASTER_KEY,
+        "reven_admin_password": "test-admin-password",
+        "agent_api_key": None,
+        "_env_file": None,
+    }
+    values.update(overrides)
+    return Settings(**values)  # type: ignore[arg-type]
 
 
 class FakeRunner:
@@ -34,12 +39,103 @@ class FakeRunner:
         self.stopped += 1
 
 
-def test_health_returns_service_status() -> None:
+def test_health_db_unreachable_returns_503() -> None:
+    """db 失败即 503（#177）：驱动 LB/哨兵摘流，杜绝静态 200 误判部署成功。"""
     with TestClient(create_app(start_background_tasks=False, settings=_settings())) as client:
         response = client.get("/api/health")
 
+    assert response.status_code == 503
+    assert response.json() == {
+        "service": "reven",
+        "status": "fail",
+        "checks": {
+            "db": {"status": "fail"},
+            "dsh": {"status": "disabled"},  # 未配置 agent_api_key
+            "background_runner": {"status": "disabled"},  # start_background_tasks=False
+        },
+    }
+
+
+def _real_database_url() -> str:
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("TEST_DATABASE_URL is not set, skipping integration tests")
+    return database_url
+
+
+def test_health_all_ok_returns_structured_details() -> None:
+    """全链路健康：200 + status ok + 三项检查明细（dsh/runner 未启用为 disabled，不拖累整体）。"""
+    database_url = _real_database_url()
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = _settings(database_url)
+    with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
+        response = client.get("/api/health")
+
     assert response.status_code == 200
-    assert response.json() == {"service": "reven", "status": "ok"}
+    assert response.json() == {
+        "service": "reven",
+        "status": "ok",
+        "checks": {
+            "db": {"status": "ok"},
+            "dsh": {"status": "disabled"},
+            "background_runner": {"status": "disabled"},
+        },
+    }
+    asyncio.run(engine.dispose())
+
+
+def test_health_dsh_start_failed_shows_degraded_but_stays_200(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """dsh 启动失败：字段显式 degraded、保持 200（不触发重启风暴），供监控抓（#177 验收）。"""
+    database_url = _real_database_url()
+
+    def _fail_launch(config: AgentConfig, mcp: object) -> None:
+        raise OSError("dsh binary missing")
+
+    monkeypatch.setattr("reven.agent.runtime._launch", _fail_launch)
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = _settings(database_url, agent_api_key="test-agent-key")
+    with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["db"] == {"status": "ok"}
+    assert body["checks"]["dsh"] == {"status": "degraded"}
+    asyncio.run(engine.dispose())
+
+
+def test_health_dead_background_runner_shows_degraded() -> None:
+    """后台 runner 主循环任务死亡：degraded + 200；存活则 ok（#177）。"""
+    database_url = _real_database_url()
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = _settings(database_url)
+
+    async def tick() -> None:
+        await asyncio.Future()
+
+    with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
+        runner = BackgroundRunner(tick)
+
+        async def start_and_kill() -> None:
+            await runner.start()
+            assert runner.healthy
+            for task in runner.tasks:
+                task.cancel()
+
+        asyncio.run(start_and_kill())
+        assert not runner.healthy
+        client.app.state.background_runner = runner
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["background_runner"] == {"status": "degraded"}
+    asyncio.run(engine.dispose())
 
 
 def test_lifespan_starts_and_stops_injected_runner() -> None:

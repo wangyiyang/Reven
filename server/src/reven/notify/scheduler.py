@@ -1,8 +1,12 @@
 """定时主动推送调度：RSS 后台任务同款 asyncio 周期循环 + 每日时刻门。
 
 循环每 check_interval_seconds 醒一次，本地时刻（Asia/Shanghai）过了当日推送点即触发各场景；
-幂等由 NotificationLogRepository 认领保证（同一 biz_key 同一自然日只投一次），
+幂等由 NotificationLogRepository 认领保证（同一 biz_key 同一自然日只确认投递一次），
 容器重启后若当天未推且已过推送时刻，下一轮 tick 自动补推。
+
+防丢纪律（#177）：认领仅 pending 占位，投递成功才确认 delivered；
+容器在投递前崩溃留下的陈旧 pending（≥30 分钟未确认）被后续 claim 原子回收重投，
+当日推送不再静默丢失。
 
 失败纪律：
 - 配置缺失（机器人未启用/无推送目标）：WARN 一次后静默跳过，释放认领，不刷屏；
@@ -103,7 +107,7 @@ class DailyPushScheduler:
     async def _run_scene(self, scene: DailyPushScene, today: date) -> None:
         async with self._factory.begin() as session:
             repository = NotificationLogRepository(session)
-            if await repository.was_notified(scene.biz_key, today):
+            if await repository.was_delivered(scene.biz_key, today):
                 return
             if self._attempts.get((scene.biz_key, today), 0) >= self._config.max_attempts_per_day:
                 return

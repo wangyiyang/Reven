@@ -104,6 +104,11 @@ class BackgroundRunner:
     def tasks(self) -> tuple[asyncio.Task[None], ...]:
         return self._tasks
 
+    @property
+    def healthy(self) -> bool:
+        """RSS 主循环任务存活（#177）：任务被取消/异常退出即不健康，供 /api/health 抓 degraded。"""
+        return bool(self._tasks) and all(not task.done() for task in self._tasks)
+
     async def start(self) -> None:
         for runner in self._extra_runners:
             await runner.start()
