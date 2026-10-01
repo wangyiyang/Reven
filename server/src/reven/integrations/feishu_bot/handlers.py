@@ -15,13 +15,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from reven.integrations.feishu_bot.cards import build_markdown_card
 from reven.integrations.feishu_bot.config import PROVIDER
 
 if TYPE_CHECKING:
     from lark_oapi.event.dispatcher_handler import EventDispatcherHandler  # type: ignore[import-untyped]
 
-    from reven.integrations.feishu_bot.chat_dispatcher import ChatDispatch, MessageReplier, RouteKind
+    from reven.integrations.feishu_bot.chat_dispatcher import ChatDispatch, RouteKind
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +90,7 @@ def _mentions_bot(message: Any, bot_open_id: str) -> bool:
     return False
 
 
-def build_message_handler(
-    reply: MessageReplier, chat_dispatch: ChatDispatch, bot_open_id: str | None
-) -> Callable[[Any], None]:
+def build_message_handler(chat_dispatch: ChatDispatch, bot_open_id: str | None) -> Callable[[Any], None]:
     """构建 im.message.receive_v1 处理器：路由 → submit → 立即返回；绝不向 SDK 抛异常。"""
 
     def handle(data: Any) -> None:
@@ -117,7 +114,6 @@ def build_message_handler(
         try:
             chat_dispatch.submit(
                 kind=decision.kind,
-                reply=reply,
                 message_id=message_id,
                 chat_id=chat_id,
                 open_id=open_id,
@@ -129,45 +125,12 @@ def build_message_handler(
     return handle
 
 
-def build_event_handler(
-    app_id: str,
-    app_secret: str,
-    *,
-    bot_open_id: str | None,
-    chat_dispatch: ChatDispatch,
-) -> EventDispatcherHandler:
-    """构建长连接事件分发器；长连接模式下 encrypt_key/verification_token 传空串。"""
-    import lark_oapi  # type: ignore[import-untyped]
-    from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody  # type: ignore[import-untyped]
+def build_event_handler(*, bot_open_id: str | None, chat_dispatch: ChatDispatch) -> EventDispatcherHandler:
+    """构建长连接入站分发器；引用回复由 dispatcher 在主循环交付。"""
     from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 
-    im_client = lark_oapi.Client.builder().app_id(app_id).app_secret(app_secret).build()
-
-    def reply_once(message_id: str, msg_type: str, content: dict[str, Any]) -> Any:
-        request = (
-            ReplyMessageRequest.builder()
-            .message_id(message_id)
-            .request_body(
-                ReplyMessageRequestBody.builder()
-                .msg_type(msg_type)
-                .content(json.dumps(content, ensure_ascii=False))
-                .build()
-            )
-            .build()
-        )
-        return im_client.im.v1.message.reply(request)
-
-    def reply(message_id: str, text: str) -> None:
-        # 优先卡片渲染 markdown；卡片失败降级纯文本保证可达，纯文本也失败才抛错
-        card_response = reply_once(message_id, "interactive", build_markdown_card(text))
-        if card_response.success():
-            return
-        text_response = reply_once(message_id, "text", {"text": text})
-        if not text_response.success():
-            raise RuntimeError(f"飞书消息回复失败（code={text_response.code}）")
-
     builder = EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(
-        build_message_handler(reply, chat_dispatch, bot_open_id)
+        build_message_handler(chat_dispatch, bot_open_id)
     )
     handler: EventDispatcherHandler = builder.build()
     return handler

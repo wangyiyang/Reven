@@ -18,7 +18,7 @@ import httpx
 
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
-from reven.integrations.feishu_bot.client import FeishuBotApiClient
+from reven.integrations.feishu_bot.client import FeishuBotApiClient, FeishuBotApiError
 from reven.integrations.feishu_bot.config import FeishuBotConfig
 from reven.notifications import Notification
 from reven.rss.ai import SiliconFlowChatClient
@@ -129,14 +129,17 @@ class FeishuNotifier:
         async with self._clients.feishu_bot() as bot:
             if bot is None:
                 raise RuntimeError("飞书应用机器人未启用或凭证不可用")
-            lines = [notification.title, f"当前阶段：{notification.stage}", notification.summary]
-            lines.extend(f"{label}：{url}" for label, url in notification.links.items())
-            markdown = f"**当前阶段**：{notification.stage}\n\n{notification.summary}"
-            if notification.links:
-                markdown += "\n\n" + "　".join(f"[{label}]({url})" for label, url in notification.links.items())
-            await bot.api.send_markdown_to_recipients(
-                bot.config.whitelist_open_ids,
-                markdown,
-                title=notification.title,
-                fallback_text="\n".join(lines),
-            )
+            await bot.api.send_notification_to_recipients(bot.config.whitelist_open_ids, notification)
+
+
+class FeishuReplier:
+    """引用回复现读凭证并复用 ProviderClients 的主循环 HTTP 客户端。"""
+
+    def __init__(self, clients: ProviderClients) -> None:
+        self._clients = clients
+
+    async def __call__(self, message_id: str, text: str) -> None:
+        async with self._clients.feishu_bot() as bot:
+            if bot is None:
+                raise FeishuBotApiError("飞书应用机器人未启用或凭证不可用")
+            await bot.api.reply_markdown(message_id, text)

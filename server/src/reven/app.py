@@ -36,7 +36,7 @@ from reven.db import create_session_factory
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
-from reven.provider_clients import ProviderClients
+from reven.provider_clients import FeishuReplier, ProviderClients
 from reven.rss.factory import KeywordEmbeddingRefresher
 from reven.security.auth import AuthMiddleware
 from reven.security.csrf import CsrfOriginMiddleware
@@ -133,14 +133,16 @@ def _build_provider_clients(
 def _build_feishu_bot_supervisor(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
-    credentials: IntegrationCredentials | None,
+    clients: ProviderClients | None,
     agent_runtime: AgentRuntime,
 ) -> FeishuBotSupervisor | None:
     """创建飞书机器人长连接 supervisor；无库或凭证降级时停用，不阻断进程。"""
-    if factory is None or credentials is None:
+    if factory is None or clients is None:
         return None
-    chat_dispatcher = FeishuChatDispatcher(credentials, AgentService(agent_runtime))
-    supervisor = FeishuBotSupervisor(credentials, chat_dispatcher=chat_dispatcher)
+    chat_dispatcher = FeishuChatDispatcher(
+        clients.credentials, AgentService(agent_runtime), reply=FeishuReplier(clients)
+    )
+    supervisor = FeishuBotSupervisor(clients.credentials, chat_dispatcher=chat_dispatcher)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
 
@@ -219,9 +221,34 @@ async def _lifespan(
         clients.credentials if clients is not None else None, settings, mcp_context
     )
     current_app.state.agent_runtime = agent_runtime
-    feishu_bot_supervisor = _build_feishu_bot_supervisor(
-        current_app, factory, clients.credentials if clients is not None else None, agent_runtime
-    )
+    feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory, clients, agent_runtime)
+    async with _run_app_resources(
+        agent_runtime=agent_runtime,
+        feishu_bot_supervisor=feishu_bot_supervisor,
+        mcp_app=mcp_app,
+        factory=factory,
+        owned_factory=factory if owns_factory else None,
+        clients=clients,
+        settings=settings,
+        runner=runner,
+        start_background_tasks=start_background_tasks,
+    ):
+        yield
+
+
+@asynccontextmanager
+async def _run_app_resources(
+    *,
+    agent_runtime: AgentRuntime,
+    feishu_bot_supervisor: FeishuBotSupervisor | None,
+    mcp_app: StarletteWithLifespan | None,
+    factory: async_sessionmaker[AsyncSession] | None,
+    owned_factory: async_sessionmaker[AsyncSession] | None,
+    clients: ProviderClients | None,
+    settings: Settings | None,
+    runner: RunnerProtocol | None,
+    start_background_tasks: bool,
+) -> AsyncIterator[None]:
     active_runner = runner
     primary_error: BaseException | None = None
     mcp_stack = AsyncExitStack()
@@ -245,7 +272,7 @@ async def _lifespan(
             feishu_bot_supervisor=feishu_bot_supervisor,
             active_runner=active_runner,
             stop_runner=start_background_tasks,
-            owned_factory=factory if owns_factory else None,
+            owned_factory=owned_factory,
             clients=clients,
         )
         if mcp_app is not None:

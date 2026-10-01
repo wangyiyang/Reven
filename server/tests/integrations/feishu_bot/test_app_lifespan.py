@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from reven.app import create_app
 from reven.config import Settings
 from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
+from reven.provider_clients import FeishuReplier, ProviderClients
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -36,6 +37,12 @@ def _factory() -> tuple[AsyncEngine, async_sessionmaker]:
 
 
 def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply_clients: list[ProviderClients] = []
+
+    def build_replier(clients: ProviderClients) -> FeishuReplier:
+        reply_clients.append(clients)
+        return FeishuReplier(clients)
+
     settings = Settings(
         database_url=DUMMY_DATABASE_URL,
         reven_master_key=TEST_MASTER_KEY,
@@ -45,6 +52,7 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
     )
     FakeSupervisor.instances = []
     monkeypatch.setattr("reven.app.FeishuBotSupervisor", FakeSupervisor)
+    monkeypatch.setattr("reven.app.FeishuReplier", build_replier)
     engine, factory = _factory()
 
     with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
@@ -54,6 +62,7 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
         assert supervisor.started == 1
         assert client.app.state.feishu_bot_supervisor is supervisor
         assert isinstance(supervisor.chat_dispatcher, FeishuChatDispatcher)  # 对话分发器随 supervisor 装配
+        assert reply_clients == [client.app.state.provider_clients]
 
     assert supervisor.stopped == 1
 

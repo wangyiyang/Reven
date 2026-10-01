@@ -61,12 +61,31 @@ def token_then_messages(captured: list[dict[str, object]], *, fail_chat: bool = 
 
 
 @pytest.mark.anyio
+async def test_chat_card_failure_with_text_success_keeps_chat_channel(db_session: AsyncSession) -> None:
+    await configure_bot(db_session)
+    captured = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/auth/" in request.url.path:
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token"})
+        payload = json.loads(request.content)
+        captured.append(payload)
+        assert request.url.params["receive_id_type"] == "chat_id"
+        return httpx.Response(200, json={"code": 230027 if payload["msg_type"] == "interactive" else 0})
+
+    channel = await build_notifier(db_session, handler).send_markdown(chat_id="oc_group", title="标题", markdown="正文")
+    assert channel == "chat"
+    assert [item["msg_type"] for item in captured] == ["interactive", "text"]
+    assert json.loads(captured[1]["content"]) == {"text": "标题\n正文"}
+
+
+@pytest.mark.anyio
 async def test_chat_id_is_the_primary_channel(db_session: AsyncSession) -> None:
     captured: list[dict[str, object]] = []
     await configure_bot(db_session)
 
     channel = await build_notifier(db_session, token_then_messages(captured)).send_markdown(
-        chat_id="oc_group", title="CRM 待跟进提醒", markdown="正文", fallback_text="正文"
+        chat_id="oc_group", title="CRM 待跟进提醒", markdown="正文"
     )
 
     assert channel == "chat"
@@ -82,7 +101,7 @@ async def test_chat_failure_falls_back_to_whitelist(db_session: AsyncSession) ->
     await configure_bot(db_session)
 
     channel = await build_notifier(db_session, token_then_messages(captured, fail_chat=True)).send_markdown(
-        chat_id="oc_group", title="CRM 待跟进提醒", markdown="正文", fallback_text="正文"
+        chat_id="oc_group", title="CRM 待跟进提醒", markdown="正文"
     )
 
     assert channel == "whitelist"
@@ -97,7 +116,7 @@ async def test_whitelist_is_used_when_chat_id_missing(db_session: AsyncSession) 
     await configure_bot(db_session)
 
     channel = await build_notifier(db_session, token_then_messages(captured)).send_markdown(
-        chat_id=None, title="标题", markdown="正文", fallback_text="正文"
+        chat_id=None, title="标题", markdown="正文"
     )
 
     assert channel == "whitelist"
@@ -110,7 +129,7 @@ async def test_missing_any_target_raises(db_session: AsyncSession) -> None:
 
     with pytest.raises(PushTargetMissingError):
         await build_notifier(db_session, token_then_messages([])).send_markdown(
-            chat_id=None, title="标题", markdown="正文", fallback_text="正文"
+            chat_id=None, title="标题", markdown="正文"
         )
 
 
@@ -118,5 +137,5 @@ async def test_missing_any_target_raises(db_session: AsyncSession) -> None:
 async def test_unconfigured_bot_raises_target_missing(db_session: AsyncSession) -> None:
     with pytest.raises(PushTargetMissingError):
         await build_notifier(db_session, token_then_messages([])).send_markdown(
-            chat_id="oc_group", title="标题", markdown="正文", fallback_text="正文"
+            chat_id="oc_group", title="标题", markdown="正文"
         )

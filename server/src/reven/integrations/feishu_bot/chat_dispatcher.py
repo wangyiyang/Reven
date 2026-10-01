@@ -1,8 +1,8 @@
-"""飞书入站对话分发：SDK 连接线程同步 submit，daemon 工作线程编排两座协程桥。
+"""飞书入站对话分发：SDK 连接线程同步 submit，daemon 工作线程编排协程桥。
 
 lark-oapi 的消息处理器与 SDK ping 循环（间隔 120s）跑在同一连接事件循环上，
 处理器内阻塞等待 Agent（单轮上限 120s）会心跳超时掉线——因此 submit() 必须
-立即返回；白名单预检与 Agent 调用都经 run_coroutine_threadsafe 桥到 FastAPI
+立即返回；白名单预检、回复与 Agent 调用都经 run_coroutine_threadsafe 桥到 FastAPI
 主事件循环执行，等待发生在每条消息一个的 daemon 工作线程内。
 
 错误纪律：一切异常收敛为兜底文案 + 脱敏日志（provider + 异常类型），绝不向
@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Literal, Protocol, TypeVar
 
 from reven.agent.errors import AgentError, AgentModelUnavailableError
@@ -44,8 +44,8 @@ THINKING_TEXT = "思考中…"
 FALLBACK_TEXT = "出了点问题，请稍后重试。"
 UNSUPPORTED_TEXT = "暂只支持文字提问。"
 
-# (message_id, text) -> None；回复失败时抛出异常，由调用处捕获记日志
-MessageReplier = Callable[[str, str], None]
+# 回复必须在共享 HTTP 客户端所属的主循环执行，失败由桥接收敛。
+AsyncMessageReplier = Callable[[str, str], Awaitable[None]]
 
 RouteKind = Literal["chat", "guide", "unsupported"]
 
@@ -67,7 +67,6 @@ class ChatDispatch(Protocol):
         self,
         *,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -91,11 +90,13 @@ class FeishuChatDispatcher:
         credentials: IntegrationCredentials,
         agent_service: AgentChatService,
         *,
+        reply: AsyncMessageReplier,
         timeout_seconds: float = _CHAT_TIMEOUT_SECONDS,
         precheck_timeout_seconds: float = _PRECHECK_TIMEOUT_SECONDS,
     ) -> None:
         self._credentials = credentials
         self._agent = agent_service
+        self._reply = reply
         self._timeout_seconds = timeout_seconds
         self._precheck_timeout_seconds = precheck_timeout_seconds
         self._main_loop: asyncio.AbstractEventLoop | None = None
@@ -109,7 +110,6 @@ class FeishuChatDispatcher:
         self,
         *,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -122,7 +122,7 @@ class FeishuChatDispatcher:
             return
         threading.Thread(
             target=self._run,
-            args=(loop, kind, reply, message_id, chat_id, open_id, text),
+            args=(loop, kind, message_id, chat_id, open_id, text),
             daemon=True,
             name="feishu-chat-worker",
         ).start()
@@ -131,7 +131,6 @@ class FeishuChatDispatcher:
         self,
         loop: asyncio.AbstractEventLoop,
         kind: RouteKind,
-        reply: MessageReplier,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -142,10 +141,10 @@ class FeishuChatDispatcher:
         if allowed is not True:
             return  # 非白名单/配置缺失/预检失败：全静默（连「思考中…」都不发）
         if kind == "guide":
-            self._safe_reply(reply, message_id, GUIDE_TEXT)
+            self._reply_via(loop, message_id, GUIDE_TEXT)
             return
         if kind == "unsupported":
-            self._safe_reply(reply, message_id, UNSUPPORTED_TEXT)
+            self._reply_via(loop, message_id, UNSUPPORTED_TEXT)
             return
         command = parse_model_command(text)
         if command is not None:
@@ -153,21 +152,15 @@ class FeishuChatDispatcher:
             answer = self._bridge(
                 loop, self._handle_model_command(chat_id, open_id, command), timeout=self._timeout_seconds
             )
-            self._safe_reply(reply, message_id, answer if answer is not None else FALLBACK_TEXT)
+            self._reply_via(loop, message_id, answer if answer is not None else FALLBACK_TEXT)
             return
-        try:
-            reply(message_id, THINKING_TEXT)
-        except Exception as exc:
-            # 占位都发不出就直接放弃本轮（不再尝试发结果，避免时序错乱）
-            logger.warning(
-                "飞书机器人占位回复失败，放弃本轮对话（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__
-            )
-            return
+        if not self._reply_via(loop, message_id, THINKING_TEXT):
+            return  # 占位未送达时放弃本轮，避免后续结果破坏回复顺序
         answer = self._bridge(loop, self._chat(chat_id, open_id, text), timeout=self._timeout_seconds)
         if answer is None:
-            self._safe_reply(reply, message_id, FALLBACK_TEXT)
+            self._reply_via(loop, message_id, FALLBACK_TEXT)
             return
-        self._safe_reply(reply, message_id, answer)
+        self._reply_via(loop, message_id, answer)
 
     def _bridge(self, loop: asyncio.AbstractEventLoop, coro: Coroutine[Any, Any, _T], *, timeout: float) -> _T | None:
         """run_coroutine_threadsafe 桥：调度失败 close 协程；超时/异常收敛为 None + 脱敏日志。"""
@@ -190,12 +183,12 @@ class FeishuChatDispatcher:
             )
             return None
 
-    @staticmethod
-    def _safe_reply(reply: MessageReplier, message_id: str, text: str) -> None:
-        try:
-            reply(message_id, text)
-        except Exception as exc:
-            logger.warning("飞书机器人对话回复失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
+    def _reply_via(self, loop: asyncio.AbstractEventLoop, message_id: str, text: str) -> bool:
+        return self._bridge(loop, self._send_reply(message_id, text), timeout=self._timeout_seconds) is True
+
+    async def _send_reply(self, message_id: str, text: str) -> bool:
+        await self._reply(message_id, text)
+        return True  # reply 的 None 是成功返回值，bridge 的 None 则表示失败
 
     async def _is_allowed(self, open_id: str) -> bool:
         """主循环内每次现读白名单（配置页改动即时生效）；配置缺失/禁用/读取失败视为空白名单。"""

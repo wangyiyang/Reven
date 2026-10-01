@@ -1,11 +1,9 @@
 """入站事件处理器测试：route_message 路由矩阵 + 分发投递 + 分发器注册回归。
 
 事件全部用 dict 构造（SDK init() 反序列化）；bot_open_id 作为 build 参数注入，
-ReplyRecorder / DispatchRecorder 替身保证零网络。
+DispatchRecorder 替身保证零网络。
 """
 
-import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -47,14 +45,6 @@ def _message_event(
     )
 
 
-class ReplyRecorder:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    def __call__(self, message_id: str, text: str) -> None:
-        self.calls.append((message_id, text))
-
-
 class DispatchRecorder:
     def __init__(self, *, fail: bool = False) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -64,7 +54,6 @@ class DispatchRecorder:
         self,
         *,
         kind: str,
-        reply: Any,
         message_id: str,
         chat_id: str,
         open_id: str,
@@ -73,7 +62,6 @@ class DispatchRecorder:
         self.calls.append(
             {
                 "kind": kind,
-                "reply": reply,
                 "message_id": message_id,
                 "chat_id": chat_id,
                 "open_id": open_id,
@@ -84,16 +72,16 @@ class DispatchRecorder:
             raise RuntimeError("dispatch boom")
 
 
-def _handler(dispatch: DispatchRecorder, reply: ReplyRecorder, bot_open_id: str | None = BOT_OPEN_ID) -> Any:
-    return build_message_handler(reply, dispatch, bot_open_id)  # type: ignore[arg-type]
+def _handler(dispatch: DispatchRecorder, bot_open_id: str | None = BOT_OPEN_ID) -> Any:
+    return build_message_handler(dispatch, bot_open_id)  # type: ignore[arg-type]
 
 
 # --- 私聊路由 ---
 
 
 def test_private_text_message_dispatches_chat() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event())
 
@@ -104,13 +92,12 @@ def test_private_text_message_dispatches_chat() -> None:
     assert call["message_id"] == "om_1"
     assert call["chat_id"] == "oc_1"
     assert call["open_id"] == "ou_boss"
-    assert call["reply"] is reply
-    assert reply.calls == []  # 处理器自身不直接回消息，回复全部由 dispatcher 工作线程发出
+    assert set(call) == {"kind", "message_id", "chat_id", "open_id", "text"}
 
 
 def test_private_non_text_message_dispatches_unsupported() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(message_type="image", content='{"image_key":"img_1"}'))
 
@@ -118,8 +105,8 @@ def test_private_non_text_message_dispatches_unsupported() -> None:
 
 
 def test_private_malformed_content_dispatches_unsupported_without_crash() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(content="not-json{"))
 
@@ -130,8 +117,8 @@ def test_private_malformed_content_dispatches_unsupported_without_crash() -> Non
 
 
 def test_group_message_without_mention_is_ignored() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="group"))
 
@@ -139,8 +126,8 @@ def test_group_message_without_mention_is_ignored() -> None:
 
 
 def test_group_message_mentioning_other_is_ignored() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="group", content='{"text":"@_user_1 看这个"}', mentions=[OTHER_MENTION]))
 
@@ -148,8 +135,8 @@ def test_group_message_mentioning_other_is_ignored() -> None:
 
 
 def test_group_message_is_ignored_when_bot_open_id_unknown() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply, bot_open_id=None)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch, bot_open_id=None)
 
     handler(_message_event(chat_type="group", content='{"text":"@_user_1 你好"}', mentions=[BOT_MENTION]))
 
@@ -157,8 +144,8 @@ def test_group_message_is_ignored_when_bot_open_id_unknown() -> None:
 
 
 def test_group_mention_bot_strips_placeholder_and_dispatches_chat() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="group", content='{"text":"@_user_1 你好"}', mentions=[BOT_MENTION]))
 
@@ -169,8 +156,8 @@ def test_group_mention_bot_strips_placeholder_and_dispatches_chat() -> None:
 
 
 def test_group_mention_bot_with_empty_text_dispatches_guide() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="group", content='{"text":"@_user_1"}', mentions=[BOT_MENTION]))
 
@@ -178,8 +165,8 @@ def test_group_mention_bot_with_empty_text_dispatches_guide() -> None:
 
 
 def test_group_mention_bot_with_non_text_dispatches_unsupported() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     event = _message_event(
         chat_type="group", message_type="sticker", content='{"file_key":"stk_1"}', mentions=[BOT_MENTION]
@@ -190,8 +177,8 @@ def test_group_mention_bot_with_non_text_dispatches_unsupported() -> None:
 
 
 def test_group_mention_bot_with_malformed_content_dispatches_unsupported() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="group", content="not-json{", mentions=[BOT_MENTION]))
 
@@ -199,8 +186,8 @@ def test_group_mention_bot_with_malformed_content_dispatches_unsupported() -> No
 
 
 def test_unknown_chat_type_is_ignored() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(chat_type="thread"))
 
@@ -209,8 +196,8 @@ def test_unknown_chat_type_is_ignored() -> None:
 
 @pytest.mark.parametrize("content", [None, '"just-a-string"', "[1,2]", '{"text": 42}'])
 def test_abnormal_content_payloads_dispatch_unsupported(content: str | None) -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(content=content))  # type: ignore[arg-type]
 
@@ -222,8 +209,8 @@ def test_abnormal_content_payloads_dispatch_unsupported(content: str | None) -> 
 
 @pytest.mark.parametrize("sender_type", ["app", "anonymous", "unknown"])
 def test_ignores_non_user_sender_types(sender_type: str) -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(sender_type=sender_type))
 
@@ -231,8 +218,8 @@ def test_ignores_non_user_sender_types(sender_type: str) -> None:
 
 
 def test_ignores_message_without_id() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(message_id=None))
 
@@ -240,8 +227,8 @@ def test_ignores_message_without_id() -> None:
 
 
 def test_ignores_message_without_sender_open_id() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event(sender_open_id=None))
 
@@ -249,8 +236,8 @@ def test_ignores_message_without_sender_open_id() -> None:
 
 
 def test_malformed_event_does_not_crash() -> None:
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(P2ImMessageReceiveV1({"event": {}}))
 
@@ -258,8 +245,8 @@ def test_malformed_event_does_not_crash() -> None:
 
 
 def test_dispatch_failure_is_swallowed_and_logged() -> None:
-    dispatch, reply = DispatchRecorder(fail=True), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder(fail=True)
+    handler = _handler(dispatch)
 
     handler(_message_event())  # 分发失败仅记日志，不向 SDK 抛出
 
@@ -271,8 +258,8 @@ def test_route_failure_is_swallowed_and_logged(monkeypatch: pytest.MonkeyPatch) 
         raise RuntimeError("route boom")
 
     monkeypatch.setattr("reven.integrations.feishu_bot.handlers.route_message", broken_route)
-    dispatch, reply = DispatchRecorder(), ReplyRecorder()
-    handler = _handler(dispatch, reply)
+    dispatch = DispatchRecorder()
+    handler = _handler(dispatch)
 
     handler(_message_event())  # 路由异常仅记日志，不向 SDK 抛出
 
@@ -283,83 +270,7 @@ def test_route_failure_is_swallowed_and_logged(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_event_handler_registers_only_im_processor() -> None:
-    handler = build_event_handler("cli_test", "secret", bot_open_id=BOT_OPEN_ID, chat_dispatch=DispatchRecorder())  # type: ignore[arg-type]
+    handler = build_event_handler(bot_open_id=BOT_OPEN_ID, chat_dispatch=DispatchRecorder())  # type: ignore[arg-type]
 
     assert "p2.im.message.receive_v1" in handler._processorMap
     assert "p2.card.action.trigger" not in handler._callback_processor_map
-
-
-# --- 回复出站：卡片优先，失败降级纯文本 ---
-
-
-class _FakeReplyResponse:
-    def __init__(self, code: int) -> None:
-        self.code = code
-
-    def success(self) -> bool:
-        return self.code == 0
-
-
-class _FakeMessageApi:
-    """im.v1.message 替身：按预置 code 序列返回，记录每次 reply 的 msg_type 与 content。"""
-
-    def __init__(self, codes: list[int]) -> None:
-        self._codes = codes
-        self.sent: list[tuple[str, dict[str, Any]]] = []
-
-    def reply(self, request: Any) -> _FakeReplyResponse:
-        body = request.request_body
-        self.sent.append((body.msg_type, json.loads(body.content)))
-        return _FakeReplyResponse(self._codes.pop(0))
-
-
-class _FakeClientBuilder:
-    def __init__(self, message_api: _FakeMessageApi) -> None:
-        self._message_api = message_api
-
-    def app_id(self, _: str) -> "_FakeClientBuilder":
-        return self
-
-    def app_secret(self, _: str) -> "_FakeClientBuilder":
-        return self
-
-    def build(self) -> Any:
-        return SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=self._message_api)))
-
-
-def _build_reply(monkeypatch: pytest.MonkeyPatch, codes: list[int]) -> tuple[Any, _FakeMessageApi]:
-    """经真实 build_event_handler 拿 reply 闭包，仅 lark Client 换替身，零网络。"""
-    message_api = _FakeMessageApi(codes)
-    monkeypatch.setattr("lark_oapi.Client", SimpleNamespace(builder=lambda: _FakeClientBuilder(message_api)))
-    dispatch = DispatchRecorder()
-    handler = build_event_handler("cli_test", "secret", bot_open_id=BOT_OPEN_ID, chat_dispatch=dispatch)  # type: ignore[arg-type]
-    handler._processorMap["p2.im.message.receive_v1"].do(_message_event())
-    return dispatch.calls[0]["reply"], message_api
-
-
-def test_reply_sends_interactive_card_with_markdown_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    reply, message_api = _build_reply(monkeypatch, [0])
-
-    reply("om_1", "**加粗**")
-
-    assert len(message_api.sent) == 1
-    msg_type, content = message_api.sent[0]
-    assert msg_type == "interactive"
-    assert content["schema"] == "2.0"
-    assert content["body"]["elements"] == [{"tag": "markdown", "content": "**加粗**"}]
-
-
-def test_reply_falls_back_to_text_when_card_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    reply, message_api = _build_reply(monkeypatch, [230001, 0])
-
-    reply("om_1", "回答")
-
-    assert [msg_type for msg_type, _ in message_api.sent] == ["interactive", "text"]
-    assert message_api.sent[1][1] == {"text": "回答"}
-
-
-def test_reply_raises_only_when_card_and_text_both_fail(monkeypatch: pytest.MonkeyPatch) -> None:
-    reply, _ = _build_reply(monkeypatch, [230001, 230002])
-
-    with pytest.raises(RuntimeError, match="code=230002"):
-        reply("om_1", "回答")

@@ -104,17 +104,19 @@ class ReplyRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def __call__(self, message_id: str, text: str) -> None:
+    async def __call__(self, message_id: str, text: str) -> None:
         self.calls.append((message_id, text))
 
 
-def _dispatcher(credentials: _StubCredentials, agent: _StubAgentService) -> FeishuChatDispatcher:
-    return FeishuChatDispatcher(credentials, agent)  # type: ignore[arg-type]
+def _dispatcher(
+    credentials: _StubCredentials, agent: _StubAgentService, *, reply: ReplyRecorder
+) -> FeishuChatDispatcher:
+    return FeishuChatDispatcher(credentials, agent, reply=reply)  # type: ignore[arg-type]
 
 
-async def _submit(dispatcher: FeishuChatDispatcher, reply: ReplyRecorder, text: str, **kwargs: str) -> None:
+async def _submit(dispatcher: FeishuChatDispatcher, text: str, **kwargs: str) -> None:
     params = {"message_id": "om_1", "chat_id": "oc_1", "open_id": "ou_boss", **kwargs}
-    await asyncio.to_thread(dispatcher.submit, kind="chat", reply=reply, text=text, **params)  # type: ignore[arg-type]
+    await asyncio.to_thread(dispatcher.submit, kind="chat", text=text, **params)  # type: ignore[arg-type]
 
 
 async def _wait_replies(recorder: ReplyRecorder, count: int, timeout: float = 5.0) -> None:
@@ -128,11 +130,11 @@ async def _wait_replies(recorder: ReplyRecorder, count: int, timeout: float = 5.
 @pytest.mark.anyio
 async def test_model_list_replies_registry_without_agent_call() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model list")
+    await _submit(dispatcher, "/model list")
     await _wait_replies(recorder, 1)
 
     [(message_id, text)] = recorder.calls
@@ -147,15 +149,15 @@ async def test_model_list_replies_registry_without_agent_call() -> None:
 async def test_model_use_switches_session_and_marks_following_answers() -> None:
     """切换成功后：后续对话带 override 模型，回复末尾附当前模型行。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
     assert recorder.calls[0] == ("om_1", f"已切换：本会话后续回答使用 {EXTRA_REF}。")
 
-    await _submit(dispatcher, recorder, "你好")
+    await _submit(dispatcher, "你好")
     await _wait_replies(recorder, 3)  # 占位 + 回答
 
     assert recorder.calls[1] == ("om_1", "思考中…")
@@ -168,11 +170,11 @@ async def test_model_use_switches_session_and_marks_following_answers() -> None:
 async def test_model_use_rejects_unregistered_model_with_options() -> None:
     """白名单拒绝：未配置/未启用的模型明确拒绝并列出可选项。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model use anthropic/claude-sonnet-4")
+    await _submit(dispatcher, "/model use anthropic/claude-sonnet-4")
     await _wait_replies(recorder, 1)
 
     [(message_id, text)] = recorder.calls
@@ -185,17 +187,17 @@ async def test_model_use_rejects_unregistered_model_with_options() -> None:
 async def test_model_use_default_clears_override() -> None:
     """切回默认模型 = 清除会话 override；后续对话不再带 model 参数与落款。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, recorder, f"/model use {DEFAULT_REF}")
+    await _submit(dispatcher, f"/model use {DEFAULT_REF}")
     await _wait_replies(recorder, 2)
     assert recorder.calls[1] == ("om_1", f"已恢复默认模型：{DEFAULT_REF}。")
 
-    await _submit(dispatcher, recorder, "你好")
+    await _submit(dispatcher, "你好")
     await _wait_replies(recorder, 4)
 
     assert recorder.calls[3] == ("om_1", "答案@default")  # 无模型落款
@@ -205,17 +207,17 @@ async def test_model_use_default_clears_override() -> None:
 @pytest.mark.anyio
 async def test_model_current_reports_default_then_override() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model current")
+    await _submit(dispatcher, "/model current")
     await _wait_replies(recorder, 1)
     assert recorder.calls[0] == ("om_1", f"当前会话模型：{DEFAULT_REF}（默认）")
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 2)
-    await _submit(dispatcher, recorder, "/model current")
+    await _submit(dispatcher, "/model current")
     await _wait_replies(recorder, 3)
     assert recorder.calls[2] == ("om_1", f"当前会话模型：{EXTRA_REF}（会话指定）")
 
@@ -223,13 +225,13 @@ async def test_model_current_reports_default_then_override() -> None:
 @pytest.mark.anyio
 async def test_model_list_marks_current_override() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, recorder, "/model")
+    await _submit(dispatcher, "/model")
     await _wait_replies(recorder, 2)
 
     text = recorder.calls[1][1]
@@ -240,11 +242,11 @@ async def test_model_list_marks_current_override() -> None:
 @pytest.mark.anyio
 async def test_unknown_subcommand_replies_usage() -> None:
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model foo")
+    await _submit(dispatcher, "/model foo")
     await _wait_replies(recorder, 1)
 
     assert recorder.calls == [("om_1", USAGE_TEXT)]
@@ -255,15 +257,15 @@ async def test_unknown_subcommand_replies_usage() -> None:
 async def test_commands_do_not_pollute_session_history() -> None:
     """指令消息不进 Agent（不计入会话历史），会话内仅保留真实问答。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model list")
-    await _submit(dispatcher, recorder, "/model current")
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, "/model list")
+    await _submit(dispatcher, "/model current")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 3)
-    await _submit(dispatcher, recorder, "真实问题")
+    await _submit(dispatcher, "真实问题")
     await _wait_replies(recorder, 5)
 
     assert [call[0] for call in agent.calls] == ["真实问题"]
@@ -273,13 +275,13 @@ async def test_commands_do_not_pollute_session_history() -> None:
 async def test_override_scope_is_per_conversation() -> None:
     """切换仅影响当前会话：其他 chat_id/open_id 的对话仍走默认模型。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, recorder, "别人的消息", chat_id="oc_2", open_id="ou_boss")
+    await _submit(dispatcher, "别人的消息", chat_id="oc_2", open_id="ou_boss")
     await _wait_replies(recorder, 3)
 
     assert agent.calls[-1] == ("别人的消息", "feishu:oc_2:ou_boss", None)
@@ -289,13 +291,13 @@ async def test_override_scope_is_per_conversation() -> None:
 async def test_unavailable_override_model_replies_explicit_error_without_fallback() -> None:
     """override 模型不可达：明确报错（非通用兜底文案），不静默降级到默认模型。"""
     agent = _StubAgentService(error=AgentModelUnavailableError(EXTRA_REF))
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, recorder, "你好")
+    await _submit(dispatcher, "你好")
     await _wait_replies(recorder, 3)
 
     text = recorder.calls[2][1]
@@ -310,13 +312,13 @@ async def test_override_model_runtime_failure_also_explicit() -> None:
     agent = _StubAgentService(
         error=AgentRuntimeError("AGENT_CHAT_FAILED", "dsh 会话执行失败：upstream api_key=sk-leaked")
     )
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 1)
-    await _submit(dispatcher, recorder, "你好")
+    await _submit(dispatcher, "你好")
     await _wait_replies(recorder, 3)
 
     text = recorder.calls[2][1]
@@ -328,11 +330,11 @@ async def test_override_model_runtime_failure_also_explicit() -> None:
 async def test_default_model_failure_keeps_existing_fallback() -> None:
     """无 override 时调用失败维持既有兜底文案（回归：默认路径行为不变）。"""
     agent = _StubAgentService(error=AgentRuntimeError("AGENT_CHAT_FAILED", "boom"))
-    dispatcher = _dispatcher(_StubCredentials(), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "你好")
+    await _submit(dispatcher, "你好")
     await _wait_replies(recorder, 2)
 
     assert recorder.calls[1] == ("om_1", FALLBACK_TEXT)
@@ -342,14 +344,14 @@ async def test_default_model_failure_keeps_existing_fallback() -> None:
 async def test_commands_with_empty_registry() -> None:
     """未配置任何模型：list/current 提示未配置，use 拒绝。"""
     agent = _StubAgentService()
-    dispatcher = _dispatcher(_StubCredentials(None), agent)
-    dispatcher.bind_loop(asyncio.get_running_loop())
     recorder = ReplyRecorder()
+    dispatcher = _dispatcher(_StubCredentials(None), agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
 
-    await _submit(dispatcher, recorder, "/model list")
+    await _submit(dispatcher, "/model list")
     await _wait_replies(recorder, 1)
     assert recorder.calls[0] == ("om_1", "尚未配置可用模型。")
 
-    await _submit(dispatcher, recorder, f"/model use {EXTRA_REF}")
+    await _submit(dispatcher, f"/model use {EXTRA_REF}")
     await _wait_replies(recorder, 2)
     assert "无法切换" in recorder.calls[1][1]

@@ -190,8 +190,6 @@ class LarkWsConnection:
             credentials.app_id,
             credentials.app_secret,
             event_handler=build_event_handler(
-                credentials.app_id,
-                credentials.app_secret,
                 bot_open_id=bot_open_id,
                 chat_dispatch=chat_dispatch,
             ),
