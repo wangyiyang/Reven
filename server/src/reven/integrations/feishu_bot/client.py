@@ -16,7 +16,14 @@ _MAX_RESPONSE_BYTES = 64 * 1024
 
 
 class FeishuBotApiError(Exception):
-    """只包含固定提示和数字错误码，不暴露响应正文、凭证或令牌。"""
+    """只包含固定提示和数字错误码，不暴露响应正文、凭证或令牌。
+
+    code 为飞书开放平台数字错误码（无平台码的失败为 None），供日志记录稳定码（#176）。
+    """
+
+    def __init__(self, message: str, *, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class FeishuBotApiClient:
@@ -173,7 +180,7 @@ class FeishuBotApiClient:
                 if code != 0:
                     if code in {99991672, 99991679} and url.startswith(MESSAGES_URL):
                         error = "飞书发消息权限不足，请开通 im:message:send_as_bot 并发布应用"
-                    raise FeishuBotApiError(f"{error}（code={code}）")
+                    raise FeishuBotApiError(f"{error}（code={code}）", code=code)
                 if not response.is_success:
                     raise FeishuBotApiError(f"{error}（HTTP {response.status_code}）")
                 return payload

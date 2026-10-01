@@ -84,7 +84,7 @@ describe("Integration providers", () => {
     await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
 
     await waitFor(() => expect(requestBody).toEqual({
-      public_config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+      public_config: { provider: "deepseek-official", model: "deepseek-v4-flash", models: [] },
     }))
   })
 
