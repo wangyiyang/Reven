@@ -88,7 +88,7 @@ export function useIntegrationsController() {
       modelTests,
     },
     actions: {
-      save: (publicConfig, secret) => void execute({ action: "save", provider, publicConfig, ...(secret ? { secret } : {}) }),
+      save: (publicConfig, secret) => execute({ action: "save", provider, publicConfig, ...(secret ? { secret } : {}) }),
       replace: (publicConfig, secret) => void execute({ action: "save", provider, publicConfig, secret }),
       remove: () => execute({ action: "delete", provider }),
       test: () => void execute({ action: "test", provider }),

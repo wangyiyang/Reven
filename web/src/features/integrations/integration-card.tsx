@@ -58,13 +58,17 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
   const fieldValue = (key: string) =>
     (form.publicConfig[key] ?? "").trim() || definition.publicFields.find((field) => field.key === key)?.defaultValue || ""
   const defaultRef = modelRefOf(fieldValue("provider") || "deepseek-official", fieldValue("model") || "deepseek-v4-flash")
-  const saveConfig = () => {
+  const saveConfig = async () => {
     // 已输入的密钥随「保存配置」合并提交，不再静默丢弃（#179）
     const secret: Record<string, unknown> = Object.fromEntries(
       Object.entries(secretPayload).filter(([, value]) => value.trim() !== ""),
     )
     if (agentLlm && Object.keys(pendingKeys).length > 0) secret.model_keys = pendingKeys
-    controller.actions.save(fullPublicConfig, Object.keys(secret).length > 0 ? secret : undefined)
+    if (!await controller.actions.save(fullPublicConfig, Object.keys(secret).length > 0 ? secret : undefined)) return
+    setSyncedModels(models)
+    setPendingKeys((current) => Object.fromEntries(
+      Object.entries(current).filter(([ref, value]) => pendingKeys[ref] !== value),
+    ))
   }
   const runHealthSummary = RUN_HEALTH_PROVIDERS.includes(definition.provider) && runHealth !== undefined
     ? describeRunHealth(runHealth)

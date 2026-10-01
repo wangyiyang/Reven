@@ -154,7 +154,8 @@ export interface ProviderController {
     modelTests: Record<string, ModelTestState>
   }
   actions: {
-    save: (publicConfig: Record<string, unknown>, secret?: Record<string, unknown>) => void
+    /** 保存配置；仅成功时由卡片确认并清理本次已提交的暂存 */
+    save: (publicConfig: Record<string, unknown>, secret?: Record<string, unknown>) => Promise<boolean>
     replace: (publicConfig: Record<string, unknown>, secret: Record<string, unknown>) => void
     /** 删除密钥；resolve 为是否成功，供卡片做焦点恢复 */
     remove: () => Promise<boolean>

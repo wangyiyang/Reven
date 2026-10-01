@@ -460,4 +460,25 @@ describe("Agent LLM 多模型管理", () => {
     }))
     expect(toast.success).toHaveBeenCalledWith("配置与密钥已保存")
   })
+
+  it.each([true, false])("仅保存独立密钥时按保存结果清理暂存（成功=%s）", async (success) => {
+    useAgentLlm()
+    server.use(http.put("/api/integrations/agent-llm", () => success
+      ? HttpResponse.json(configuredAgentLlm)
+      : HttpResponse.json({ code: "failed", message: "保存失败" }, { status: 503 })))
+    renderPage()
+    const section = await findModelsSection()
+    await userEvent.click(section.getByRole("button", { name: `编辑${PRO_REF}` }))
+    await userEvent.type(section.getByLabelText("独立 API Key（可选）"), "sk-pro-new")
+    await userEvent.click(section.getByRole("button", { name: "确认模型" }))
+    const card = await findCard("Agent LLM")
+    await userEvent.click(card.getByRole("button", { name: "保存Agent LLM配置" }))
+    await waitFor(() => expect(success ? toast.success : toast.error)
+      .toHaveBeenCalledWith(success ? "配置与密钥已保存" : "保存失败"))
+    await waitFor(() => {
+      expect(section.queryByText(/模型列表有未保存的更改/) !== null).toBe(!success)
+      expect(section.queryByText("独立密钥待保存") !== null).toBe(!success)
+      expect(section.getByRole("button", { name: `测试${PRO_REF}连接` }).hasAttribute("disabled")).toBe(!success)
+    })
+  })
 })
