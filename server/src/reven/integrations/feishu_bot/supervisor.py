@@ -81,6 +81,14 @@ class FeishuBotSupervisor:
         """配置热更新：同步返回，内部另起线程读最新配置并原子替换连接。"""
         threading.Thread(target=self._reload_in_thread, daemon=True, name="feishu-bot-reload").start()
 
+    def model_refs_in_use(self) -> frozenset[str]:
+        """会话 override 正在引用的模型 ref 快照（#173 删除保护）；dispatcher 不支持时降级为空集。"""
+        getter = getattr(self._chat_dispatcher, "model_refs_in_use", None)
+        if not callable(getter):
+            return frozenset()
+        refs: object = getter()
+        return frozenset(refs) if isinstance(refs, (set, frozenset)) else frozenset()
+
     def _reload_in_thread(self) -> None:
         loop = self._main_loop
         if loop is None:

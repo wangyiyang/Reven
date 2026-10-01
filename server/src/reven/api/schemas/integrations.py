@@ -9,10 +9,10 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from reven.integrations.models import Integration
-from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
+from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS, model_ref_of
 from reven.integrations.service import public_config_without_hint, secret_hint_of
 
 PROVIDERS = SUPPORTED_INTEGRATION_PROVIDERS
@@ -70,12 +70,38 @@ class EmbeddingPublicConfig(_Strict):
         return _validate_https_origin(value, field="Embedding base_url")
 
 
+class AgentLlmModelEntry(_Strict):
+    """附加模型条目（public_config.models[] 元素）：一个可切换的 provider/model 组合。
+
+    enabled=False 时对 /model 指令与运行时不可见（白名单语义），但配置与独立 key 保留。
+    """
+
+    provider: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    base_url: str | None = None
+    enabled: bool = True
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_https_origin(value, field="附加模型 base_url")
+
+
+MAX_AGENT_LLM_MODELS = 16
+
+
 class AgentLlmPublicConfig(_Strict):
-    """Agent LLM 集成的公开配置：provider/model 决定推理端点，base_url 可覆盖官方地址。"""
+    """Agent LLM 集成的公开配置：provider/model 决定推理端点，base_url 可覆盖官方地址。
+
+    models[] 为附加可切换模型（#163 注册表、#173 管理界面）；顶层三元组始终是默认条目。
+    """
 
     provider: str = Field(default="deepseek-official", min_length=1, max_length=64)
     model: str = Field(default="deepseek-v4-flash", min_length=1, max_length=128)
     base_url: str | None = None
+    models: list[AgentLlmModelEntry] = Field(default_factory=list, max_length=MAX_AGENT_LLM_MODELS)
 
     @field_validator("base_url")
     @classmethod
@@ -83,6 +109,19 @@ class AgentLlmPublicConfig(_Strict):
         if value is None:
             return None
         return _validate_https_origin(value, field="Agent LLM base_url")
+
+    @model_validator(mode="after")
+    def validate_model_refs(self) -> "AgentLlmPublicConfig":
+        default_ref = model_ref_of(self.provider, self.model)
+        seen: set[str] = set()
+        for entry in self.models:
+            ref = model_ref_of(entry.provider, entry.model)
+            if ref == default_ref:
+                raise ValueError(f"附加模型 {ref} 与默认模型重复")
+            if ref in seen:
+                raise ValueError(f"附加模型 {ref} 重复")
+            seen.add(ref)
+        return self
 
 
 class BaiduTranslateSecret(_Strict):
@@ -100,7 +139,20 @@ class EmbeddingSecret(_Strict):
 
 
 class AgentLlmSecret(_Strict):
-    api_key: str = Field(min_length=1, max_length=256)
+    """agent-llm 密钥写入口：api_key 为默认模型密钥，model_keys 为附加模型独立密钥。
+
+    两者均可选（至少提供一项），服务端按 merge 语义写回 encrypted_secret：
+    未提及的 key 保留；model_keys 值为空串表示清除该模型的独立密钥（回落共用默认密钥）。
+    """
+
+    api_key: str | None = Field(default=None, min_length=1, max_length=256)
+    model_keys: dict[Annotated[str, Field(min_length=3, max_length=193, pattern=r"^\S+/\S+$")], str] | None = None
+
+    @model_validator(mode="after")
+    def validate_any_secret(self) -> "AgentLlmSecret":
+        if self.api_key is None and not self.model_keys:
+            raise ValueError("secret 必须包含 api_key 或 model_keys")
+        return self
 
 
 class FeishuBotIntegrationPut(_Strict):
@@ -154,6 +206,30 @@ class IntegrationResponse(BaseModel):
     last_tested_at: datetime | None
     last_error: str | None
     last_latency_ms: int | None
+    """仅 agent-llm：配有独立密钥的附加模型 ref 列表（其他 provider 恒为 None）。"""
+    model_key_refs: list[str] | None = None
+
+
+class SetDefaultModelRequest(_Strict):
+    """设默认模型请求体：ref 为 `provider/model` 形式的模型引用。"""
+
+    ref: Annotated[str, Field(min_length=3, max_length=193, pattern=r"^\S+/\S+$")]
+
+
+class TestConnectionRequest(_Strict):
+    """连接测试请求体：model_ref 缺省时测默认模型（现状行为）；仅 agent-llm 支持指定。"""
+
+    model_ref: Annotated[str, Field(min_length=3, max_length=193, pattern=r"^\S+/\S+$")] | None = None
+
+
+class AgentModelTestResponse(BaseModel):
+    """附加模型的连接测试结果：不动 integrations 行状态，纯本次结果回传。"""
+
+    ref: str
+    success: bool
+    message: str | None
+    latency_ms: int | None
+    tested_at: datetime
 
 
 def to_response(integration: Integration) -> IntegrationResponse:

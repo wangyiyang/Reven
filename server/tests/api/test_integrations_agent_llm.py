@@ -37,7 +37,7 @@ def test_put_applies_defaults_and_never_exposes_api_key(client: TestClient) -> N
     assert response.status_code == 200
     body = response.json()
     assert body["provider"] == "agent-llm"
-    assert body["public_config"] == {"provider": "deepseek-official", "model": "deepseek-v4-flash"}
+    assert body["public_config"] == {"provider": "deepseek-official", "model": "deepseek-v4-flash", "models": []}
     assert body["secret_configured"] is True
     assert body["secret_hint"] == "已配置 · ****abcd"
     assert body["connection_status"] == "未测试"
@@ -56,6 +56,7 @@ def test_put_stores_full_config_and_encrypts_secret(client: TestClient) -> None:
         "provider": "deepseek-official",
         "model": "deepseek-v4-pro",
         "base_url": BASE_URL,
+        "models": [],
     }
 
     detail = client.get("/api/integrations/agent-llm")
