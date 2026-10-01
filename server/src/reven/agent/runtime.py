@@ -13,7 +13,7 @@ from deepseek_harness.errors import HarnessError, JsonRpcError
 from reven.agent.config import AgentConfig
 from reven.agent.errors import AgentModelUnavailableError, AgentNotConfiguredError, AgentRuntimeError
 from reven.agent.mcp_server import AgentMcpContext
-from reven.integrations.credentials import model_ref_of
+from reven.integrations.providers import model_ref_of
 
 logger = logging.getLogger(__name__)
 
