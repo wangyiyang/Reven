@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from anyio import to_thread
-from deepseek_harness import DeepSeekHarness
+from deepseek_harness import DeepSeekHarness, RunResult
 from deepseek_harness.errors import HarnessError, JsonRpcError
 
 from reven.agent.config import AgentConfig
@@ -75,6 +75,11 @@ class AgentRuntime:
     固定——因此切换模型 = 换用按该模型配置拉起的另一个 harness 实例（缓存池懒加载，
     进程内每模型至多一个实例）。override 模型未注册/拉起失败时抛
     AgentModelUnavailableError，绝不静默回落默认模型（OpenClaw 严格语义）。
+
+    单轮超时（#177）：run() 经 asyncio.wait_for 包裹（阈值走配置，默认 180s），
+    防 dsh 挂死耗尽 anyio 线程池拖垮全站；超时抛 AGENT_CHAT_TIMEOUT 并把该会话标记作废
+    （外部 id 重铸新活跃 id），后续消息不再落入可能仍在挂起执行的旧会话。
+    注意 to_thread 无法真取消：超时后后台线程仍跑完，但调用方已释放。
     """
 
     def __init__(
@@ -83,10 +88,12 @@ class AgentRuntime:
         mcp: AgentMcpContext | None = None,
         *,
         model_resolver: ModelConfigResolver | None = None,
+        run_timeout_seconds: float = 180.0,
     ) -> None:
         self._config = config
         self._mcp = mcp
         self._model_resolver = model_resolver
+        self._run_timeout_seconds = run_timeout_seconds
         self._harness: DeepSeekHarness | None = None
         self._harness_pool: dict[str, DeepSeekHarness] = {}
         self._pool_locks: dict[str, asyncio.Lock] = {}
@@ -96,6 +103,11 @@ class AgentRuntime:
     @property
     def configured(self) -> bool:
         return self._config is not None
+
+    @property
+    def available(self) -> bool:
+        """默认模型主 harness 已拉起可用（#177 健康检查用）：启动失败/未启动/已关闭均为 False。"""
+        return self._harness is not None
 
     @property
     def default_model_ref(self) -> str | None:
@@ -182,18 +194,53 @@ class AgentRuntime:
             return instance
 
     async def _run_turn(self, harness: DeepSeekHarness, message: str, session_id: str | None) -> tuple[str, str]:
-        """在指定 harness 上执行一轮对话（含 already exists 冲突的重铸重试）。"""
+        """在指定 harness 上执行一轮对话（含 already exists 冲突的重铸重试）。每条路径都带超时护栏。"""
         resolved_session_id = self._session_aliases.get(session_id, session_id) if session_id else uuid4().hex
         try:
-            result = await to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id))
+            result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
         except HarnessError as exc:
             if not session_id or not _is_session_exists_conflict(exc):
                 raise _chat_failed_error(resolved_session_id, exc) from exc
             resolved_session_id = f"{session_id}~r{uuid4().hex[:8]}"
             logger.info("dsh 会话冲突，重铸活跃 id 重试（session_id=%s, resolved=%s）", session_id, resolved_session_id)
             try:
-                result = await to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id))
+                result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
             except HarnessError as retry_exc:
                 raise _chat_failed_error(session_id, retry_exc) from retry_exc
             self._session_aliases[session_id] = resolved_session_id
         return result.session_id, result.final_response
+
+    async def _run_with_timeout(
+        self,
+        harness: DeepSeekHarness,
+        message: str,
+        resolved_session_id: str,
+        *,
+        external_id: str | None,
+    ) -> RunResult:
+        """带超时的单轮执行（#177）：超时抛 AGENT_CHAT_TIMEOUT 并将该会话标记作废。"""
+        try:
+            return await asyncio.wait_for(
+                to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id)),
+                timeout=self._run_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            self._void_session(external_id, resolved_session_id)
+            raise AgentRuntimeError(
+                "AGENT_CHAT_TIMEOUT",
+                f"dsh 会话执行超时（>{self._run_timeout_seconds:.0f}s），会话已标记作废",
+            ) from exc
+
+    def _void_session(self, external_id: str | None, resolved_session_id: str) -> None:
+        """超时会话作废：外部 id 重铸新活跃 id，后续消息不再落入可能仍在挂起执行的旧会话。"""
+        if external_id is None:
+            logger.warning("dsh 会话执行超时（session_id=%s），本次会话已放弃", resolved_session_id)
+            return
+        renewed = f"{external_id}~r{uuid4().hex[:8]}"
+        self._session_aliases[external_id] = renewed
+        logger.warning(
+            "dsh 会话执行超时，会话标记作废并重铸（session_id=%s, abandoned=%s, renewed=%s）",
+            external_id,
+            resolved_session_id,
+            renewed,
+        )

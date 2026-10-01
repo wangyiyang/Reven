@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from functools import partial
 from typing import cast
@@ -24,6 +25,7 @@ from reven.api.routes.auth import router as auth_router
 from reven.api.routes.brand import router as brand_router
 from reven.api.routes.crm import router as crm_router
 from reven.api.routes.finance import router as finance_router
+from reven.api.routes.health import router as health_router
 from reven.api.routes.integrations import router as integrations_router
 from reven.api.routes.projects import router as projects_router
 from reven.api.routes.rss import router as rss_router
@@ -36,6 +38,7 @@ from reven.db import create_session_factory
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
 from reven.integrations.feishu_bot.supervisor import FeishuBotSupervisor
+from reven.notify.notifier import FeishuProactiveNotifier
 from reven.provider_clients import FeishuReplier, ProviderClients
 from reven.rss.factory import KeywordEmbeddingRefresher
 from reven.security.auth import AuthMiddleware
@@ -112,7 +115,12 @@ async def _build_agent_runtime(
     resolver: ModelConfigResolver | None = None
     if credentials is not None:
         resolver = partial(resolve_agent_model_config, credentials, settings)
-    return AgentRuntime(config, mcp=mcp, model_resolver=resolver)
+    return AgentRuntime(
+        config,
+        mcp=mcp,
+        model_resolver=resolver,
+        run_timeout_seconds=settings.agent_run_timeout_seconds,  # #177：单轮超时阈值走配置
+    )
 
 
 def _build_provider_clients(
@@ -130,6 +138,34 @@ def _build_provider_clients(
     return ProviderClients(credentials, settings)
 
 
+def _build_feishu_exit_alerter(clients: ProviderClients, supervisor: FeishuBotSupervisor) -> Callable[[str], None]:
+    """连接线程非预期死亡的告警钩子（#177）：把异步投递调度回主事件循环，尽力而为不抛异常。"""
+
+    def alert(message: str) -> None:
+        loop = supervisor.main_loop
+        if loop is None or loop.is_closed():
+            return
+        coro = _send_feishu_exit_alert(clients, message)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as exc:
+            coro.close()
+            logger.warning("飞书机器人死亡告警调度失败（error_type=%s）", type(exc).__name__)
+
+    return alert
+
+
+async def _send_feishu_exit_alert(clients: ProviderClients, message: str) -> None:
+    try:
+        await FeishuProactiveNotifier(clients).send_markdown(
+            chat_id=None,  # 定向会话未配置时自动降级机器人白名单接收人
+            title="Reven 告警",
+            markdown=message,
+        )
+    except Exception as exc:
+        logger.warning("飞书机器人死亡告警投递失败（error_type=%s）", type(exc).__name__)
+
+
 def _build_feishu_bot_supervisor(
     current_app: FastAPI,
     factory: async_sessionmaker[AsyncSession] | None,
@@ -141,6 +177,7 @@ def _build_feishu_bot_supervisor(
         return None
     chat_dispatcher = FeishuChatDispatcher(clients.credentials, agent_service, reply=FeishuReplier(clients))
     supervisor = FeishuBotSupervisor(clients.credentials, chat_dispatcher=chat_dispatcher)
+    supervisor.on_unexpected_exit = _build_feishu_exit_alerter(clients, supervisor)
     current_app.state.feishu_bot_supervisor = supervisor
     return supervisor
 
@@ -223,6 +260,7 @@ async def _lifespan(
     current_app.state.agent_service = agent_service
     feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory, clients, agent_service)
     async with _run_app_resources(
+        current_app=current_app,
         agent_runtime=agent_runtime,
         feishu_bot_supervisor=feishu_bot_supervisor,
         mcp_app=mcp_app,
@@ -239,6 +277,7 @@ async def _lifespan(
 @asynccontextmanager
 async def _run_app_resources(
     *,
+    current_app: FastAPI,
     agent_runtime: AgentRuntime,
     feishu_bot_supervisor: FeishuBotSupervisor | None,
     mcp_app: StarletteWithLifespan | None,
@@ -259,6 +298,7 @@ async def _run_app_resources(
             active_runner = cast(RunnerProtocol, build_background_runner(factory, clients, settings))
         if start_background_tasks and active_runner is not None:
             await active_runner.start()
+        current_app.state.background_runner = active_runner  # 供 /api/health 内省（#177）
         await agent_runtime.start()
         if feishu_bot_supervisor is not None:
             await feishu_bot_supervisor.start()
@@ -317,16 +357,13 @@ def create_app(
     app.include_router(brand_router)
     app.include_router(crm_router)
     app.include_router(finance_router)
+    app.include_router(health_router)
     app.include_router(integrations_router)
     app.include_router(projects_router)
     app.include_router(sops_router)
     app.include_router(rss_router)
     app.include_router(system_router)
     app.include_router(talents_router)
-
-    @app.get("/api/health")
-    async def health() -> dict[str, str]:
-        return {"service": "reven", "status": "ok"}
 
     return app
 

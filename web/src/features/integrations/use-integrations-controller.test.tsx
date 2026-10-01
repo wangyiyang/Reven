@@ -58,7 +58,7 @@ describe("useIntegrationsController", () => {
       secret: { api_key: "k1" },
     }))
     await waitFor(() => expect(result.current.forProvider("embedding").state.busy).toBeNull())
-    expect(toast.success).toHaveBeenCalledWith("配置已保存")
+    expect(toast.success).toHaveBeenCalledWith("配置与密钥已保存")
   })
 
   it("remove 以返回值传递删除是否成功", async () => {

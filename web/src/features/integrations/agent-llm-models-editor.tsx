@@ -12,6 +12,8 @@ import type { AgentModelEntry, ModelTestState } from "./types"
 interface AgentLlmModelsEditorProps {
   /** 受控：当前编辑中的附加模型数组（本地暂存，随「保存配置」统一提交） */
   models: AgentModelEntry[]
+  /** 服务端已保存的附加模型数组（行级「有未保存更改」判定依据） */
+  savedModels: AgentModelEntry[]
   /** 待提交的模型独立密钥变更：ref → 新 key（空串 = 清除独立密钥） */
   pendingKeys: Record<string, string>
   /** 已配置独立密钥的 ref 列表（来自 integration.model_key_refs） */
@@ -44,11 +46,12 @@ interface DraftEntry {
 const EMPTY_DRAFT: DraftEntry = { provider: "", model: "", baseUrl: "", enabled: true, apiKey: "", clearKey: false }
 
 export function AgentLlmModelsEditor(props: AgentLlmModelsEditorProps) {
-  const { models, pendingKeys, keyRefs, tests, testingRef, disabled, defaultRef, dirty } = props
+  const { models, savedModels, pendingKeys, keyRefs, tests, testingRef, disabled, defaultRef, dirty } = props
   const [editIndex, setEditIndex] = useState<number | null>(null)
   const [draft, setDraft] = useState<DraftEntry>(EMPTY_DRAFT)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null)
+  const savedByRef = new Map(savedModels.map((entry) => [modelRefOf(entry.provider, entry.model), entry]))
 
   const startEdit = (index: number) => {
     const entry = models[index]
@@ -104,10 +107,14 @@ export function AgentLlmModelsEditor(props: AgentLlmModelsEditorProps) {
     const next = editIndex === models.length ? [...models, entry] : models.map((item, index) => (index === editIndex ? entry : item))
     props.onModelsChange(next)
 
-    // 独立密钥变更：清除优先于新值；编辑改了 ref 时丢弃旧 ref 的待提交变更
+    // 独立密钥变更：清除优先于新值；重命名（ref 变化）时把旧 ref 的暂存密钥迁移到新 ref，
+    // 不再静默丢弃（#179）；服务端已保存的独立密钥无法随迁，由 DraftForm 提示用户重设
     const oldRef = editIndex < models.length ? modelRefOf(models[editIndex].provider, models[editIndex].model) : null
     const nextKeys = { ...pendingKeys }
-    if (oldRef !== null && oldRef !== ref) delete nextKeys[oldRef]
+    if (oldRef !== null && oldRef !== ref && oldRef in nextKeys) {
+      nextKeys[ref] = nextKeys[oldRef]
+      delete nextKeys[oldRef]
+    }
     if (draft.clearKey) nextKeys[ref] = ""
     else if (draft.apiKey.trim()) nextKeys[ref] = draft.apiKey.trim()
     if (JSON.stringify(nextKeys) !== JSON.stringify(pendingKeys)) props.onPendingKeysChange(nextKeys)
@@ -157,7 +164,15 @@ export function AgentLlmModelsEditor(props: AgentLlmModelsEditorProps) {
       <ul className="mt-4 space-y-3" role="list">
         {models.map((entry, index) => {
           const ref = modelRefOf(entry.provider, entry.model)
+          // 行级未保存更改：新增/编辑/启停/密钥变更均未落库，行级测试测的是服务端旧配置（#179）
+          const saved = savedByRef.get(ref)
+          const rowDirty = saved === undefined
+            || saved.enabled !== entry.enabled
+            || (saved.base_url ?? "") !== (entry.base_url ?? "")
+            || ref in pendingKeys
           if (editIndex === index) {
+            const renamed = modelRefOf(draft.provider.trim(), draft.model.trim()) !== ref
+            const renameKeyWarning = renamed && keyRefs.includes(ref) && !draft.apiKey.trim() && !draft.clearKey
             return (
               <li key={`edit-${index}`}>
                 <DraftForm
@@ -167,6 +182,7 @@ export function AgentLlmModelsEditor(props: AgentLlmModelsEditorProps) {
                   onCancel={cancelEdit}
                   onChange={setDraft}
                   onCommit={commitDraft}
+                  renameKeyWarning={renameKeyWarning}
                 />
               </li>
             )
@@ -187,14 +203,18 @@ export function AgentLlmModelsEditor(props: AgentLlmModelsEditorProps) {
                           : <Badge className="text-[var(--muted)]">共用默认密钥</Badge>}
                   </p>
                   {entry.base_url && <p className="mt-1 break-all text-xs text-[var(--muted)]">{entry.base_url}</p>}
-                  <ModelTestLine test={tests[ref]} testing={testingRef === ref} />
+                  {rowDirty
+                    // 有未保存更改时隐藏过期测试结果（测的是旧配置，展示会误导），并提示先保存（#179）
+                    ? <p className="mt-2 text-xs text-[var(--muted)]" role="status">已暂存更改，保存后可测试</p>
+                    : <ModelTestLine test={tests[ref]} testing={testingRef === ref} />}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     aria-label={`测试${ref}连接`}
-                    disabled={disabled}
+                    disabled={disabled || rowDirty}
                     onClick={() => props.onTest(ref)}
                     size="sm"
+                    title={rowDirty ? "保存后可测试" : undefined}
                     variant="ghost"
                   >
                     <Radio aria-hidden size={13} />测试
@@ -290,12 +310,14 @@ interface DraftFormProps {
   draft: DraftEntry
   error: string | null
   hasOverrideKey: boolean
+  /** 重命名将丢失服务端已保存的独立密钥时给出警告（#179） */
+  renameKeyWarning?: boolean
   onChange: (draft: DraftEntry) => void
   onCommit: () => void
   onCancel: () => void
 }
 
-function DraftForm({ draft, error, hasOverrideKey, onChange, onCommit, onCancel }: DraftFormProps) {
+function DraftForm({ draft, error, hasOverrideKey, renameKeyWarning = false, onChange, onCommit, onCancel }: DraftFormProps) {
   return (
     <div className="rounded-md border border-[var(--signal)] bg-[var(--bg)] p-4">
       <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
@@ -359,6 +381,11 @@ function DraftForm({ draft, error, hasOverrideKey, onChange, onCommit, onCancel 
           启用该模型（停用后飞书 /model 不再列出）
         </label>
       </div>
+      {renameKeyWarning && (
+        <p className="mt-3 text-xs text-[var(--danger)]" role="alert">
+          重命名后原独立密钥将被清除（独立密钥按 Provider/模型 组合保存，无法随迁）；如需保留请重新输入新密钥。
+        </p>
+      )}
       {error && <p className="mt-3 text-xs text-[var(--danger)]" role="alert">{error}</p>}
       <div className="mt-4 flex items-center gap-3">
         <Button onClick={onCommit} size="sm">

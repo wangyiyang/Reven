@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     agent_api_key: SecretStr | None = None
     agent_mcp_token: SecretStr | None = None
     agent_mcp_url: str = DEFAULT_AGENT_MCP_URL
+    # dsh 单轮对话执行超时（#177）：防 dsh 挂死耗尽 anyio 线程池；超时将该会话标记作废
+    agent_run_timeout_seconds: float = Field(default=180.0, gt=0)
 
     @field_validator("public_base_url")
     @classmethod

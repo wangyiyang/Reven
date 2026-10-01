@@ -1,5 +1,6 @@
 """app lifespan 集成：启动时创建并 start FeishuBotSupervisor，关闭时 stop。"""
 
+import asyncio
 import base64
 from typing import cast
 
@@ -22,6 +23,7 @@ DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
 
 class FakeSupervisor:
     instances: list["FakeSupervisor"] = []
+    on_unexpected_exit: object = None  # 组合根装配的死亡告警钩子（#177）
 
     def __init__(self, credentials: object, *, chat_dispatcher: object) -> None:
         del credentials
@@ -62,7 +64,7 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
     engine, factory = _factory()
 
     with TestClient(create_app(start_background_tasks=False, session_factory=factory, settings=settings)) as client:
-        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/health").status_code == 503  # DB 不可达即 503（#177 健康检查语义）
         assert len(FakeSupervisor.instances) == 1
         supervisor = FakeSupervisor.instances[0]
         assert supervisor.started == 1
@@ -74,8 +76,46 @@ def test_lifespan_creates_starts_and_stops_feishu_bot_supervisor(monkeypatch: py
         assert supervisor.chat_dispatcher._agent is service
         request = Request({"type": "http", "app": client.app})
         assert get_agent_service(request) is get_agent_service(request) is service
+        assert callable(supervisor.on_unexpected_exit)  # 死亡告警钩子随 clients 装配（#177）
 
     assert supervisor.stopped == 1
+
+
+@pytest.mark.anyio
+async def test_exit_alerter_schedules_notification_on_main_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """死亡告警钩子（#177）：把投递协程调度回主事件循环，经 notify 通道送达（白名单兜底）。"""
+    from types import SimpleNamespace
+
+    from reven.app import _build_feishu_exit_alerter
+
+    sent: list[dict[str, object]] = []
+
+    class FakeNotifier:
+        def __init__(self, clients: object) -> None:
+            del clients
+
+        async def send_markdown(self, *, chat_id: str | None, title: str, markdown: str) -> str:
+            sent.append({"chat_id": chat_id, "title": title, "markdown": markdown})
+            return "whitelist"
+
+    monkeypatch.setattr("reven.app.FeishuProactiveNotifier", FakeNotifier)
+    supervisor = SimpleNamespace(main_loop=asyncio.get_running_loop())
+    alerter = _build_feishu_exit_alerter(object(), supervisor)  # type: ignore[arg-type]
+
+    alerter("飞书机器人长连接意外终止")
+    await asyncio.sleep(0.1)
+
+    assert sent == [{"chat_id": None, "title": "Reven 告警", "markdown": "飞书机器人长连接意外终止"}]
+
+
+def test_exit_alerter_without_main_loop_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """主事件循环未就绪/已关闭时告警静默跳过（进程收尾期不抛异常）。"""
+    from types import SimpleNamespace
+
+    from reven.app import _build_feishu_exit_alerter
+
+    alerter = _build_feishu_exit_alerter(object(), SimpleNamespace(main_loop=None))  # type: ignore[arg-type]
+    alerter("任意消息")  # 不抛异常即通过
 
 
 def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,7 +124,7 @@ def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest
     engine, factory = _factory()
 
     with TestClient(create_app(start_background_tasks=False, session_factory=factory)) as client:
-        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/health").status_code == 503  # DB 不可达即 503（#177 健康检查语义）
         assert getattr(client.app.state, "feishu_bot_supervisor", None) is None
         assert isinstance(client.app.state.agent_service, AgentService)
 
