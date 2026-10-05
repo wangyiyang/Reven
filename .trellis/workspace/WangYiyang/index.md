@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~467 | Active |
+| `journal-1.md` | ~491 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-10-05 | VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版 | `1fe284a`, `4e62b63`, `1cd1fd0` | `chore/vps-api-only` |
 | 14 | 2026-10-05 | fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复） | `a2e3ec8`, `4364d80`, `a7d617b`, `4020617` | `issue/gh-120-deploy-vercel-web-server-serverless` |
 | 13 | 2026-10-05 | web 部署 Vercel 第一期（issue #120） | `23ed452`, `7746ae4`, `e0122dd` | `issue/gh-120-deploy-vercel-web-server-serverless` |
 | 12 | 2026-10-05 | 工作台 Dashboard 首页：聚合端点 + 默认落地页 | `c81a3d9`, `b2b4cbb`, `2b9ff3f` | `feat/dashboard` |
