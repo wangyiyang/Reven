@@ -61,6 +61,8 @@ describe("TalentsPage", () => {
     expect(screen.getAllByText("¥500.00 按天")[0]).toBeInTheDocument()
     expect(screen.getAllByText("★ 4/5")[0]).toBeInTheDocument()
     expect(screen.getByRole("article", { name: "林晚 人才摘要" })).toBeInTheDocument()
+    // 列表页不再常驻表单，新建走抽屉
+    expect(screen.queryByLabelText("姓名")).not.toBeInTheDocument()
   })
 
   it("把搜索、状态、到期和标签转换为查询参数", async () => {
@@ -97,7 +99,7 @@ describe("TalentsPage", () => {
     expect(screen.queryAllByRole("article")).toHaveLength(0)
   })
 
-  it("创建人才时提交标签、费率与评分并刷新列表", async () => {
+  it("新建人才走抽屉，提交标签、费率与评分并刷新列表", async () => {
     let requestBody: unknown
     let talents = [talent]
     server.use(
@@ -112,14 +114,17 @@ describe("TalentsPage", () => {
 
     renderPage()
     await screen.findByRole("article", { name: "林晚 人才摘要" })
-    await userEvent.type(await screen.findByLabelText("姓名"), " 周航 ")
-    await userEvent.type(screen.getByLabelText("机构"), "独立顾问")
-    await userEvent.type(screen.getByLabelText("标签"), "前端")
-    await userEvent.click(screen.getByRole("button", { name: "添加标签" }))
-    await userEvent.type(screen.getByLabelText("费率金额"), "800")
-    await userEvent.selectOptions(screen.getByLabelText("费率单位"), "按小时")
-    await userEvent.selectOptions(screen.getByLabelText("评分"), "5")
-    await userEvent.click(screen.getByRole("button", { name: "添加人才" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建人才" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("新建人才")
+    await userEvent.type(within(dialog).getByLabelText("姓名"), " 周航 ")
+    await userEvent.type(within(dialog).getByLabelText("机构"), "独立顾问")
+    await userEvent.type(within(dialog).getByLabelText("标签"), "前端")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加标签" }))
+    await userEvent.type(within(dialog).getByLabelText("费率金额"), "800")
+    await userEvent.selectOptions(within(dialog).getByLabelText("费率单位"), "按小时")
+    await userEvent.selectOptions(within(dialog).getByLabelText("评分"), "5")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加人才" }))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("人才已添加"))
     expect(requestBody).toEqual({
@@ -135,9 +140,8 @@ describe("TalentsPage", () => {
       status: "候选",
       notes: null,
     })
-    expect(screen.getByLabelText("姓名")).toHaveValue("")
-    expect(screen.getByLabelText("费率金额")).toHaveValue(null)
-    expect(screen.queryByRole("button", { name: "移除标签 前端" })).not.toBeInTheDocument()
+    // 保存成功后关闭抽屉、停留列表页并刷新列表
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect((await screen.findAllByText("周航"))[0]).toBeInTheDocument()
   })
 
@@ -149,30 +153,26 @@ describe("TalentsPage", () => {
     }))
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("姓名"), "待验证人才")
-    await userEvent.type(screen.getByLabelText("标签"), "插画")
-    await userEvent.click(screen.getByRole("button", { name: "添加标签" }))
-    await userEvent.type(screen.getByLabelText("费率金额"), "500")
-    await userEvent.click(screen.getByRole("button", { name: "添加人才" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建人才" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("姓名"), "待验证人才")
+    await userEvent.type(within(dialog).getByLabelText("标签"), "插画")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加标签" }))
+    await userEvent.type(within(dialog).getByLabelText("费率金额"), "500")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加人才" }))
 
     expect(toast.error).toHaveBeenCalledWith("费率金额与单位需同时填写或同时留空")
     expect(posted).toBe(false)
-    expect(screen.getByLabelText("姓名")).toHaveValue("待验证人才")
-    expect(screen.getByRole("button", { name: "移除标签 插画" })).toBeInTheDocument()
-    expect(screen.getByLabelText("费率金额")).toHaveValue(500)
+    expect(within(dialog).getByLabelText("姓名")).toHaveValue("待验证人才")
+    expect(within(dialog).getByRole("button", { name: "移除标签 插画" })).toBeInTheDocument()
+    expect(within(dialog).getByLabelText("费率金额")).toHaveValue(500)
   })
 
-  it("支持编辑人才，并在确认后删除", async () => {
+  it("确认后删除人才并刷新列表", async () => {
     let talents = [talent]
-    let updatedBody: unknown
     let deleted = false
     server.use(
       http.get("/api/talents", () => HttpResponse.json(talents)),
-      http.patch("/api/talents/:talentId", async ({ request }) => {
-        updatedBody = await request.json()
-        talents = [{ ...talent, name: "林晚（更新）" }]
-        return HttpResponse.json(talents[0])
-      }),
       http.delete("/api/talents/:talentId", () => {
         deleted = true
         talents = []
@@ -181,18 +181,7 @@ describe("TalentsPage", () => {
     )
 
     renderPage()
-    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 林晚" }))[0])
-    const nameInput = screen.getByLabelText("姓名")
-    expect(nameInput).toHaveValue("林晚")
-    expect(screen.getByLabelText("费率金额")).toHaveValue(500)
-    await userEvent.clear(nameInput)
-    await userEvent.type(nameInput, "林晚（更新）")
-    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
-
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("人才已更新"))
-    expect(updatedBody).toMatchObject({ name: "林晚（更新）", status: "接洽中", rate_amount: "500.00", rate_unit: "按天", rating: 4 })
-
-    await userEvent.click((await screen.findAllByRole("button", { name: "删除 林晚（更新）" }))[0])
+    await userEvent.click((await screen.findAllByRole("button", { name: "删除 林晚" }))[0])
     const dialog = await screen.findByRole("dialog")
     expect(deleted).toBe(false)
     await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))

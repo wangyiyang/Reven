@@ -31,3 +31,13 @@ REVEN_IMAGE=ghcr.io/wangyiyang/reven@sha256:DIGEST
 - SBOM：`reven-sbom.cdx.json`（Release 工件）
 - 许可：Apache-2.0；第三方声明见 [THIRD_PARTY_NOTICES.md](https://github.com/wangyiyang/Reven/blob/main/THIRD_PARTY_NOTICES.md)
 - 安全问题：[SECURITY.md](https://github.com/wangyiyang/Reven/blob/main/SECURITY.md)（私密漏洞报告入口已启用）
+
+---
+
+## 实际发布记录（2026-09-30）
+
+- Run: https://github.com/wangyiyang/Reven/actions/runs/36595148448 全绿（quality-gate 5/5 + image + deploy）
+- 镜像 digest：`sha256:9a942803ce46feed7dd4e4450d9c83f47cf5be80eb14a4c94d0a1e507ff57747`（SBOM purl 提取，ACR/GHCR 等价）
+- Release: https://github.com/wangyiyang/Reven/releases/tag/v0.5.0（附 SBOM）
+- PVR：enabled:true（WebBridge 手动启用 + API 验证）
+- GHCR 包：public（WebBridge 设置页变更），匿名 `docker manifest inspect` 验证通过

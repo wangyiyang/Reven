@@ -347,3 +347,60 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+## 2026-10-05 #189 表单 Drawer 化
+
+- 任务 10-05-form-modalization：CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。
+- 关键决策：编辑入口不进窗口——有详情页的实体（CRM）编辑收进详情页 `?edit=1` 页内切换，无详情页的走同一 Drawer；依据 #186 固化进 spec 的约定。
+- 实现：4 个并行子代理按模块落地（受控 Drawer 壳 + useResourceList onSaved；RSS 走自包含模式参照 finance），trellis-check 修 2 处（SOP 按钮文案对齐、projects closeDrawer 边界）。
+- 验证：vitest 233 全绿、tsc/eslint 零告警。4 个原子提交在 worktree 分支 issue/gh-189-feat-web，待 push + PR。
+- 经验：#186 talents 草稿留在 main 工作区未提交，worktree 模式需先协调；建议 #186 尽快合入，避免 talents 与本批模式漂移。
+
+
+## Session 10: #189 各资源页面表单 Drawer 化
+
+**Date**: 2026-10-05
+**Task**: #189 各资源页面表单 Drawer 化
+**Package**: web
+**Branch**: `main`
+
+### Summary
+
+CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。决策：编辑入口不进窗口（有详情页的 CRM 编辑收进详情页 ?edit=1，无详情页的走同一 Drawer），对齐 #186 spec 约定。4 模块并行子代理落地，trellis-check 修 2 处，vitest 233 全绿 + tsc/eslint 零告警。4 个原子提交在 worktree 分支 issue/gh-189-feat-web，PR 待开。遗留：#186 talents 草稿仍在 main 工作区（talents-page 两个文件疑似被还原），建议尽快合入避免模式漂移。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b95dbf0` | (see git log) |
+| `369e6c1` | (see git log) |
+| `a67d9fe` | (see git log) |
+| `dafe96e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 12: 工作台 Dashboard 首页：聚合端点 + 默认落地页
+<!-- trellis-session: v=2 fp=e3f25c73ba10da76 -->
+
+**Date**: 2026-10-05
+**Task**: 工作台 Dashboard 首页：聚合端点 + 默认落地页
+**Branch**: `feat/dashboard`
+
+### Summary
+
+经 grilling 三轮共识后交付工作台首页：后端新增 GET /api/dashboard/summary 聚合端点（财务待收款含逾期、RSS 待审核/抓取状态、CRM 待跟进 Top5 复用 list_due_follow_ups 与飞书提醒同源、进行中项目、集成缺失含 COS 检查）；前端新增 / 工作台页（可关闭集成横幅 + 四卡片，逾期红显，跳转闭环），取代 /rss/candidates 成为默认落地页，登录回退与 logo 链接同步。质量门全绿：861 pytest / 243 前端测试 / ruff / mypy / build。PR #198。规范沉淀：formatMoney 唯一真相源入组件规范。分支插曲：提交曾误落 feat/unified-drawer-redesign，已 cherry-pick 回 feat/dashboard 并还原抽屉分支。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c81a3d9` | feat(server): 新增工作台聚合端点 /api/dashboard/summary |
+| `b2b4cbb` | feat(web): 工作台首页成为默认落地页与导航首项 |
+| `2b9ff3f` | docs(trellis): dashboard 任务规划产物 + formatMoney 复用约定入组件规范 |
+
+### Status
+
+[OK] **Completed**

@@ -24,6 +24,7 @@ from reven.api.routes.agent import router as agent_router
 from reven.api.routes.auth import router as auth_router
 from reven.api.routes.brand import router as brand_router
 from reven.api.routes.crm import router as crm_router
+from reven.api.routes.dashboard import router as dashboard_router
 from reven.api.routes.finance import router as finance_router
 from reven.api.routes.health import router as health_router
 from reven.api.routes.integrations import router as integrations_router
@@ -356,6 +357,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(brand_router)
     app.include_router(crm_router)
+    app.include_router(dashboard_router)
     app.include_router(finance_router)
     app.include_router(health_router)
     app.include_router(integrations_router)

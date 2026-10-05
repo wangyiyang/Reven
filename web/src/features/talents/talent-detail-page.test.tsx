@@ -47,11 +47,11 @@ const interaction: TalentInteraction = {
   created_at: "2026-08-20T08:00:00Z",
 }
 
-function renderPage() {
+function renderPage(entry = `/talents/${talentId}`) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/talents/${talentId}`]}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route element={<TalentDetailPage />} path="/talents/:talentId" />
           <Route element={<p>人才列表</p>} path="/talents" />
@@ -67,6 +67,8 @@ describe("TalentDetailPage", () => {
     server.use(
       http.get("/api/talents/:talentId", () => HttpResponse.json(talent)),
       http.get("/api/talents/:talentId/interactions", () => HttpResponse.json([interaction])),
+      // 编辑态的标签建议走与列表页同 key 的列表查询
+      http.get("/api/talents", () => HttpResponse.json([talent])),
     )
   })
 
@@ -159,6 +161,63 @@ describe("TalentDetailPage", () => {
     await waitFor(() => expect(deleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("跟进已删除")
     expect(await screen.findByText("暂无跟进记录。")).toBeInTheDocument()
+  })
+
+  it("编辑人才档案：保存成功后回只读态并展示更新数据", async () => {
+    let current = talent
+    let updatedBody: unknown
+    server.use(
+      http.get("/api/talents/:talentId", () => HttpResponse.json(current)),
+      http.patch("/api/talents/:talentId", async ({ request }) => {
+        updatedBody = await request.json()
+        current = { ...talent, name: "林晚（更新）" }
+        return HttpResponse.json(current)
+      }),
+    )
+
+    renderPage()
+    await screen.findByRole("heading", { name: "林晚" })
+    await userEvent.click(screen.getByRole("button", { name: "编辑人才档案" }))
+    const nameInput = screen.getByLabelText("姓名")
+    expect(nameInput).toHaveValue("林晚")
+    expect(screen.getByLabelText("费率金额")).toHaveValue(500)
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, "林晚（更新）")
+    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("人才已更新"))
+    expect(updatedBody).toMatchObject({ name: "林晚（更新）", status: "接洽中", rate_amount: "500.00", rate_unit: "按天", rating: 4 })
+    expect(screen.queryByLabelText("姓名")).not.toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "林晚（更新）" })).toBeInTheDocument()
+  })
+
+  it("编辑校验失败时保留表单且不发送请求", async () => {
+    let patched = false
+    server.use(http.patch("/api/talents/:talentId", () => {
+      patched = true
+      return HttpResponse.json(talent)
+    }))
+
+    renderPage()
+    await screen.findByRole("heading", { name: "林晚" })
+    await userEvent.click(screen.getByRole("button", { name: "编辑人才档案" }))
+    const rateInput = screen.getByLabelText("费率金额")
+    expect(rateInput).toHaveValue(500)
+    await userEvent.clear(rateInput)
+    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+
+    expect(toast.error).toHaveBeenCalledWith("费率金额与单位需同时填写或同时留空")
+    expect(patched).toBe(false)
+    expect(screen.getByLabelText("姓名")).toHaveValue("林晚")
+    expect(rateInput).toHaveValue(null)
+  })
+
+  it("带 ?edit=1 进入时自动进入编辑态", async () => {
+    renderPage(`/talents/${talentId}?edit=1`)
+
+    expect(await screen.findByLabelText("姓名")).toHaveValue("林晚")
+    expect(screen.getByRole("button", { name: "保存修改" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "取消编辑" })).toBeInTheDocument()
   })
 
   it("人才不存在时展示可恢复的错误状态", async () => {

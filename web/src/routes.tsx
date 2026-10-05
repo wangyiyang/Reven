@@ -1,4 +1,4 @@
-import { Activity, BookOpenCheck, ContactRound, FolderKanban, Palette, PlugZap, Rss, Sparkles, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
+import { Activity, BookOpenCheck, ContactRound, FolderKanban, LayoutDashboard, Palette, PlugZap, Rss, Sparkles, Tags, Users, Wallet, type LucideIcon } from "lucide-react"
 import type { ReactElement } from "react"
 import { Navigate } from "react-router-dom"
 
@@ -6,6 +6,7 @@ import { LoginPage } from "@/features/auth/login-page"
 import { BrandPage } from "@/features/brand/brand-page"
 import { CrmPage } from "@/features/crm/crm-page"
 import { CustomerDetailPage } from "@/features/crm/customer-detail-page"
+import { DashboardPage } from "@/features/dashboard/dashboard-page"
 import { FinanceLayout } from "@/features/finance/finance-layout"
 import { FinanceLedgerPage } from "@/features/finance/finance-ledger-page"
 import { FinanceOverviewPage } from "@/features/finance/finance-overview-page"
@@ -42,6 +43,7 @@ export interface RouteDef {
 
 export const routes: RouteDef[] = [
   { path: "/login", element: <LoginPage />, bare: true },
+  { path: "/", label: "工作台", icon: LayoutDashboard, element: <DashboardPage /> },
   { path: "/crm", label: "CRM", icon: ContactRound, element: <CrmPage /> },
   { path: "/crm/customers/:customerId", element: <CustomerDetailPage /> },
   { path: "/talents", label: "人才库", icon: Users, element: <TalentsPage /> },
@@ -74,5 +76,5 @@ export const routes: RouteDef[] = [
   { path: "/brand", label: "品牌管理", icon: Palette, element: <BrandPage /> },
   { path: "/integrations", label: "集成设置", icon: PlugZap, element: <IntegrationsPage /> },
   { path: "/system", label: "系统状态", icon: Activity, element: <SystemPage /> },
-  { path: "*", element: <Navigate replace to="/rss/candidates" /> },
+  { path: "*", element: <Navigate replace to="/" /> },
 ]
