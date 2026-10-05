@@ -71,7 +71,7 @@ function KeywordSettings(props: {
       <div className="flex justify-end">
         <Button onClick={openCreate} type="button">新建关键词</Button>
       </div>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <KeywordPanel busy={props.busy} kind="positive" keywords={props.keywords} onDelete={setDeleting} onEdit={openEdit} onUpdate={props.onUpdate} />
         <KeywordPanel busy={props.busy} kind="negative" keywords={props.keywords} onDelete={setDeleting} onEdit={openEdit} onUpdate={props.onUpdate} />
       </div>
