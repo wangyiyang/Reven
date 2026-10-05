@@ -15,6 +15,8 @@ from reven.crm.models import CustomerStatus, FollowUpKind
 
 
 class CustomerResponse(BaseModel):
+    """客户响应；next_action / next_due_on 为只读派生值（来自该客户最新一条跟进记录，无跟进时为 null）。"""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -23,7 +25,7 @@ class CustomerResponse(BaseModel):
     source: str | None
     notes: str | None
     next_action: str | None
-    next_follow_up_on: date | None
+    next_due_on: date | None
     created_at: datetime
     updated_at: datetime
 
@@ -55,6 +57,6 @@ class FollowUpResponse(BaseModel):
     occurred_on: date
     summary: str
     next_action: str | None
-    next_follow_up_on: date | None
+    next_due_on: date | None
     created_at: datetime
     updated_at: datetime

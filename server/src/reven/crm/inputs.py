@@ -34,8 +34,8 @@ def _validate_email(value: str | None) -> str | None:
     return value
 
 
-def require_action_for_date(next_action: str | None, next_follow_up_on: date | None) -> None:
-    if next_follow_up_on is not None and not next_action:
+def require_action_for_date(next_action: str | None, next_due_on: date | None) -> None:
+    if next_due_on is not None and not next_action:
         raise InvalidActionPairError("设置跟进日期时必须提供下一步行动")
 
 
@@ -46,15 +46,8 @@ class CustomerCreate(BaseModel):
     status: CustomerStatus = CustomerStatus.PROSPECT
     source: OptionalSource = None
     notes: OptionalNotes = None
-    next_action: OptionalAction = None
-    next_follow_up_on: date | None = None
 
-    _normalize_optional = field_validator("source", "notes", "next_action", mode="before")(_empty_to_none)
-
-    @model_validator(mode="after")
-    def validate_action_pair(self) -> Self:
-        require_action_for_date(self.next_action, self.next_follow_up_on)
-        return self
+    _normalize_optional = field_validator("source", "notes", mode="before")(_empty_to_none)
 
 
 class CustomerUpdate(BaseModel):
@@ -64,10 +57,8 @@ class CustomerUpdate(BaseModel):
     status: CustomerStatus | None = None
     source: OptionalSource = None
     notes: OptionalNotes = None
-    next_action: OptionalAction = None
-    next_follow_up_on: date | None = None
 
-    _normalize_optional = field_validator("source", "notes", "next_action", mode="before")(_empty_to_none)
+    _normalize_optional = field_validator("source", "notes", mode="before")(_empty_to_none)
 
     @model_validator(mode="after")
     def keep_required_fields(self) -> Self:
@@ -118,16 +109,13 @@ class FollowUpCreate(BaseModel):
     occurred_on: date
     summary: RequiredSummary
     next_action: OptionalAction = None
-    next_follow_up_on: date | None = None
-    set_as_current: bool = False
+    next_due_on: date | None = None
 
     _normalize_optional = field_validator("next_action", mode="before")(_empty_to_none)
 
     @model_validator(mode="after")
     def validate_action_pair(self) -> Self:
-        require_action_for_date(self.next_action, self.next_follow_up_on)
-        if self.set_as_current and not self.next_action:
-            raise ValueError("同步当前行动时必须提供下一步行动")
+        require_action_for_date(self.next_action, self.next_due_on)
         return self
 
 
@@ -139,7 +127,7 @@ class FollowUpUpdate(BaseModel):
     occurred_on: date | None = None
     summary: RequiredSummary | None = None
     next_action: OptionalAction = None
-    next_follow_up_on: date | None = None
+    next_due_on: date | None = None
 
     _normalize_optional = field_validator("next_action", mode="before")(_empty_to_none)
 

@@ -30,7 +30,6 @@ class CrmService:
 
     async def update_customer(self, customer_id: UUID, payload: CustomerUpdate) -> Customer:
         customer = await self._customer(customer_id)
-        _validate_plan(customer, payload)
         _assign(customer, payload.model_dump(exclude_unset=True))
         await self._commit_and_refresh(customer)
         return customer
@@ -65,13 +64,10 @@ class CrmService:
 
     async def create_follow_up(self, customer_id: UUID, payload: FollowUpCreate) -> tuple[Customer, FollowUp]:
         customer = await self._customer(customer_id)
-        values = payload.model_dump(exclude={"set_as_current"})
+        values = payload.model_dump()
         contact = await self._contact(customer_id, payload.contact_id) if payload.contact_id is not None else None
         values["contact_name_snapshot"] = contact.name if contact else None
         follow_up = await self._repository.add_follow_up(customer_id, values)
-        if payload.set_as_current:
-            customer.next_action = follow_up.next_action
-            customer.next_follow_up_on = follow_up.next_follow_up_on
         await self._commit_and_refresh(follow_up)
         return customer, follow_up
 
@@ -120,7 +116,7 @@ def _assign(model: Customer | Contact | FollowUp, values: dict[str, object]) -> 
         setattr(model, key, value)
 
 
-def _validate_plan(current: Customer | FollowUp, payload: CustomerUpdate | FollowUpUpdate) -> None:
+def _validate_plan(current: FollowUp, payload: FollowUpUpdate) -> None:
     action = payload.next_action if "next_action" in payload.model_fields_set else current.next_action
-    due_on = payload.next_follow_up_on if "next_follow_up_on" in payload.model_fields_set else current.next_follow_up_on
+    due_on = payload.next_due_on if "next_due_on" in payload.model_fields_set else current.next_due_on
     require_action_for_date(action, due_on)

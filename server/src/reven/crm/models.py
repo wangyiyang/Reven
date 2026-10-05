@@ -35,8 +35,6 @@ class Customer(Base):
     status: Mapped[str] = mapped_column(String(32), default=CustomerStatus.PROSPECT, index=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
-    next_follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -85,6 +83,6 @@ class FollowUp(Base):
     occurred_on: Mapped[date] = mapped_column(Date, index=True)
     summary: Mapped[str] = mapped_column(Text)
     next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
-    next_follow_up_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    next_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

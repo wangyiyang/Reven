@@ -48,7 +48,7 @@ async def dashboard_summary(session: SessionDep, settings: SettingsDep) -> Dashb
                     customer_id=item.customer_id,
                     name=item.name,
                     next_action=item.next_action,
-                    next_follow_up_on=item.next_follow_up_on,
+                    next_due_on=item.next_due_on,
                     overdue_days=item.overdue_days,
                 )
                 for item in aggregate.crm.due_items

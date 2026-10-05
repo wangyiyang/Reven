@@ -40,7 +40,7 @@ _FIELD_LABELS = {
     "source": "来源",
     "notes": "备注",
     "next_action": "下一步行动",
-    "next_follow_up_on": "下次跟进日期",
+    "next_due_on": "下次跟进日期",
     "role": "职务",
     "phone": "电话",
     "email": "邮箱",
@@ -49,7 +49,6 @@ _FIELD_LABELS = {
     "occurred_on": "跟进日期",
     "summary": "跟进内容",
     "contact_id": "联系人 ID",
-    "set_as_current": "set_as_current",
 }
 
 
@@ -63,7 +62,7 @@ def _collect_updates(
     *,
     date_value: date | None = None,
     clear_date: bool = False,
-    date_key: str = "next_follow_up_on",
+    date_key: str = "next_due_on",
 ) -> dict[str, object]:
     """汇总部分更新字段：None 表示不修改；空字符串由 schema 归一为 None（即清空）；日期用 clear 开关清除。"""
     values = {key: value for key, value in fields.items() if value is not None}
@@ -94,9 +93,9 @@ def _validate[ModelT: BaseModel](model_type: type[ModelT], values: dict[str, obj
         raise ToolError("参数校验未通过——" + "；".join(messages)) from exc
 
 
-def _plan_text(next_action: str | None, next_follow_up_on: date | None) -> str:
-    if next_follow_up_on is not None:
-        return f"{next_follow_up_on.isoformat()} {next_action or ''}".strip()
+def _plan_text(next_action: str | None, next_due_on: date | None) -> str:
+    if next_due_on is not None:
+        return f"{next_due_on.isoformat()} {next_action or ''}".strip()
     return next_action or "未安排"
 
 

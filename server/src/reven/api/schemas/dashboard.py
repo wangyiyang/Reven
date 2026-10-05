@@ -36,14 +36,15 @@ class DashboardRssSummary(BaseModel):
 class DashboardCrmDueItem(BaseModel):
     """待跟进客户清单项（与飞书每日提醒同源排序：最逾期在前）。
 
-    overdue_days = (今日 - next_follow_up_on).days，到期日 <= 今日时恒 >= 0；
+    next_due_on 为该客户最新一条跟进记录的派生到期日；
+    overdue_days = (今日 - next_due_on).days，到期日 <= 今日时恒 >= 0；
     前端按 overdue_days > 0 判定逾期红显。
     """
 
     customer_id: UUID
     name: str
     next_action: str | None
-    next_follow_up_on: date
+    next_due_on: date
     overdue_days: int
 
 

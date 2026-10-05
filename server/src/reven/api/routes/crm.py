@@ -21,7 +21,7 @@ from reven.api.schemas.crm import (
 )
 from reven.crm.errors import ContactNotFoundError, CustomerNotFoundError, FollowUpNotFoundError, InvalidActionPairError
 from reven.crm.models import Contact, Customer, CustomerStatus, FollowUp
-from reven.crm.repository import CrmRepository
+from reven.crm.repository import CrmRepository, CustomerPlan
 from reven.crm.service import CrmService
 from reven.scheduling import SHANGHAI
 
@@ -45,6 +45,22 @@ def _mutation_error(
     return _error(422, "CRM_NEXT_ACTION_REQUIRED", "设置跟进日期时必须提供下一步行动")
 
 
+def _customer_response(plan: CustomerPlan) -> CustomerResponse:
+    """响应组装：派生 next_action / next_due_on 注入只读计划字段（不在 ORM 上，不能 from_attributes 裸返）。"""
+    customer = plan.customer
+    return CustomerResponse(
+        id=customer.id,
+        name=customer.name,
+        status=CustomerStatus(customer.status),
+        source=customer.source,
+        notes=customer.notes,
+        next_action=plan.next_action,
+        next_due_on=plan.next_due_on,
+        created_at=customer.created_at,
+        updated_at=customer.updated_at,
+    )
+
+
 async def _customer(repository: CrmRepository, customer_id: UUID) -> Customer | JSONResponse:
     customer = await repository.get_customer(customer_id)
     if customer is None:
@@ -58,23 +74,28 @@ async def list_customers(
     customer_status: CustomerStatus | None = Query(default=None, alias="status"),
     due: DueFilter | None = Query(default=None),
     query: str | None = Query(default=None, min_length=1, max_length=200),
-) -> list[Customer]:
-    return await CrmRepository(session).list_customers(
+) -> list[CustomerResponse]:
+    plans = await CrmRepository(session).list_customers(
         status=customer_status,
         due=due,
         query=query,
         today=datetime.now(SHANGHAI).date(),
     )
+    return [_customer_response(plan) for plan in plans]
 
 
 @router.post("/customers", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
-async def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
-    return await CrmService(session).create_customer(payload)
+async def create_customer(payload: CustomerCreate, session: SessionDep) -> CustomerResponse:
+    customer = await CrmService(session).create_customer(payload)
+    return _customer_response(CustomerPlan(customer=customer, next_action=None, next_due_on=None))
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerResponse)
-async def get_customer(customer_id: UUID, session: SessionDep) -> Customer | JSONResponse:
-    return await _customer(CrmRepository(session), customer_id)
+async def get_customer(customer_id: UUID, session: SessionDep) -> CustomerResponse | JSONResponse:
+    plan = await CrmRepository(session).get_customer_plan(customer_id)
+    if plan is None:
+        return _error(404, "CRM_CUSTOMER_NOT_FOUND", "客户不存在")
+    return _customer_response(plan)
 
 
 @router.put("/customers/{customer_id}", response_model=CustomerResponse)
@@ -82,11 +103,15 @@ async def update_customer(
     customer_id: UUID,
     payload: CustomerUpdate,
     session: SessionDep,
-) -> Customer | JSONResponse:
+) -> CustomerResponse | JSONResponse:
     try:
-        return await CrmService(session).update_customer(customer_id, payload)
+        customer = await CrmService(session).update_customer(customer_id, payload)
     except (CustomerNotFoundError, InvalidActionPairError) as exc:
         return _mutation_error(exc)
+    plan = await CrmRepository(session).get_customer_plan(customer.id)
+    if plan is None:  # pragma: no cover - 刚更新的客户必然存在
+        return _error(404, "CRM_CUSTOMER_NOT_FOUND", "客户不存在")
+    return _customer_response(plan)
 
 
 @router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
