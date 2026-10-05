@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "CRM 聚合现状契约：路由、写入口、check 约束、due 语义；本任务将改写其中计划相关条款"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "talents 域 next_due_on/到期语义参考，命名对齐目标"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "alembic migration 与 check 约束写法约定"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "InvalidActionPairError 等错误映射约定"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "web 层 pre-development checklist 入口"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "web 类型与 API payload 约定，改 types.ts 前必读"}
+{"file": ".trellis/tasks/10-05-crm-plan-derive/research/touchpoints.md", "reason": "P1 全触点清单（file:line），实施与自检依据"}
