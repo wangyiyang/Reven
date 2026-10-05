@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { ErrorPanel } from "@/components/ui/error-panel"
 import type { RssSourceInput } from "./rss-api"
 import { StatusBadge } from "./rss-shared"
+import { SourceFormDrawer } from "./source-form-drawer"
 import type { RssSource } from "./types"
 import { useRssSettingsController } from "./use-rss-settings-controller"
 
@@ -48,6 +49,7 @@ export function RssSourcesPage() {
 }
 
 function SourcesPanel(props: SourcesPanelProps) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<RssSource | null>(null)
   const [deleting, setDeleting] = useState<RssSource | null>(null)
   const [query, setQuery] = useState("")
@@ -57,22 +59,38 @@ function SourcesPanel(props: SourcesPanelProps) {
         source.name.toLowerCase().includes(keyword) || source.feed_url.toLowerCase().includes(keyword),
       )
     : props.sources
+  const openCreate = () => {
+    setEditing(null)
+    setDrawerOpen(true)
+  }
+  const openEdit = (source: RssSource) => {
+    setEditing(source)
+    setDrawerOpen(true)
+  }
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+    setEditing(null)
+  }
   const save = async (input: RssSourceInput) => {
     const saved = editing ? await props.onUpdate(editing, input) : await props.onCreate(input)
-    if (saved) setEditing(null)
+    if (saved) closeDrawer()
     return saved
   }
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold">RSS 源</h2>
-        <p className="text-sm text-[var(--muted)]">{props.sources.length} 个已配置源</p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold">RSS 源</h2>
+            <p className="text-sm text-[var(--muted)]">{props.sources.length} 个已配置源</p>
+          </div>
+          <Button onClick={openCreate} type="button">新建 RSS 源</Button>
+        </div>
       </CardHeader>
       <CardContent>
-        <SourceForm busy={props.busy} editing={editing} onCancel={() => setEditing(null)} onSubmit={save} />
-        {props.sources.length === 0 && <p className="mt-6 text-sm text-[var(--muted)]">尚未配置 RSS 源。</p>}
+        {props.sources.length === 0 && <p className="text-sm text-[var(--muted)]">尚未配置 RSS 源。</p>}
         {props.sources.length > 0 && (
-          <div className="mt-5 max-w-xs space-y-2">
+          <div className="max-w-xs space-y-2">
             <Label htmlFor="rss-source-search">搜索</Label>
             <Input
               aria-label="搜索 RSS 源"
@@ -83,13 +101,13 @@ function SourcesPanel(props: SourcesPanelProps) {
             />
           </div>
         )}
-        <ul className="divide-y divide-[var(--line)]">
+        <ul className="mt-5 divide-y divide-[var(--line)]">
           {filteredSources.map((source) => (
             <SourceRow
               busy={props.busy}
               key={source.id}
               onDelete={() => setDeleting(source)}
-              onEdit={() => setEditing(source)}
+              onEdit={() => openEdit(source)}
               onUpdate={(input) => props.onUpdate(source, input)}
               source={source}
             />
@@ -98,6 +116,13 @@ function SourcesPanel(props: SourcesPanelProps) {
         {props.sources.length > 0 && filteredSources.length === 0 && (
           <p className="py-4 text-sm text-[var(--muted)]">没有匹配的 RSS 源</p>
         )}
+        <SourceFormDrawer
+          busy={props.busy}
+          editing={editing}
+          onClose={closeDrawer}
+          onSubmit={save}
+          open={drawerOpen}
+        />
         <ConfirmDialog
           busy={props.busy}
           confirmLabel={`确认删除 ${deleting?.name ?? "RSS 源"}`}
@@ -148,41 +173,5 @@ function SourceRow(props: {
         <Button aria-label={`删除 ${source.name}`} disabled={props.busy} onClick={props.onDelete} size="sm" variant="danger">删除</Button>
       </div>
     </li>
-  )
-}
-
-function SourceForm(props: {
-  busy: boolean
-  editing: RssSource | null
-  onCancel: () => void
-  onSubmit: (input: RssSourceInput) => Promise<boolean>
-}) {
-  const [name, setName] = useState("")
-  const [feedUrl, setFeedUrl] = useState("")
-  useEffect(() => {
-    setName(props.editing?.name ?? "")
-    setFeedUrl(props.editing?.feed_url ?? "")
-  }, [props.editing])
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const saved = await props.onSubmit({
-      name: name.trim(),
-      feed_url: feedUrl.trim(),
-      enabled: props.editing?.enabled ?? true,
-    })
-    if (saved) {
-      setName("")
-      setFeedUrl("")
-    }
-  }
-  return (
-    <form className="grid gap-4 border-b border-[var(--line)] pb-6 md:grid-cols-[1fr_2fr_auto] md:items-end" onSubmit={submit}>
-      <div><Label htmlFor="rss-source-name">RSS 源名称</Label><Input id="rss-source-name" maxLength={200} onChange={(event) => setName(event.target.value)} required value={name} /></div>
-      <div><Label htmlFor="rss-feed-url">Feed URL</Label><Input id="rss-feed-url" onChange={(event) => setFeedUrl(event.target.value)} required type="url" value={feedUrl} /></div>
-      <div className="flex gap-2">
-        {props.editing && <Button disabled={props.busy} onClick={props.onCancel} type="button" variant="ghost">取消编辑</Button>}
-        <Button disabled={props.busy} type="submit">{props.editing ? "保存 RSS 源" : "添加 RSS 源"}</Button>
-      </div>
-    </form>
   )
 }
