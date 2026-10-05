@@ -1,11 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { ErrorPanel } from "@/components/ui/error-panel"
+import { KeywordFormDrawer } from "./keyword-form-drawer"
 import type { RssKeywordInput } from "./rss-api"
 import { StatusBadge } from "./rss-shared"
 import type { RssKeyword, RssKeywordKind } from "./types"
@@ -46,20 +46,42 @@ function KeywordSettings(props: {
   onDelete: (keyword: RssKeyword) => Promise<boolean>
   onUpdate: (keyword: RssKeyword, input: RssKeywordInput) => Promise<boolean>
 }) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<RssKeyword | null>(null)
   const [deleting, setDeleting] = useState<RssKeyword | null>(null)
+  const openCreate = () => {
+    setEditing(null)
+    setDrawerOpen(true)
+  }
+  const openEdit = (keyword: RssKeyword) => {
+    setEditing(keyword)
+    setDrawerOpen(true)
+  }
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+    setEditing(null)
+  }
   const save = async (input: RssKeywordInput) => {
     const saved = editing ? await props.onUpdate(editing, input) : await props.onCreate(input)
-    if (saved) setEditing(null)
+    if (saved) closeDrawer()
     return saved
   }
   return (
     <div className="grid gap-8">
-      <KeywordForm busy={props.busy} editing={editing} onCancel={() => setEditing(null)} onSubmit={save} />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <KeywordPanel busy={props.busy} kind="positive" keywords={props.keywords} onDelete={setDeleting} onEdit={setEditing} onUpdate={props.onUpdate} />
-        <KeywordPanel busy={props.busy} kind="negative" keywords={props.keywords} onDelete={setDeleting} onEdit={setEditing} onUpdate={props.onUpdate} />
+      <div className="flex justify-end">
+        <Button onClick={openCreate} type="button">新建关键词</Button>
       </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <KeywordPanel busy={props.busy} kind="positive" keywords={props.keywords} onDelete={setDeleting} onEdit={openEdit} onUpdate={props.onUpdate} />
+        <KeywordPanel busy={props.busy} kind="negative" keywords={props.keywords} onDelete={setDeleting} onEdit={openEdit} onUpdate={props.onUpdate} />
+      </div>
+      <KeywordFormDrawer
+        busy={props.busy}
+        editing={editing}
+        onClose={closeDrawer}
+        onSubmit={save}
+        open={drawerOpen}
+      />
       <ConfirmDialog
         busy={props.busy}
         confirmLabel={`确认删除 ${deleting?.term ?? "关键词"}`}
@@ -73,50 +95,6 @@ function KeywordSettings(props: {
         title="删除关键词"
       />
     </div>
-  )
-}
-
-function KeywordForm(props: {
-  busy: boolean
-  editing: RssKeyword | null
-  onCancel: () => void
-  onSubmit: (input: RssKeywordInput) => Promise<boolean>
-}) {
-  const [term, setTerm] = useState("")
-  const [kind, setKind] = useState<RssKeywordKind>("positive")
-  useEffect(() => {
-    setTerm(props.editing?.term ?? "")
-    setKind(props.editing?.kind ?? "positive")
-  }, [props.editing])
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const saved = await props.onSubmit({ term: term.trim(), kind, enabled: props.editing?.enabled ?? true })
-    if (saved) setTerm("")
-  }
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <form className="grid gap-4 md:grid-cols-[2fr_1fr_auto] md:items-end" onSubmit={submit}>
-          <div><Label htmlFor="rss-keyword-term">关键词</Label><Input id="rss-keyword-term" maxLength={200} onChange={(event) => setTerm(event.target.value)} required value={term} /></div>
-          <div>
-            <Label htmlFor="rss-keyword-kind">关键词类型</Label>
-            <select
-              className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm outline-none focus:border-[var(--signal)]"
-              id="rss-keyword-kind"
-              onChange={(event) => setKind(event.target.value === "negative" ? "negative" : "positive")}
-              value={kind}
-            >
-              <option value="positive">正向关键词</option>
-              <option value="negative">反向关键词</option>
-            </select>
-          </div>
-          <div className="flex gap-2">
-            {props.editing && <Button disabled={props.busy} onClick={props.onCancel} type="button" variant="ghost">取消编辑</Button>}
-            <Button disabled={props.busy} type="submit">{props.editing ? "保存关键词" : "添加关键词"}</Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
   )
 }
 

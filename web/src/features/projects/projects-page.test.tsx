@@ -68,6 +68,20 @@ describe("ProjectsPage", () => {
     expect((await screen.findAllByText("暂无项目，先添加一个。"))[0]).toBeInTheDocument()
   })
 
+  it("opens the create drawer via 新建项目 and closes it without saving", async () => {
+    renderPage()
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "新建项目" }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("新建项目")
+    expect(within(dialog).getByLabelText("名称")).toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "关闭抽屉" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  })
+
   it("creates a project and refreshes the list", async () => {
     let requestBody: Record<string, unknown> | null = null
     server.use(
@@ -81,15 +95,19 @@ describe("ProjectsPage", () => {
     )
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("名称"), "Reven 工作台")
-    await userEvent.type(screen.getByLabelText("目标"), "一人公司操作系统")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态" }), "进行中")
-    await userEvent.type(screen.getByLabelText("部门"), "工程交付")
-    fireEvent.change(screen.getByLabelText("截止日"), { target: { value: "2026-12-31" } })
-    await userEvent.type(screen.getByLabelText("GitHub 仓库"), "wangyiyang/Reven")
-    await userEvent.click(screen.getByRole("button", { name: "添加项目" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建项目" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("名称"), "Reven 工作台")
+    await userEvent.type(within(dialog).getByLabelText("目标"), "一人公司操作系统")
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "状态" }), "进行中")
+    await userEvent.type(within(dialog).getByLabelText("部门"), "工程交付")
+    fireEvent.change(within(dialog).getByLabelText("截止日"), { target: { value: "2026-12-31" } })
+    await userEvent.type(within(dialog).getByLabelText("GitHub 仓库"), "wangyiyang/Reven")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加项目" }))
 
     expect((await screen.findAllByText("Reven 工作台"))[0]).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(toast.success).toHaveBeenCalledWith("项目已添加")
     expect(requestBody).toEqual({
       name: "Reven 工作台",
       goal: "一人公司操作系统",
@@ -109,9 +127,11 @@ describe("ProjectsPage", () => {
     }))
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("名称"), "坏链接项目")
-    await userEvent.type(screen.getByLabelText("GitHub 仓库"), "bad url")
-    await userEvent.click(screen.getByRole("button", { name: "添加项目" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建项目" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("名称"), "坏链接项目")
+    await userEvent.type(within(dialog).getByLabelText("GitHub 仓库"), "bad url")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加项目" }))
 
     expect(toast.error).toHaveBeenCalledWith("GitHub 仓库格式不正确")
     expect(posted).toBe(false)
@@ -192,14 +212,28 @@ describe("ProjectsPage", () => {
     renderPage()
     await userEvent.click((await screen.findAllByRole("button", { name: "编辑 OLL 交付" }))[0])
 
-    const nameInput = await screen.findByLabelText("名称")
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("编辑项目")
+    const nameInput = within(dialog).getByLabelText("名称")
     await userEvent.clear(nameInput)
     await userEvent.type(nameInput, "OLL 二期交付")
-    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存修改" }))
 
     expect((await screen.findAllByText("OLL 二期交付"))[0]).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect(requestBody).toMatchObject({ name: "OLL 二期交付", github_repo: "wangyiyang/OLL", status: "进行中" })
     expect(toast.success).toHaveBeenCalledWith("项目已更新")
+  })
+
+  it("canceling edit closes the drawer and keeps the list unchanged", async () => {
+    renderPage()
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 OLL 交付" }))[0])
+
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.click(within(dialog).getByRole("button", { name: "取消编辑" }))
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect((await screen.findAllByText("OLL 交付"))[0]).toBeInTheDocument()
   })
 
   it("renders the GitHub repo as an external link", async () => {

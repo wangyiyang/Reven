@@ -13,70 +13,20 @@ import { Label } from "@/components/ui/label"
 import { copyPlainText } from "@/lib/clipboard"
 import { useResourceList } from "@/lib/use-resource-list"
 
-type Sop = {
-  id: string
-  title: string
-  kind: "procedure" | "checklist" | "script" | "method"
-  status: "草稿" | "试行" | "正式"
-  body: string
-  tags: string[]
-  created_at: string
-  updated_at: string
-}
-
-type SopForm = {
-  title: string
-  kind: Sop["kind"]
-  status: Sop["status"]
-  tags: string
-  body: string
-}
-
-const initialForm: SopForm = { title: "", kind: "procedure", status: "草稿", tags: "", body: "" }
-
-function parseTags(value: string) {
-  return value
-    .split(/[,，]/)
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-}
-
-const kindLabels: Record<Sop["kind"], string> = {
-  procedure: "程序",
-  checklist: "Checklist",
-  script: "话术",
-  method: "方法论",
-}
-
-function toPayload(input: SopForm) {
-  return {
-    title: input.title,
-    kind: input.kind,
-    status: input.status,
-    body: input.body,
-    tags: parseTags(input.tags),
-  }
-}
-
-function toForm(sop: Sop): SopForm {
-  return {
-    title: sop.title,
-    kind: sop.kind,
-    status: sop.status,
-    tags: sop.tags.join(", "),
-    body: sop.body,
-  }
-}
+import { SopFormDrawer } from "./sop-form-drawer"
+import type { Sop, SopFormValues } from "./sop-form-model"
+import { EMPTY_SOP_FORM, kindLabels, sopFormToPayload, sopToForm, validateSopForm } from "./sop-form-model"
 
 export function SopsPage() {
-  const list = useResourceList<Sop, SopForm>({
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const list = useResourceList<Sop, SopFormValues>({
     key: "sops",
     path: "/sops",
-    initialForm,
+    initialForm: EMPTY_SOP_FORM,
     initialFilters: { kind: "", status: "", query: "" },
-    toPayload,
-    toForm,
-    validate: (form) => (form.title.trim() && form.body.trim() ? null : "请填写标题和内容"),
+    toPayload: sopFormToPayload,
+    toForm: sopToForm,
+    validate: validateSopForm,
     messages: {
       created: "SOP 已添加",
       updated: "SOP 已更新",
@@ -85,9 +35,15 @@ export function SopsPage() {
       updateFailed: "更新失败",
       deleteFailed: "删除失败",
     },
+    onSaved: () => setDrawerOpen(false),
   })
   const { form, filters } = list
   const [viewing, setViewing] = useState<Sop | null>(null)
+
+  function closeDrawer() {
+    if (list.editingId) list.cancelEdit()
+    else setDrawerOpen(false)
+  }
 
   async function copyViewingBody() {
     if (!viewing) return
@@ -101,77 +57,13 @@ export function SopsPage() {
 
   return (
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">SOP（标准作业流程）</h1>
-        <p className="text-sm text-[var(--muted)]">沉淀程序、Checklist、话术和方法论，状态按 草稿 → 试行 → 正式 管理。</p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-[var(--ink)]">SOP（标准作业流程）</h1>
+          <p className="text-sm text-[var(--muted)]">沉淀程序、Checklist、话术和方法论，状态按 草稿 → 试行 → 正式 管理。</p>
+        </div>
+        <Button onClick={() => setDrawerOpen(true)} type="button">新建 SOP</Button>
       </div>
-
-      <Card>
-        <CardHeader>
-          <h2 className="text-lg font-medium text-[var(--ink)]">{list.editingId ? "编辑 SOP" : "添加 SOP"}</h2>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-4 md:grid-cols-4" onSubmit={list.submit}>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="sop-title">标题</Label>
-              <Input id="sop-title" onChange={(event) => list.setField("title", event.target.value)} required value={form.title} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sop-kind">类型</Label>
-              <select
-                aria-label="类型"
-                className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="sop-kind"
-                onChange={(event) => list.setField("kind", event.target.value as Sop["kind"])}
-                value={form.kind}
-              >
-                <option value="procedure">程序</option>
-                <option value="checklist">Checklist</option>
-                <option value="script">话术</option>
-                <option value="method">方法论</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sop-status">状态</Label>
-              <select
-                aria-label="状态"
-                className="h-10 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
-                id="sop-status"
-                onChange={(event) => list.setField("status", event.target.value as Sop["status"])}
-                value={form.status}
-              >
-                <option value="草稿">草稿</option>
-                <option value="试行">试行</option>
-                <option value="正式">正式</option>
-              </select>
-            </div>
-            <div className="space-y-2 md:col-span-4">
-              <Label htmlFor="sop-tags">标签</Label>
-              <Input id="sop-tags" onChange={(event) => list.setField("tags", event.target.value)} placeholder="CRM, 销售" value={form.tags} />
-              <p className="text-xs text-[var(--muted)]">多个标签用逗号分隔。</p>
-            </div>
-            <div className="space-y-2 md:col-span-4">
-              <Label htmlFor="sop-body">内容</Label>
-              <textarea
-                className="min-h-32 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm"
-                id="sop-body"
-                onChange={(event) => list.setField("body", event.target.value)}
-                value={form.body}
-              />
-            </div>
-            <div className="flex items-end gap-2 md:col-span-4">
-              <Button disabled={list.isSaving} type="submit">
-                {list.editingId ? "保存修改" : "添加 SOP"}
-              </Button>
-              {list.editingId ? (
-                <Button onClick={list.cancelEdit} type="button" variant="ghost">
-                  取消编辑
-                </Button>
-              ) : null}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -259,6 +151,16 @@ export function SopsPage() {
           />
         </CardContent>
       </Card>
+
+      <SopFormDrawer
+        busy={list.isSaving}
+        editing={list.editingId !== null}
+        onChange={list.setForm}
+        onClose={closeDrawer}
+        onSubmit={list.submit}
+        open={drawerOpen || list.editingId !== null}
+        values={form}
+      />
 
       <Dialog.Root onOpenChange={(open) => !open && setViewing(null)} open={viewing !== null}>
         <Dialog.Portal>

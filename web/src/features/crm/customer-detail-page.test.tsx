@@ -58,11 +58,11 @@ const followUp: FollowUp = {
   updated_at: "2026-08-20T08:00:00Z",
 }
 
-function renderPage() {
+function renderPage(initialEntry = `/crm/customers/${customerId}`) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/crm/customers/${customerId}`]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route element={<CustomerDetailPage />} path="/crm/customers/:customerId" />
           <Route element={<p>CRM 列表</p>} path="/crm" />
@@ -249,6 +249,43 @@ describe("CustomerDetailPage", () => {
     await waitFor(() => expect(followUpDeleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("跟进已删除")
     expect(await screen.findByText("暂无跟进记录。")).toBeInTheDocument()
+  })
+
+  it("通过 ?edit=1 直接进入客户档案编辑态", async () => {
+    renderPage(`/crm/customers/${customerId}?edit=1`)
+
+    expect(await screen.findByRole("button", { name: "保存修改" })).toBeInTheDocument()
+    expect(screen.getByLabelText("客户名称")).toHaveValue("星河科技")
+    expect(screen.getByLabelText("客户来源")).toHaveValue("朋友介绍")
+  })
+
+  it("保存客户档案后刷新主档案并回到只读", async () => {
+    let requestBody: unknown
+    server.use(http.put("/api/crm/customers/:customerId", async ({ request }) => {
+      requestBody = await request.json()
+      return HttpResponse.json({ ...customer, name: "星河科技有限公司" })
+    }))
+
+    renderPage(`/crm/customers/${customerId}?edit=1`)
+    const nameInput = await screen.findByLabelText("客户名称")
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, "星河科技有限公司")
+    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("客户已更新"))
+    expect(requestBody).toMatchObject({ name: "星河科技有限公司", status: "跟进中" })
+    expect(await screen.findByRole("heading", { name: "星河科技有限公司" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("客户名称")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "编辑客户档案" })).toBeInTheDocument()
+  })
+
+  it("取消编辑客户档案后回到只读展示", async () => {
+    renderPage(`/crm/customers/${customerId}?edit=1`)
+
+    await userEvent.click(await screen.findByRole("button", { name: "取消编辑" }))
+    expect(screen.queryByLabelText("客户名称")).not.toBeInTheDocument()
+    expect(screen.getAllByText("发送报价方案").length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "编辑客户档案" })).toBeInTheDocument()
   })
 
   it("客户不存在时展示可恢复的错误状态", async () => {
