@@ -440,3 +440,28 @@ grilling 访谈定性双问题：talents 抽屉'看不到'实为 10-01 旧 dist 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复）
+<!-- trellis-session: v=2 fp=eee90f09a33b4a87 -->
+
+**Date**: 2026-10-05
+**Task**: fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复）
+**Branch**: `issue/gh-120-deploy-vercel-web-server-serverless`
+
+### Summary
+
+Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 public_base_url，浏览器 Origin 为 Vercel 域被 403。新增 REVEN_CSRF_ALLOWED_ORIGINS 逗号分隔白名单（normalize_origin 校验、fail-closed、默认空向后兼容），测试 878 全绿、ruff/mypy 通过；同步更新契约 spec 与部署文档。已推送并入 PR #200。遗留：VPS server 需设置该环境变量并在合并后重新部署才能登录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a2e3ec8` | fix(server): CSRF Origin 校验支持白名单 REVEN_CSRF_ALLOWED_ORIGINS |
+| `4364d80` | docs: vercel 部署文档补充 server 放行 Vercel 域 Origin 说明 |
+| `a7d617b` | chore(web): gitignore 忽略 vercel link 生成的 .vercel 目录 |
+| `4020617` | chore(task): 10-05-csrf-allowed-origins 任务 PRD 与上下文 |
+
+### Status
+
+[OK] **Completed**
