@@ -7,6 +7,7 @@ from reven.config import Settings
 def _clean_origin_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REVEN_PUBLIC_BASE_URL", raising=False)
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("REVEN_CSRF_ALLOWED_ORIGINS", raising=False)
 
 
 def test_settings_read_only_infrastructure_secrets(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -106,6 +107,45 @@ def test_public_base_url_preserves_alias_precedence(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setenv("REVEN_PUBLIC_BASE_URL", "http://localhost:8080")
     assert Settings(_env_file=None).public_base_url == "http://localhost:8080"
+
+
+def test_csrf_allowed_origins_defaults_to_empty(_base_env: None) -> None:
+    assert Settings(_env_file=None).csrf_allowed_origins == []
+
+
+def test_csrf_allowed_origins_parses_comma_separated_and_normalizes(
+    _base_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("REVEN_CSRF_ALLOWED_ORIGINS", "https://reven-web-nine.vercel.app, HTTPS://EXAMPLE.COM:443/")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.csrf_allowed_origins == ["https://reven-web-nine.vercel.app", "https://example.com"]
+
+
+def test_csrf_allowed_origins_blank_env_is_empty(_base_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVEN_CSRF_ALLOWED_ORIGINS", "")
+
+    assert Settings(_env_file=None).csrf_allowed_origins == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://example.com/path",
+        "not-a-url",
+        "https://example.com,ftp://evil.example",
+        "https://example.com,,https://evil.example",
+        '["https://example.com"]',
+    ],
+)
+def test_csrf_allowed_origins_rejects_invalid_values(
+    _base_env: None, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("REVEN_CSRF_ALLOWED_ORIGINS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
 
 
 @pytest.fixture

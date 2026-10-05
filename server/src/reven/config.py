@@ -1,9 +1,10 @@
 import re
 from datetime import time
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from reven.security.origin import normalize_origin
 
@@ -19,6 +20,11 @@ class Settings(BaseSettings):
     public_base_url: str = Field(
         default="http://localhost:8080",
         validation_alias=AliasChoices("REVEN_PUBLIC_BASE_URL", "PUBLIC_BASE_URL"),
+    )
+    # CSRF Origin 白名单（#120）：浏览器 Origin 与 public_base_url 不一致的前端部署（如 Vercel 托管）在此放行
+    csrf_allowed_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("REVEN_CSRF_ALLOWED_ORIGINS"),
     )
     cos_bucket: str | None = None
     cos_region: str | None = None
@@ -57,6 +63,26 @@ class Settings(BaseSettings):
             return normalize_origin(value)
         except ValueError as error:
             raise ValueError("PUBLIC_BASE_URL 必须是 HTTP 或 HTTPS origin，域名请使用 ASCII 或 Punycode") from error
+
+    @field_validator("csrf_allowed_origins", mode="before")
+    @classmethod
+    def split_csrf_allowed_origins(cls, value: object) -> object:
+        """pydantic-settings 对 list 字段默认按 JSON 解析 env（NoDecode 已关闭），改为逗号分隔；留空视为未配置。"""
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            return [origin.strip() for origin in value.split(",")]
+        return value
+
+    @field_validator("csrf_allowed_origins")
+    @classmethod
+    def validate_csrf_allowed_origins(cls, value: list[str]) -> list[str]:
+        try:
+            return [normalize_origin(origin) for origin in value]
+        except ValueError as error:
+            raise ValueError(
+                "REVEN_CSRF_ALLOWED_ORIGINS 必须是逗号分隔的 HTTP 或 HTTPS origin，域名请使用 ASCII 或 Punycode"
+            ) from error
 
     @field_validator("notify_push_time")
     @classmethod
