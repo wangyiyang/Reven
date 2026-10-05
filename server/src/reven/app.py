@@ -346,6 +346,8 @@ def create_app(
     app.add_middleware(
         CsrfOriginMiddleware,
         public_base_url=public_base_url,
+        # 显式注入 settings 时透传 CSRF Origin 白名单；生产形态 settings 在 lifespan 解析，中间件请求时从 app.state 兜底
+        allowed_origins=tuple(settings.csrf_allowed_origins) if settings is not None else (),
         # agent MCP 端点走 Bearer token（机器对机器），不经浏览器 cookie 会话，豁免 Origin 校验
         exempt_prefixes=(AGENT_MCP_ENDPOINT_PATH,),
     )

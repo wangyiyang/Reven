@@ -47,6 +47,7 @@ dc up -d --wait
 - 拒绝非 ASCII authority、空白/控制字符、用户信息、非根路径、query/fragment（含空 `?`/`#`）、百分号、反斜杠、非法 host、空端口、端口 0 或超出 65535。
 - 不使用 Python 内置 IDNA 编码自动转换 Unicode 域名：其 IDNA2003 行为会将 `faß.de` 转成 `fass.de`，与浏览器不同。使用者必须配置 `xn--fa-hia.de` 形式。
 - `POST/PUT/PATCH/DELETE` 同时要求规范化后同源的 `Origin` 和 `X-Reven-CSRF: 1`。不信任 `Host`、`X-Forwarded-Host`、`X-Forwarded-Proto` 来替代该校验。
+- `REVEN_CSRF_ALLOWED_ORIGINS`（#120）：逗号分隔的额外 Origin 放行白名单，供浏览器 Origin 与 `REVEN_PUBLIC_BASE_URL` 不一致的前端部署（如 Vercel 托管）使用；逐项经 `normalize_origin` 校验，非法值启动期报错。`Origin` 规范化后精确命中 `public_base_url` 或白名单任一即通过；默认空，行为与仅校验 `public_base_url` 完全一致。无 Origin、缺 CSRF 头或无配置时仍一律 `403`（fail-closed）。
 - `reven_session` 登录和注销均保持 `Path=/`、HttpOnly、SameSite=Lax、无 Domain。仅可信配置的 HTTPS origin 决定 Secure；代理到 Uvicorn 的内部 HTTP 不改变此结果。
 - 内部 `/agent/mcp` 继续由 Bearer token 独立鉴权；新 Caddy 只反代 `/api/*`，`/agent/*` 明确返回 404。
 
@@ -94,8 +95,8 @@ dc up -d --wait
 
 ## 6. 必须覆盖的测试与证据
 
-- `server/tests/test_config.py`：HTTP/HTTPS、别名优先级、大小写/默认端口规范化、Punycode/IPv6、非法输入与 Unicode 拒绝。
-- `server/tests/security/test_csrf.py`：同源成功、默认端口等价、不同协议/端口/无效输入/缺头为 403、转发头无法绕过。
+- `server/tests/test_config.py`：HTTP/HTTPS、别名优先级、大小写/默认端口规范化、Punycode/IPv6、非法输入与 Unicode 拒绝；`REVEN_CSRF_ALLOWED_ORIGINS` 逗号分隔解析、留空默认与非法值拒绝。
+- `server/tests/security/test_csrf.py`：同源成功、默认端口等价、不同协议/端口/无效输入/缺头为 403、转发头无法绕过；白名单内 Origin 放行、白名单外（含子域后缀仿冒）仍为 403。
 - `server/tests/security/test_auth.py`：HTTP/HTTPS Cookie 属性、内部代理 HTTP 的配置决定行为、注销及旧 Cookie 重放为 401。使用隔离数据库。
 - `server/tests/e2e/test_self_host_deployment.py`：实际 Compose 渲染后无数据库/应用公开端口，local 无遗留 80/443，必填环境/可选透传、卷及安全选项保留；不分发已退役的沙箱 profile。
 - `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：旧 ACR/HTTP/回滚约束、镜像 infra 不回退，自托管文件单独变化会选择 backend 回归；脚本另跑 `scripts/test_deploy_reven.sh`。

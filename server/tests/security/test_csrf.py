@@ -155,3 +155,70 @@ def test_https_write_rejects_invalid_or_different_origin(https_csrf_client: Test
 @pytest.mark.parametrize("headers", [{"Origin": "https://reven.example"}, {"X-Reven-CSRF": "1"}])
 def test_https_write_requires_both_csrf_headers(https_csrf_client: TestClient, headers: dict[str, str]) -> None:
     assert https_csrf_client.post("/write", headers=headers).status_code == 403
+
+
+ALLOWED_ORIGINS = ("https://reven-web-nine.vercel.app", "http://localhost:5173")
+
+
+@pytest.fixture
+def allowlist_csrf_client() -> Iterator[TestClient]:
+    app = FastAPI()
+    app.add_middleware(
+        CsrfOriginMiddleware,
+        public_base_url="https://reven.example",
+        allowed_origins=ALLOWED_ORIGINS,
+    )
+
+    @app.post("/write")
+    async def write() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.mark.parametrize("origin", ["https://reven.example", *ALLOWED_ORIGINS, "HTTPS://REVEN-WEB-NINE.VERCEL.APP"])
+def test_allowlisted_origin_write_succeeds(allowlist_csrf_client: TestClient, origin: str) -> None:
+    response = allowlist_csrf_client.post("/write", headers={"Origin": origin, "X-Reven-CSRF": "1"})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://evil.example",
+        "https://reven-web-nine.vercel.app.evil.example",
+        "https://reven-web-fake.vercel.app",
+        "http://localhost:5174",
+    ],
+)
+def test_origin_outside_allowlist_still_rejected(allowlist_csrf_client: TestClient, origin: str) -> None:
+    response = allowlist_csrf_client.post("/write", headers={"Origin": origin, "X-Reven-CSRF": "1"})
+
+    assert response.status_code == 403
+    assert response.json() == {"code": "csrf_validation_failed", "message": "写请求来源校验失败"}
+
+
+def test_allowed_origins_fall_back_to_app_state_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """生产形态：装配时无显式配置，请求时从组合根写入的 app.state.settings 取白名单。"""
+    monkeypatch.setenv("REVEN_CSRF_ALLOWED_ORIGINS", "https://reven-web-nine.vercel.app")
+    settings = Settings(
+        database_url="postgresql+asyncpg://test:test@db/test",
+        reven_master_key=base64.urlsafe_b64encode(b"t" * 32).decode(),
+        reven_admin_password=TEST_ADMIN_PASSWORD,
+        _env_file=None,
+    )
+    app = FastAPI()
+    app.state.settings = settings
+    app.add_middleware(CsrfOriginMiddleware)
+
+    @app.post("/write")
+    async def write() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        allowed = client.post("/write", headers={"Origin": "https://reven-web-nine.vercel.app", "X-Reven-CSRF": "1"})
+        assert allowed.status_code == 200
+        rejected = client.post("/write", headers={"Origin": "https://evil.example", "X-Reven-CSRF": "1"})
+        assert rejected.status_code == 403

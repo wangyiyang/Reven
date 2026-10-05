@@ -416,3 +416,52 @@ grilling 访谈定性双问题：talents 抽屉'看不到'实为 10-01 旧 dist 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: web 部署 Vercel 第一期（issue #120）
+<!-- trellis-session: v=2 fp=7f60e2929a520228 -->
+
+**Date**: 2026-10-05
+**Task**: web 部署 Vercel 第一期（issue #120）
+**Branch**: `issue/gh-120-deploy-vercel-web-server-serverless`
+
+### Summary
+
+在 worktree issue/gh-120-deploy-vercel-web-server-serverless 完成 issue #120 第一期：新增 web/vercel.json（/api 优先代理到 dev.wangyiyang.cc + SPA fallback）与 docs/vercel-deploy.md；web/src 零改动；build/lint/test 全绿；已推送并创建 PR #200（Refs #120，不含第二期 server serverless 评估）。Vercel 账号侧导入与域名绑定待用户操作。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `23ed452` | feat(web): 新增 vercel.json 支持 Vercel 部署 |
+| `7746ae4` | docs: 新增 Vercel 部署文档 |
+| `e0122dd` | chore(task): 10-05-vercel-web-deploy 任务 PRD 与上下文 |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 14: fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复）
+<!-- trellis-session: v=2 fp=eee90f09a33b4a87 -->
+
+**Date**: 2026-10-05
+**Task**: fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复）
+**Branch**: `issue/gh-120-deploy-vercel-web-server-serverless`
+
+### Summary
+
+Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 public_base_url，浏览器 Origin 为 Vercel 域被 403。新增 REVEN_CSRF_ALLOWED_ORIGINS 逗号分隔白名单（normalize_origin 校验、fail-closed、默认空向后兼容），测试 878 全绿、ruff/mypy 通过；同步更新契约 spec 与部署文档。已推送并入 PR #200。遗留：VPS server 需设置该环境变量并在合并后重新部署才能登录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a2e3ec8` | fix(server): CSRF Origin 校验支持白名单 REVEN_CSRF_ALLOWED_ORIGINS |
+| `4364d80` | docs: vercel 部署文档补充 server 放行 Vercel 域 Origin 说明 |
+| `a7d617b` | chore(web): gitignore 忽略 vercel link 生成的 .vercel 目录 |
+| `4020617` | chore(task): 10-05-csrf-allowed-origins 任务 PRD 与上下文 |
+
+### Status
+
+[OK] **Completed**
