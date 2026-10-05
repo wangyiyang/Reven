@@ -26,7 +26,7 @@ const customer: Customer = {
   source: "朋友介绍",
   notes: "关注企业知识库",
   next_action: "发送报价方案",
-  next_follow_up_on: "2020-01-01",
+  next_due_on: "2020-01-01",
   created_at: "2026-08-20T08:00:00Z",
   updated_at: "2026-08-20T08:00:00Z",
 }
@@ -84,7 +84,7 @@ describe("CrmPage", () => {
       http.get("/api/crm/customers", () => HttpResponse.json(customers)),
       http.post("/api/crm/customers", async ({ request }) => {
         requestBody = await request.json()
-        const created = { ...customer, id: "22222222-2222-2222-2222-222222222222", name: "远山工作室", next_follow_up_on: null }
+        const created = { ...customer, id: "22222222-2222-2222-2222-222222222222", name: "远山工作室", next_action: null, next_due_on: null }
         customers = [...customers, created]
         return HttpResponse.json(created, { status: 201 })
       }),
@@ -95,6 +95,9 @@ describe("CrmPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "新建客户" }))
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByLabelText("备注")).toHaveClass("text-[var(--ink)]", "placeholder:text-[var(--muted)]")
+    // 新建表单不再出现计划字段（计划由第一条跟进派生）
+    expect(within(dialog).queryByLabelText("下一步行动")).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText("下次跟进日期")).not.toBeInTheDocument()
     await userEvent.type(within(dialog).getByLabelText("客户名称"), " 远山工作室 ")
     await userEvent.selectOptions(within(dialog).getByLabelText("关系状态", { selector: "#crm-customer-status" }), "潜在客户")
     await userEvent.type(within(dialog).getByLabelText("客户来源"), "官网")
@@ -106,30 +109,9 @@ describe("CrmPage", () => {
       status: "潜在客户",
       source: "官网",
       notes: null,
-      next_action: null,
-      next_follow_up_on: null,
     })
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect((await screen.findAllByText("远山工作室"))[0]).toBeInTheDocument()
-  })
-
-  it("跟进日期缺少下一步行动时不提交", async () => {
-    let posted = false
-    server.use(http.post("/api/crm/customers", () => {
-      posted = true
-      return HttpResponse.json(customer, { status: 201 })
-    }))
-
-    renderPage()
-    await screen.findByRole("article", { name: "星河科技 客户摘要" })
-    await userEvent.click(screen.getByRole("button", { name: "新建客户" }))
-    const dialog = await screen.findByRole("dialog")
-    await userEvent.type(within(dialog).getByLabelText("客户名称"), "待验证客户")
-    await userEvent.type(within(dialog).getByLabelText("下次跟进日期"), "2026-09-01")
-    await userEvent.click(within(dialog).getByRole("button", { name: "添加客户" }))
-
-    expect(toast.error).toHaveBeenCalledWith("设置跟进日期时请填写下一步行动")
-    expect(posted).toBe(false)
   })
 
   it("支持在确认后删除客户", async () => {

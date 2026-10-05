@@ -30,7 +30,6 @@ export function CustomerForm(props: CustomerFormProps) {
   return (
     <form className="space-y-4" onSubmit={submit}>
       <CustomerIdentityFields {...props} />
-      <CustomerActionFields {...props} />
       <CustomerNotesField {...props} />
       <CustomerFormActions {...props} />
     </form>
@@ -67,31 +66,6 @@ function CustomerIdentityFields({ values, singleColumn, onChange }: CustomerForm
           onChange={(event) => onChange({ ...values, source: event.target.value })}
           placeholder="朋友介绍、官网、活动…"
           value={values.source}
-        />
-      </div>
-    </div>
-  )
-}
-
-function CustomerActionFields({ values, singleColumn, onChange }: CustomerFormProps) {
-  return (
-    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-[1fr_14rem]"}>
-      <div className="space-y-2">
-        <Label htmlFor="crm-customer-next-action">下一步行动</Label>
-        <Input
-          id="crm-customer-next-action"
-          onChange={(event) => onChange({ ...values, next_action: event.target.value })}
-          placeholder="例如：发送报价方案"
-          value={values.next_action}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="crm-customer-next-date">下次跟进日期</Label>
-        <Input
-          id="crm-customer-next-date"
-          onChange={(event) => onChange({ ...values, next_follow_up_on: event.target.value })}
-          type="date"
-          value={values.next_follow_up_on}
         />
       </div>
     </div>

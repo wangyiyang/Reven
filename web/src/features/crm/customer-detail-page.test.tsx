@@ -27,7 +27,7 @@ const customer: Customer = {
   source: "朋友介绍",
   notes: "关注企业知识库",
   next_action: "发送报价方案",
-  next_follow_up_on: "2026-09-01",
+  next_due_on: "2026-09-01",
   created_at: "2026-08-20T08:00:00Z",
   updated_at: "2026-08-20T08:00:00Z",
 }
@@ -53,7 +53,7 @@ const followUp: FollowUp = {
   occurred_on: "2026-08-20",
   summary: "确认了知识库一期范围",
   next_action: "发送报价方案",
-  next_follow_up_on: "2026-09-01",
+  next_due_on: "2026-09-01",
   created_at: "2026-08-20T08:00:00Z",
   updated_at: "2026-08-20T08:00:00Z",
 }
@@ -144,7 +144,7 @@ describe("CustomerDetailPage", () => {
     expect(await screen.findByRole("article", { name: "林楠 联系人摘要" })).toBeInTheDocument()
   })
 
-  it("新增跟进可同步当前行动，编辑历史时不发送同步字段", async () => {
+  it("新增跟进直接携带计划字段，不再出现同步开关；编辑历史同样不发送", async () => {
     let followUps = [followUp]
     let createdBody: Record<string, unknown> | null = null
     let updatedBody: Record<string, unknown> | null = null
@@ -164,7 +164,10 @@ describe("CustomerDetailPage", () => {
     )
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("沟通内容"), "客户确认预算")
+    // 表单不再出现「同步为当前计划」勾选：最新跟进的计划自动生效
+    expect(await screen.findByLabelText("沟通内容")).toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: /同步/ })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("沟通内容"), "客户确认预算")
     await userEvent.type(screen.getByLabelText("约定的下一步"), "准备合同")
     await userEvent.type(screen.getByLabelText("下次跟进日期"), "2026-09-03")
     await userEvent.click(screen.getByRole("button", { name: "记录跟进" }))
@@ -173,9 +176,10 @@ describe("CustomerDetailPage", () => {
     expect(createdBody).toMatchObject({
       summary: "客户确认预算",
       next_action: "准备合同",
-      next_follow_up_on: "2026-09-03",
-      set_as_current: true,
+      next_due_on: "2026-09-03",
     })
+    expect(createdBody).not.toHaveProperty("set_as_current")
+    expect(createdBody).not.toHaveProperty("next_follow_up_on")
 
     const historicalCard = screen.getByText("确认了知识库一期范围").closest("article")
     expect(historicalCard).not.toBeNull()
@@ -188,6 +192,17 @@ describe("CustomerDetailPage", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("跟进已更新"))
     expect(updatedBody).toMatchObject({ summary: "修正后的历史记录" })
     expect(updatedBody).not.toHaveProperty("set_as_current")
+  })
+
+  it("零跟进时展示「记第一条跟进」引导并可唤起跟进表单", async () => {
+    server.use(http.get("/api/crm/customers/:customerId/follow-ups", () => HttpResponse.json([])))
+
+    renderPage()
+    const guide = await screen.findByRole("button", { name: "记第一条跟进" })
+    expect(screen.getByText(/暂无跟进记录。记录第一条跟进/)).toBeInTheDocument()
+
+    await userEvent.click(guide)
+    expect(screen.getByLabelText("沟通内容")).toHaveFocus()
   })
 
   it("删除联系人前需要确认，并保留历史快照提示", async () => {
@@ -243,12 +258,12 @@ describe("CustomerDetailPage", () => {
     const followUpCard = screen.getByRole("article", { name: "2026-08-20 会议 跟进记录" })
     await userEvent.click(within(followUpCard).getByRole("button", { name: "删除" }))
     const dialog = await screen.findByRole("dialog")
-    expect(dialog).toHaveTextContent("不会改写客户当前下一步行动")
+    expect(dialog).toHaveTextContent("客户当前计划将回退到次新记录")
     await userEvent.click(within(dialog).getByRole("button", { name: "确认删除这条跟进" }))
 
     await waitFor(() => expect(followUpDeleted).toBe(true))
     expect(toast.success).toHaveBeenCalledWith("跟进已删除")
-    expect(await screen.findByText("暂无跟进记录。")).toBeInTheDocument()
+    expect(await screen.findByText(/暂无跟进记录。记录第一条跟进/)).toBeInTheDocument()
   })
 
   it("通过 ?edit=1 直接进入客户档案编辑态", async () => {
