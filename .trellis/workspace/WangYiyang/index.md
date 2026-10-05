@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-10-01
+- **Total Sessions**: 10
+- **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~349 | Active |
+| `journal-1.md` | ~382 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-10-05 | #189 各资源页面表单 Drawer 化 | `b95dbf0`, `369e6c1`, `a67d9fe`, `dafe96e` | `main` |
 | 9 | 2026-10-01 | 三项架构深化实施与验收 | `cc10725ccdc6e3f7c987c473c3865b82b6ce7e64`, `40c2f30383bddf917f98aab93fd0f06099bd8622`, `501fcffebd26e5a32742e5d04cc8dd8a8a2cf64d`, `2940ef26427ada583e6815c098a17c2283d7aa97` | `codex/architecture-deepening` |
 | 8 | 2026-09-28 | 排查并修复 self-host dsh 运行时 HOME 不可写导致的 Agent 降级 | `6422a96` | `chore/trellis-finish-self-host-dsh-home` |
 | 7 | 2026-09-27 | 飞书机器人接入 Agent 对话 | `f81d614`, `bc10810`, `3eda431` | `feat/feishu-bot-conversation` |
