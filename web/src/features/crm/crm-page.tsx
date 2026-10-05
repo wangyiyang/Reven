@@ -1,9 +1,12 @@
+import { useState } from "react"
+
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
 import { useResourceList } from "@/lib/use-resource-list"
 
 import { crmKeys } from "./crm-api"
-import { CustomerForm } from "./customer-form"
+import { CustomerFormDrawer } from "./customer-form-drawer"
 import {
   EMPTY_CUSTOMER_FORM,
   customerFormToInput,
@@ -17,6 +20,7 @@ import type { Customer, CustomerFilters } from "./types"
 const EMPTY_FILTERS: CustomerFilters = { query: "", status: "", due: "" }
 
 export function CrmPage() {
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const list = useResourceList<Customer, CustomerFormValues, CustomerFilters>({
     key: crmKeys.customers,
     path: "/crm/customers",
@@ -26,6 +30,7 @@ export function CrmPage() {
     toForm: customerToForm,
     validate: validateCustomerForm,
     detailKeyOf: (customer) => crmKeys.customer(customer.id),
+    onSaved: () => setDrawerOpen(false),
     messages: {
       created: "客户已添加",
       updated: "客户已更新",
@@ -38,24 +43,24 @@ export function CrmPage() {
 
   return (
     <main className="page-enter mx-auto w-full max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
-      <PageHeading />
-      <CustomerEditorCard
-        busy={list.isSaving}
-        editing={list.editingId !== null}
-        form={list.form}
-        onCancel={list.cancelEdit}
-        onChange={list.setForm}
-        onSubmit={list.submit}
-      />
+      <PageHeading onCreate={() => setDrawerOpen(true)} />
       <CustomerListCard
         customers={list.itemsQuery.data}
         failed={list.itemsQuery.isError}
         filters={list.filters}
         loading={list.itemsQuery.isLoading}
         onDelete={list.requestRemove}
-        onEdit={list.startEdit}
         onFiltersChange={list.setFilters}
         onRetry={() => void list.itemsQuery.refetch()}
+      />
+      <CustomerFormDrawer
+        busy={list.isSaving}
+        editing={list.editingId !== null}
+        onChange={list.setForm}
+        onClose={() => setDrawerOpen(false)}
+        onSubmit={list.submit}
+        open={drawerOpen}
+        values={list.form}
       />
       <ConfirmDialog
         busy={list.isRemoving}
@@ -70,31 +75,16 @@ export function CrmPage() {
   )
 }
 
-function PageHeading() {
+function PageHeading({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="space-y-2">
-      <p className="section-kicker">RELATIONSHIPS</p>
-      <h1 className="text-2xl font-semibold text-[var(--ink)]">CRM</h1>
-      <p className="text-sm text-[var(--muted)]">维护客户关系、记录跟进，并把每一次沟通推进到明确的下一步。</p>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="space-y-2">
+        <p className="section-kicker">RELATIONSHIPS</p>
+        <h1 className="text-2xl font-semibold text-[var(--ink)]">CRM</h1>
+        <p className="text-sm text-[var(--muted)]">维护客户关系、记录跟进，并把每一次沟通推进到明确的下一步。</p>
+      </div>
+      <Button onClick={onCreate} type="button">新建客户</Button>
     </div>
-  )
-}
-
-type EditorCardProps = {
-  form: CustomerFormValues
-  editing: boolean
-  busy: boolean
-  onChange: (form: CustomerFormValues) => void
-  onSubmit: () => void
-  onCancel: () => void
-}
-
-function CustomerEditorCard(props: EditorCardProps) {
-  return (
-    <Card>
-      <CardHeader><h2 className="text-lg font-medium text-[var(--ink)]">{props.editing ? "编辑客户" : "添加客户"}</h2></CardHeader>
-      <CardContent><CustomerForm {...props} values={props.form} /></CardContent>
-    </Card>
   )
 }
 

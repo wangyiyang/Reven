@@ -81,14 +81,18 @@ describe("SopsPage", () => {
     )
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("标题"), "公众号发布 Checklist")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "类型" }), "checklist")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "状态" }), "正式")
-    await userEvent.type(screen.getByLabelText("标签"), "内容, 发布")
-    await userEvent.type(screen.getByLabelText("内容"), "- 题图\n- 摘要")
-    await userEvent.click(screen.getByRole("button", { name: "添加 SOP" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建 SOP" }))
+    const dialog = await screen.findByRole("dialog")
+
+    await userEvent.type(within(dialog).getByLabelText("标题"), "公众号发布 Checklist")
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "类型" }), "checklist")
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "状态" }), "正式")
+    await userEvent.type(within(dialog).getByLabelText("标签"), "内容, 发布")
+    await userEvent.type(within(dialog).getByLabelText("内容"), "- 题图\n- 摘要")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加 SOP" }))
 
     expect((await screen.findAllByText("公众号发布 Checklist"))[0]).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect(requestBody).toEqual({
       title: "公众号发布 Checklist",
       kind: "checklist",
@@ -106,8 +110,10 @@ describe("SopsPage", () => {
     }))
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("标题"), "空内容 SOP")
-    await userEvent.click(screen.getByRole("button", { name: "添加 SOP" }))
+    await userEvent.click(screen.getByRole("button", { name: "新建 SOP" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("标题"), "空内容 SOP")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加 SOP" }))
 
     expect(toast.error).toHaveBeenCalledWith("请填写标题和内容")
     expect(posted).toBe(false)
@@ -153,7 +159,11 @@ describe("SopsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "关闭" }))
 
     await userEvent.click(screen.getAllByRole("button", { name: "编辑 客户首次沟通 SOP" })[0])
-    expect(screen.getByLabelText("标题")).toHaveValue("客户首次沟通 SOP")
+    const drawer = await screen.findByRole("dialog")
+    expect(within(drawer).getByLabelText("标题")).toHaveValue("客户首次沟通 SOP")
+
+    await userEvent.click(within(drawer).getByRole("button", { name: "取消编辑" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
 
     await userEvent.click(screen.getAllByRole("button", { name: "删除 客户首次沟通 SOP" })[0])
     expect(await screen.findByRole("dialog")).toHaveTextContent("删除 SOP")
@@ -211,11 +221,13 @@ describe("SopsPage", () => {
     renderPage()
     await userEvent.click((await screen.findAllByRole("button", { name: "编辑 客户首次沟通 SOP" }))[0])
 
-    const titleInput = await screen.findByLabelText("标题")
+    const dialog = await screen.findByRole("dialog")
+    const titleInput = within(dialog).getByLabelText("标题")
     await userEvent.clear(titleInput)
     await userEvent.type(titleInput, "客户首次沟通 SOP v2")
-    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存修改" }))
 
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
     expect((await screen.findAllByText("客户首次沟通 SOP v2"))[0]).toBeInTheDocument()
     expect(requestBody).toMatchObject({ title: "客户首次沟通 SOP v2", kind: "procedure", status: "试行", body: "1. 确认背景", tags: ["CRM", "销售"] })
     expect(toast.success).toHaveBeenCalledWith("SOP 已更新")

@@ -1,5 +1,5 @@
 import { AlertTriangle, CalendarClock } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 
 import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
@@ -17,13 +17,13 @@ type CustomerListProps = {
   filters: CustomerFilters
   onFiltersChange: (filters: CustomerFilters) => void
   onRetry: () => void
-  onEdit: (customer: Customer) => void
   onDelete: (customer: Customer) => void
 }
 
 const selectClassName = "h-10 rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 text-sm"
 
 export function CustomerList(props: CustomerListProps) {
+  const navigate = useNavigate()
   return (
     <div className="space-y-4">
       <CustomerFiltersBar filters={props.filters} onChange={props.onFiltersChange} />
@@ -31,7 +31,7 @@ export function CustomerList(props: CustomerListProps) {
       {!props.loading && !props.failed && (props.customers?.length ?? 0) > 0 ? (
         <ResponsiveList
           actions={[
-            { label: "编辑", ariaLabel: (customer) => `编辑 ${customer.name}`, onClick: props.onEdit },
+            { label: "编辑", ariaLabel: (customer) => `编辑 ${customer.name}`, onClick: (customer) => void navigate(`/crm/customers/${customer.id}?edit=1`) },
             { label: "删除", ariaLabel: (customer) => `删除 ${customer.name}`, onClick: props.onDelete },
           ]}
           card={(customer) => ({
