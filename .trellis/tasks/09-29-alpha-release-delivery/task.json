@@ -3,7 +3,7 @@
   "name": "alpha-release-delivery",
   "title": "Alpha 发布说明与安全渠道",
   "description": "启用 SECURITY.md 私密报告渠道，编写 Alpha release notes/CHANGELOG，配合仓库转公开",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": "web",
