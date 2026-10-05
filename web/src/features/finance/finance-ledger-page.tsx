@@ -53,9 +53,12 @@ export function FinanceLedgerPage() {
     <div className="space-y-4">
       <LedgerFilterBar filters={filters} onChange={setFilters} />
       <LedgerList entries={entries} onDelete={setDeleting} onEdit={setEditing} />
-      {editing ? (
-        <EntryFormDrawer entry={editing} onClose={() => setEditing(null)} open variant={variantForEntry(editing)} />
-      ) : null}
+      <EntryFormDrawer
+        entry={editing}
+        onClose={() => setEditing(null)}
+        open={editing !== null}
+        variant={editing ? variantForEntry(editing) : "income-settled"}
+      />
       <ConfirmDialog
         busy={deleteMutation.isPending}
         confirmLabel={`确认删除「${deleting?.name ?? ""}」`}

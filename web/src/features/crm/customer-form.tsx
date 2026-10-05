@@ -12,6 +12,8 @@ type CustomerFormProps = {
   values: CustomerFormValues
   editing: boolean
   busy: boolean
+  /** 抽屉等窄容器场景强制单列；宽页（详情页编辑）保持响应式多列 */
+  singleColumn?: boolean
   onChange: (values: CustomerFormValues) => void
   onSubmit: () => void
   onCancel: () => void
@@ -35,9 +37,9 @@ export function CustomerForm(props: CustomerFormProps) {
   )
 }
 
-function CustomerIdentityFields({ values, onChange }: CustomerFormProps) {
+function CustomerIdentityFields({ values, singleColumn, onChange }: CustomerFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
       <div className="space-y-2">
         <Label htmlFor="crm-customer-name">客户名称</Label>
         <Input
@@ -71,9 +73,9 @@ function CustomerIdentityFields({ values, onChange }: CustomerFormProps) {
   )
 }
 
-function CustomerActionFields({ values, onChange }: CustomerFormProps) {
+function CustomerActionFields({ values, singleColumn, onChange }: CustomerFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-[1fr_14rem]">
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-[1fr_14rem]"}>
       <div className="space-y-2">
         <Label htmlFor="crm-customer-next-action">下一步行动</Label>
         <Input
@@ -113,9 +115,9 @@ function CustomerNotesField({ values, onChange }: CustomerFormProps) {
 
 function CustomerFormActions({ editing, busy, onCancel }: CustomerFormProps) {
   return (
-    <div className="flex gap-2">
+    <div className="flex justify-end gap-3 pt-2">
+      <Button onClick={onCancel} type="button" variant="outline">{editing ? "取消编辑" : "取消"}</Button>
       <Button disabled={busy} type="submit">{editing ? "保存修改" : "添加客户"}</Button>
-      {editing ? <Button onClick={onCancel} type="button" variant="ghost">取消编辑</Button> : null}
     </div>
   )
 }

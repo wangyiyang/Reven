@@ -30,6 +30,7 @@
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
 | 12 | 2026-10-05 | 工作台 Dashboard 首页：聚合端点 + 默认落地页 | `c81a3d9`, `b2b4cbb`, `2b9ff3f` | `feat/dashboard` |
+| 11 | 2026-10-05 | 统一抽屉组件重构：Notion 风视觉、动效与表单单列 | `85fe019`, `8979c4b` | `feat/unified-drawer-redesign` |
 | 10 | 2026-10-05 | #189 各资源页面表单 Drawer 化 | `b95dbf0`, `369e6c1`, `a67d9fe`, `dafe96e` | `main` |
 | 9 | 2026-10-01 | 三项架构深化实施与验收 | `cc10725ccdc6e3f7c987c473c3865b82b6ce7e64`, `40c2f30383bddf917f98aab93fd0f06099bd8622`, `501fcffebd26e5a32742e5d04cc8dd8a8a2cf64d`, `2940ef26427ada583e6815c098a17c2283d7aa97` | `codex/architecture-deepening` |
 | 8 | 2026-09-28 | 排查并修复 self-host dsh 运行时 HOME 不可写导致的 Agent 降级 | `6422a96` | `chore/trellis-finish-self-host-dsh-home` |

@@ -392,6 +392,16 @@ CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。决策：
 ### Summary
 
 经 grilling 三轮共识后交付工作台首页：后端新增 GET /api/dashboard/summary 聚合端点（财务待收款含逾期、RSS 待审核/抓取状态、CRM 待跟进 Top5 复用 list_due_follow_ups 与飞书提醒同源、进行中项目、集成缺失含 COS 检查）；前端新增 / 工作台页（可关闭集成横幅 + 四卡片，逾期红显，跳转闭环），取代 /rss/candidates 成为默认落地页，登录回退与 logo 链接同步。质量门全绿：861 pytest / 243 前端测试 / ruff / mypy / build。PR #198。规范沉淀：formatMoney 唯一真相源入组件规范。分支插曲：提交曾误落 feat/unified-drawer-redesign，已 cherry-pick 回 feat/dashboard 并还原抽屉分支。
+## Session 11: 统一抽屉组件重构：Notion 风视觉、动效与表单单列
+<!-- trellis-session: v=2 fp=10d5ab1cdd97f0b1 -->
+
+**Date**: 2026-10-05
+**Task**: 统一抽屉组件重构：Notion 风视觉、动效与表单单列
+**Branch**: `feat/unified-drawer-redesign`
+
+### Summary
+
+grilling 访谈定性双问题：talents 抽屉'看不到'实为 10-01 旧 dist 环境滞后，'抽屉丑'为全站共用 Drawer 系统性缺陷。重构 drawer.tsx 为 Notion 风（rounded-l-2xl/shadow-2xl/bg-black/20/滑入滑出动画），清除 7 个调用方 if(!open)return null 卸载模式（Radix Presence 保退出动画），表单加 singleColumn 模式，按钮统一右对齐+取消，SOP 查看与结算确认两处手写弹窗收敛入共享组件。规范沉淀：Drawer/Dialog 受控开合禁止提前卸载。236 测试全绿，用户本地 preview 目验通过，PR #197。教训：并行会话共享工作区切了分支，提交前须先确认 HEAD 所在分支。
 
 ### Git Commits
 
@@ -400,6 +410,8 @@ CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。决策：
 | `c81a3d9` | feat(server): 新增工作台聚合端点 /api/dashboard/summary |
 | `b2b4cbb` | feat(web): 工作台首页成为默认落地页与导航首项 |
 | `2b9ff3f` | docs(trellis): dashboard 任务规划产物 + formatMoney 复用约定入组件规范 |
+| `85fe019` | feat(web): 统一抽屉组件重构——Notion 风视觉、滑入滑出动画与表单单列 |
+| `8979c4b` | docs(trellis): Drawer/Dialog 受控开合约定入组件规范 + 10-05 任务规划产物 |
 
 ### Status
 

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import type { FormEvent, ReactNode } from "react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -32,12 +32,28 @@ type EntryFormDrawerProps = {
 }
 
 export function EntryFormDrawer(props: EntryFormDrawerProps) {
-  if (!props.open) return null
-  return <EntryFormDrawerInner {...props} />
+  // 关闭瞬间父级会把 entry 置空、variant 回退；留住打开会话的快照，退出动画期间标题与字段集不闪变
+  const sessionRef = useRef<{ entry: FinanceEntry | null; variant: EntryFormVariant }>({
+    entry: null,
+    variant: props.variant,
+  })
+  useEffect(() => {
+    if (props.open) sessionRef.current = { entry: props.entry ?? null, variant: props.variant }
+  }, [props.open, props.entry, props.variant])
+  const session = props.open
+    ? { entry: props.entry ?? null, variant: props.variant }
+    : sessionRef.current
+  const config = ENTRY_VARIANT_CONFIG[session.variant]
+  return (
+    <Drawer onClose={props.onClose} open={props.open} title={session.entry ? "编辑财务记录" : config.title}>
+      <EntryForm config={config} entry={session.entry} onClose={props.onClose} />
+    </Drawer>
+  )
 }
 
-function EntryFormDrawerInner({ variant, entry = null, onClose }: EntryFormDrawerProps) {
-  const config = ENTRY_VARIANT_CONFIG[variant]
+// 表单状态挂在 Drawer children 内：Radix Presence 在关闭（含退出动画结束）后卸载 children，
+// 下次打开时重新挂载，表单自然回到初始值
+function EntryForm({ config, entry, onClose }: { config: VariantConfig; entry: FinanceEntry | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<FormState>(() => ({
     name: entry?.name ?? "",
@@ -72,42 +88,40 @@ function EntryFormDrawerInner({ variant, entry = null, onClose }: EntryFormDrawe
   }
 
   return (
-    <Drawer onClose={onClose} open title={entry ? "编辑财务记录" : config.title}>
-      <form className="space-y-4" onSubmit={submit}>
-        <Field htmlFor="entry-form-name" label="名称">
-          <Input id="entry-form-name" onChange={(event) => set({ name: event.target.value })} value={form.name} />
-        </Field>
-        <Field htmlFor="entry-form-amount" label="金额">
-          <Input id="entry-form-amount" inputMode="decimal" onChange={(event) => set({ amount: event.target.value })} value={form.amount} />
-        </Field>
-        {config.settled ? (
-          <>
-            <Field htmlFor="entry-form-occurred-on" label="实际收付日期">
-              <Input id="entry-form-occurred-on" onChange={(event) => set({ occurred_on: event.target.value })} type="date" value={form.occurred_on} />
-            </Field>
-            <Field htmlFor="entry-form-category" label="分类（可选）">
-              <Input id="entry-form-category" onChange={(event) => set({ category: event.target.value })} value={form.category} />
-            </Field>
-          </>
-        ) : (
-          <>
-            <Field htmlFor="entry-form-source" label="收付款对象">
-              <Input id="entry-form-source" onChange={(event) => set({ source: event.target.value })} value={form.source} />
-            </Field>
-            <Field htmlFor="entry-form-due-on" label="预计收付日期">
-              <Input id="entry-form-due-on" onChange={(event) => set({ due_on: event.target.value })} type="date" value={form.due_on} />
-            </Field>
-            <Field htmlFor="entry-form-notes" label="备注（可选）">
-              <Textarea id="entry-form-notes" onChange={(event) => set({ notes: event.target.value })} value={form.notes} />
-            </Field>
-          </>
-        )}
-        <div className="flex justify-end gap-3 pt-2">
-          <Button onClick={onClose} type="button" variant="outline">取消</Button>
-          <Button disabled={mutation.isPending} type="submit">{entry ? "保存修改" : config.title}</Button>
-        </div>
-      </form>
-    </Drawer>
+    <form className="space-y-4" onSubmit={submit}>
+      <Field htmlFor="entry-form-name" label="名称">
+        <Input id="entry-form-name" onChange={(event) => set({ name: event.target.value })} value={form.name} />
+      </Field>
+      <Field htmlFor="entry-form-amount" label="金额">
+        <Input id="entry-form-amount" inputMode="decimal" onChange={(event) => set({ amount: event.target.value })} value={form.amount} />
+      </Field>
+      {config.settled ? (
+        <>
+          <Field htmlFor="entry-form-occurred-on" label="实际收付日期">
+            <Input id="entry-form-occurred-on" onChange={(event) => set({ occurred_on: event.target.value })} type="date" value={form.occurred_on} />
+          </Field>
+          <Field htmlFor="entry-form-category" label="分类（可选）">
+            <Input id="entry-form-category" onChange={(event) => set({ category: event.target.value })} value={form.category} />
+          </Field>
+        </>
+      ) : (
+        <>
+          <Field htmlFor="entry-form-source" label="收付款对象">
+            <Input id="entry-form-source" onChange={(event) => set({ source: event.target.value })} value={form.source} />
+          </Field>
+          <Field htmlFor="entry-form-due-on" label="预计收付日期">
+            <Input id="entry-form-due-on" onChange={(event) => set({ due_on: event.target.value })} type="date" value={form.due_on} />
+          </Field>
+          <Field htmlFor="entry-form-notes" label="备注（可选）">
+            <Textarea id="entry-form-notes" onChange={(event) => set({ notes: event.target.value })} value={form.notes} />
+          </Field>
+        </>
+      )}
+      <div className="flex justify-end gap-3 pt-2">
+        <Button onClick={onClose} type="button" variant="outline">取消</Button>
+        <Button disabled={mutation.isPending} type="submit">{entry ? "保存修改" : config.title}</Button>
+      </div>
+    </form>
   )
 }
 

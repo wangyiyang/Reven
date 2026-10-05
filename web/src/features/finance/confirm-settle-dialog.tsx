@@ -1,9 +1,8 @@
-import * as Dialog from "@radix-ui/react-dialog"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError } from "@/lib/api"
@@ -53,29 +52,25 @@ function ConfirmSettleDialogInner({ entry, onClose }: { entry: FinanceEntry; onC
   }
 
   return (
-    <Dialog.Root onOpenChange={(open) => !open && onClose()} open>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-6 shadow-lg">
-          <Dialog.Title className="text-lg font-semibold text-[var(--ink)]">{actionLabel}</Dialog.Title>
-          <Dialog.Description className="mt-3 text-sm leading-6 text-[var(--muted)]">
-            {entry.name} · {formatMoney(entry.amount_cents)}。确认后按实际收付日期计入流水与汇总。
-          </Dialog.Description>
-          <div className="mt-4 space-y-2">
-            <Label htmlFor="confirm-settle-date">实际收付日期</Label>
-            <Input
-              id="confirm-settle-date"
-              onChange={(event) => setOccurredOn(event.target.value)}
-              type="date"
-              value={occurredOn}
-            />
-          </div>
-          <div className="mt-7 flex justify-end gap-3">
-            <Button onClick={onClose} type="button" variant="outline">取消</Button>
-            <Button disabled={mutation.isPending} onClick={submit} type="button">{actionLabel}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ConfirmDialog
+      busy={mutation.isPending}
+      confirmLabel={actionLabel}
+      description={`${entry.name} · ${formatMoney(entry.amount_cents)}。确认后按实际收付日期计入流水与汇总。`}
+      onClose={onClose}
+      onConfirm={submit}
+      open
+      title={actionLabel}
+      tone="primary"
+    >
+      <div className="space-y-2">
+        <Label htmlFor="confirm-settle-date">实际收付日期</Label>
+        <Input
+          id="confirm-settle-date"
+          onChange={(event) => setOccurredOn(event.target.value)}
+          type="date"
+          value={occurredOn}
+        />
+      </div>
+    </ConfirmDialog>
   )
 }

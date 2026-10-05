@@ -81,11 +81,9 @@ export function ProjectForm(props: ProjectFormProps) {
           value={props.values.github_repo}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-3 pt-2">
+        <Button onClick={props.onCancel} type="button" variant="outline">{props.editing ? "取消编辑" : "取消"}</Button>
         <Button disabled={props.busy} type="submit">{props.editing ? "保存修改" : "添加项目"}</Button>
-        {props.editing ? (
-          <Button onClick={props.onCancel} type="button" variant="ghost">取消编辑</Button>
-        ) : null}
       </div>
     </form>
   )

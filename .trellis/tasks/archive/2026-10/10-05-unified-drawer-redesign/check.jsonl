@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/web/frontend/brand-vi.md", "reason": "验收视觉改动是否符合 Notion token 体系与 WCAG 对比度护栏"}
+{"file": ".trellis/spec/web/frontend/component-guidelines.md", "reason": "验收 Drawer 组件重构与调用方改动是否符合组件规范"}

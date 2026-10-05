@@ -1,6 +1,4 @@
-import * as Dialog from "@radix-ui/react-dialog"
-import { X } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { ResponsiveList } from "@/components/responsive-list"
@@ -8,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/dialog"
+import { Drawer } from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { copyPlainText } from "@/lib/clipboard"
@@ -39,6 +38,12 @@ export function SopsPage() {
   })
   const { form, filters } = list
   const [viewing, setViewing] = useState<Sop | null>(null)
+  // 抽屉退出动画期间 viewing 已置空，用 ref 留住最后查看的 SOP，避免面板滑出时内容消失
+  const lastViewingRef = useRef<Sop | null>(null)
+  useEffect(() => {
+    if (viewing) lastViewingRef.current = viewing
+  }, [viewing])
+  const shownSop = viewing ?? lastViewingRef.current
 
   function closeDrawer() {
     if (list.editingId) list.cancelEdit()
@@ -46,9 +51,9 @@ export function SopsPage() {
   }
 
   async function copyViewingBody() {
-    if (!viewing) return
+    if (!shownSop) return
     try {
-      await copyPlainText(viewing.body)
+      await copyPlainText(shownSop.body)
       toast.success("内容已复制")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "复制失败")
@@ -162,37 +167,30 @@ export function SopsPage() {
         values={form}
       />
 
-      <Dialog.Root onOpenChange={(open) => !open && setViewing(null)} open={viewing !== null}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[80vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--bg)] p-6 shadow-lg">
-            {viewing ? (
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-2">
-                    <Dialog.Title className="text-lg font-semibold text-[var(--ink)]">{viewing.title}</Dialog.Title>
-                    <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-                      <span>{kindLabels[viewing.kind]}</span>
-                      <Badge>{viewing.status}</Badge>
-                      {viewing.tags.length ? <span>{viewing.tags.join("、")}</span> : null}
-                    </div>
-                  </div>
-                  <Dialog.Close asChild>
-                    <Button aria-label="关闭" size="sm" type="button" variant="ghost"><X size={16} /></Button>
-                  </Dialog.Close>
-                </div>
-                <Dialog.Description className="sr-only">查看 SOP 完整内容</Dialog.Description>
-                <div className="whitespace-pre-wrap rounded-md border border-[var(--line)] bg-[var(--faint)] p-4 text-sm leading-6 text-[var(--ink)]">
-                  {viewing.body}
-                </div>
-                <div className="flex justify-end">
-                  <Button onClick={copyViewingBody} size="sm" type="button" variant="outline">复制内容</Button>
-                </div>
-              </div>
-            ) : null}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <Drawer
+        description={shownSop ? `查看 SOP「${shownSop.title}」完整内容` : undefined}
+        footer={(
+          <div className="flex justify-end">
+            <Button onClick={copyViewingBody} size="sm" type="button" variant="outline">复制内容</Button>
+          </div>
+        )}
+        onClose={() => setViewing(null)}
+        open={viewing !== null}
+        title={shownSop?.title ?? ""}
+      >
+        {shownSop ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <span>{kindLabels[shownSop.kind]}</span>
+              <Badge>{shownSop.status}</Badge>
+              {shownSop.tags.length ? <span>{shownSop.tags.join("、")}</span> : null}
+            </div>
+            <div className="whitespace-pre-wrap rounded-md border border-[var(--line)] bg-[var(--faint)] p-4 text-sm leading-6 text-[var(--ink)]">
+              {shownSop.body}
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
 
       <ConfirmDialog
         busy={list.isRemoving}

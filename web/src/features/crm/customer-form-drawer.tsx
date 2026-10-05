@@ -14,15 +14,15 @@ type CustomerFormDrawerProps = {
 }
 
 export function CustomerFormDrawer(props: CustomerFormDrawerProps) {
-  if (!props.open) return null
   return (
-    <Drawer onClose={props.onClose} open title={props.editing ? "编辑客户" : "新建客户"}>
+    <Drawer onClose={props.onClose} open={props.open} title={props.editing ? "编辑客户" : "新建客户"}>
       <CustomerForm
         busy={props.busy}
         editing={props.editing}
         onCancel={props.onClose}
         onChange={props.onChange}
         onSubmit={props.onSubmit}
+        singleColumn
         values={props.values}
       />
     </Drawer>

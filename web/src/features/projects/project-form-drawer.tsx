@@ -14,9 +14,8 @@ type ProjectFormDrawerProps = {
 }
 
 export function ProjectFormDrawer(props: ProjectFormDrawerProps) {
-  if (!props.open) return null
   return (
-    <Drawer onClose={props.onClose} open title={props.editing ? "编辑项目" : "新建项目"}>
+    <Drawer onClose={props.onClose} open={props.open} title={props.editing ? "编辑项目" : "新建项目"}>
       <ProjectForm
         busy={props.busy}
         editing={props.editing !== null}

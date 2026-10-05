@@ -14,9 +14,8 @@ type SopFormDrawerProps = {
 }
 
 export function SopFormDrawer(props: SopFormDrawerProps) {
-  if (!props.open) return null
   return (
-    <Drawer onClose={props.onClose} open title={props.editing ? "编辑 SOP" : "新建 SOP"}>
+    <Drawer onClose={props.onClose} open={props.open} title={props.editing ? "编辑 SOP" : "新建 SOP"}>
       <SopForm
         busy={props.busy}
         editing={props.editing}

@@ -15,6 +15,8 @@ type TalentFormProps = {
   tagSuggestions: string[]
   editing: boolean
   busy: boolean
+  /** 抽屉等窄容器场景强制单列；宽页（详情页编辑）保持响应式多列 */
+  singleColumn?: boolean
   onChange: (values: TalentFormValues) => void
   onSubmit: () => void
   onCancel: () => void
@@ -43,17 +45,17 @@ export function TalentForm(props: TalentFormProps) {
           value={props.values.notes}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-3 pt-2">
+        <Button onClick={props.onCancel} type="button" variant="outline">{props.editing ? "取消编辑" : "取消"}</Button>
         <Button disabled={props.busy} type="submit">{props.editing ? "保存修改" : "添加人才"}</Button>
-        {props.editing ? <Button onClick={props.onCancel} type="button" variant="ghost">取消编辑</Button> : null}
       </div>
     </form>
   )
 }
 
-function TalentIdentityFields({ values, onChange }: TalentFormProps) {
+function TalentIdentityFields({ values, singleColumn, onChange }: TalentFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
       <div className="space-y-2">
         <Label htmlFor="talent-name">姓名</Label>
         <Input
@@ -142,9 +144,9 @@ function TalentTagsField({ values, tagSuggestions, onChange }: TalentFormProps) 
   )
 }
 
-function TalentProfileFields({ values, onChange }: TalentFormProps) {
+function TalentProfileFields({ values, singleColumn, onChange }: TalentFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
       <div className="space-y-2">
         <Label htmlFor="talent-capability">能力</Label>
         <Input
@@ -176,9 +178,9 @@ function TalentProfileFields({ values, onChange }: TalentFormProps) {
   )
 }
 
-function TalentRateFields({ values, onChange }: TalentFormProps) {
+function TalentRateFields({ values, singleColumn, onChange }: TalentFormProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
       <div className="space-y-2">
         <Label htmlFor="talent-rate-amount">费率金额</Label>
         <Input
