@@ -156,11 +156,3 @@ channel:
 #
 # prompt_injection:
 #   skip_keyword: "no-trellis"   # "" disables the escape hatch entirely
-
-# Auto-detected monorepo packages
-packages:
-  web:
-    path: web
-  reven-server:
-    path: server
-default_package: web

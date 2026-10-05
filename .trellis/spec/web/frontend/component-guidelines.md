@@ -44,6 +44,18 @@ Questions to answer:
 
 通用展示件（如 `ErrorPanel`）放 `web/src/components/ui/`；feature 私有件留在 feature 目录（先例：`rss-shared.tsx` 的 `StatusBadge` 仅 rss 使用，不提升）。
 
+### Convention: 列表页去表单化拆分——新建走 `Drawer`，编辑收进详情页
+
+**What**：列表页不常驻新建/编辑表单。新建 → `Drawer`（`web/src/components/ui/drawer.tsx`）包受控表单，`useResourceList` 的 `onSaved` 回调负责关抽屉（该回调的注释即「供关闭抽屉等扩展」，抽屉是其设计内用法）；编辑 → 收进详情页页内切换（只读卡片 ⇄ 表单态），列表行「编辑」跳 `/:id?edit=1`，详情页用 `useState(() => searchParams.get("edit") === "1")` 懒初始化进编辑态。先例：finance `entry-form-drawer.tsx`、talents `talent-form-drawer.tsx` + `talent-detail-page.tsx`（GH #186）。
+
+**Why**：一屏堆叠「常驻表单 + 列表」让首屏被表单占据（GH #186 前的 talents-page；crm-page 仍是旧结构，后续拆分应照此对齐）。统一做法避免各模块各自发明弹窗/子路由。
+
+**约束**：
+- 详情页编辑不实例化 `useResourceList`（会白拉列表、闲置删除流程）；用 contacts-section 式本地 `useState` + `useMutation`，校验/转换复用本模块 `*-form-model.ts`。
+- 标签建议等由列表聚合的数据，详情页编辑态用同 key 的列表查询聚合，并加 `enabled` 门控（如 `enabled: editing`），避免只读浏览时多打全量请求。
+- 同页出现多个同名按钮（如详情页档案卡与跟进卡各有「编辑」）时加区分性 aria-label（如 `编辑人才档案`），否则 `getByRole` 与读屏歧义。
+- 不为拆分新增 `/new`、`/:id/edit` 路由，也不为此拆 `useResourceList`。
+
 ---
 
 ## Props Conventions
