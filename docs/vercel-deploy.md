@@ -39,16 +39,31 @@ https://dev.wangyiyang.cc/api/$1
 
 更换环境（如指向生产 server）时，修改 `web/vercel.json` 中该条规则的 `destination` 并重新部署即可。注意保留路径中的 `/api/$1`，保证 `/api/xxx` 被代理到 `<目标>/api/xxx`。
 
-server 使用 cookie 会话并校验 `X-Reven-CSRF` 头。由于浏览器始终访问同源（Vercel 域名），cookie 与 CSRF 头行为与现状一致，server 侧无需任何改动。
+server 使用 cookie 会话并校验 `X-Reven-CSRF` 头与 `Origin`。浏览器始终访问同源（Vercel 域名），cookie 可正常种植；但写请求携带的 `Origin` 是 Vercel 域，与 server 的 `PUBLIC_BASE_URL` 不一致，需在 server 侧配置 `REVEN_CSRF_ALLOWED_ORIGINS` 放行（见第 4 节），否则登录等写请求会被 403 拒绝。
 
-## 4. 自有域名绑定与验收
+## 4. server 放行 Vercel 域 Origin（必须）
+
+前端部署到 Vercel 后，浏览器写请求的 `Origin` 为 Vercel 域（如 `https://reven-web-nine.vercel.app`）。server 的 `CsrfOriginMiddleware` 默认只放行 `Origin == PUBLIC_BASE_URL` 的写请求，不配置时登录等写请求返回 403（`csrf_validation_failed`）。
+
+在 server 所在 VPS 的环境变量中追加 Vercel 域并重启容器：
+
+```bash
+# 多个前端域用逗号分隔
+REVEN_CSRF_ALLOWED_ORIGINS=https://reven-web-nine.vercel.app
+```
+
+- 取值为 HTTP/HTTPS origin（不含路径），server 启动时逐项校验，非法值直接报错（fail-closed）；
+- 修改后需重启 server 容器生效（更新流程见 `docs/runbook.md`）；
+- 未设置该变量时行为与之前完全一致：仅校验 `PUBLIC_BASE_URL`。
+
+## 5. 自有域名绑定与验收
 
 1. 在 Project Settings → Domains 中添加自有域名，按提示配置 DNS（A/CNAME 记录），等待证书签发完成。
 2. 验收方式：
    - 访问 `https://<自有域名>`，页面正常打开，刷新子路由（如直接打开某个前端路由地址）不 404，说明 SPA fallback 生效；
    - 登录后进入仪表盘，候选/素材等数据正常加载（浏览器开发者工具中 `/api/...` 请求返回 200），说明 `/api` 代理生效。
 
-## 5. 本地验证
+## 6. 本地验证
 
 部署前可在仓库内验证构建产物为纯静态文件：
 
