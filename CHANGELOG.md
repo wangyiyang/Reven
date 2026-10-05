@@ -15,6 +15,7 @@
 **基础设施**
 
 - 生产镜像 runtime 基础镜像 digest 升级，并显式升级 `perl-base` 至 deb12u4，修复 3 个 CRITICAL CVE（CVE-2026-13221 / CVE-2026-42496 / CVE-2026-8376）。
+- VPS 部署形态改为纯 API：Caddy 不再服务前端静态文件，前端唯一入口 Vercel；自托管形态（infra/self-host）不变（#120）。
 
 **数据库迁移**
 
