@@ -465,3 +465,28 @@ Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 p
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: CRM 历史与计划派生化（#201 P1）
+<!-- trellis-session: v=2 fp=933f2fe32226f187 -->
+
+**Date**: 2026-10-05
+**Task**: CRM 历史与计划派生化（#201 P1）
+**Branch**: `issue/gh-201-crm-talents-talent`
+
+### Summary
+
+删除 Customer.next_* 双写字段与 set_as_current，客户当前计划派生自最新跟进记录；migration 0025、server/web 全链路、crm-contract spec 同步；881+243 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `14a3f9e` | feat(server): CRM 跟进计划派生化——删除客户双写计划字段与 set_as_current |
+| `3f214b4` | feat(web): CRM 客户表单移除计划字段，跟进计划改派生展示并加首条跟进引导 |
+| `b8d8f67` | docs(spec): crm-contract 更新为派生计划契约 |
+| `4c00248` | docs(trellis): 10-05-crm-plan-derive 任务规划产物 |
+
+### Status
+
+[OK] **Completed**

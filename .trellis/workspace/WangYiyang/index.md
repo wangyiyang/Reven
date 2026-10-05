@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 16
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~467 | Active |
+| `journal-1.md` | ~492 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-10-05 | CRM 历史与计划派生化（#201 P1） | `14a3f9e`, `3f214b4`, `b8d8f67`, `4c00248` | `issue/gh-201-crm-talents-talent` |
 | 14 | 2026-10-05 | fix: CSRF Origin 白名单支持 Vercel 前端域（#120 一期实机验证修复） | `a2e3ec8`, `4364d80`, `a7d617b`, `4020617` | `issue/gh-120-deploy-vercel-web-server-serverless` |
 | 13 | 2026-10-05 | web 部署 Vercel 第一期（issue #120） | `23ed452`, `7746ae4`, `e0122dd` | `issue/gh-120-deploy-vercel-web-server-serverless` |
 | 12 | 2026-10-05 | 工作台 Dashboard 首页：聚合端点 + 默认落地页 | `c81a3d9`, `b2b4cbb`, `2b9ff3f` | `feat/dashboard` |
