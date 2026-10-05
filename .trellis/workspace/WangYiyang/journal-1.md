@@ -465,3 +465,27 @@ Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 p
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版
+<!-- trellis-session: v=2 fp=8b23d1d342e06beb -->
+
+**Date**: 2026-10-05
+**Task**: VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版
+**Branch**: `chore/vps-api-only`
+
+### Summary
+
+v0.7.1 首次发布被 trivy 拦下（基础镜像 perl-base deb12u3 含 3 个 CRITICAL CVE）：升级 runtime digest 并显式 --only-upgrade perl-base（PR #204）。随后实现 VPS 纯 API 形态（PR #205）：Caddy 去掉静态服务只留 /api 反代 + 兜底 404，compose 摘 reven-static 卷，e2e 固化，caddy validate 通过；自托管与镜像 web 构建不变。重打 v0.7.1 tag 触发 release 重跑，待部署后验证 Vercel 登录链路与 VPS API-only 生效。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1fe284a` | fix(docker): 升级 runtime 基础镜像并修复 perl-base CRITICAL CVE |
+| `4e62b63` | chore(infra): VPS 部署形态改为纯 API，前端唯一入口 Vercel |
+| `1cd1fd0` | chore(task): 10-05-vps-api-only 任务 PRD 与上下文 |
+
+### Status
+
+[OK] **Completed**
