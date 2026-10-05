@@ -416,3 +416,27 @@ grilling 访谈定性双问题：talents 抽屉'看不到'实为 10-01 旧 dist 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: web 部署 Vercel 第一期（issue #120）
+<!-- trellis-session: v=2 fp=7f60e2929a520228 -->
+
+**Date**: 2026-10-05
+**Task**: web 部署 Vercel 第一期（issue #120）
+**Branch**: `issue/gh-120-deploy-vercel-web-server-serverless`
+
+### Summary
+
+在 worktree issue/gh-120-deploy-vercel-web-server-serverless 完成 issue #120 第一期：新增 web/vercel.json（/api 优先代理到 dev.wangyiyang.cc + SPA fallback）与 docs/vercel-deploy.md；web/src 零改动；build/lint/test 全绿；已推送并创建 PR #200（Refs #120，不含第二期 server serverless 评估）。Vercel 账号侧导入与域名绑定待用户操作。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `23ed452` | feat(web): 新增 vercel.json 支持 Vercel 部署 |
+| `7746ae4` | docs: 新增 Vercel 部署文档 |
+| `e0122dd` | chore(task): 10-05-vercel-web-deploy 任务 PRD 与上下文 |
+
+### Status
+
+[OK] **Completed**
