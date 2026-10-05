@@ -1,5 +1,5 @@
 import { AlertTriangle, CalendarClock } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 
 import { ResponsiveList } from "@/components/responsive-list"
 import { Badge } from "@/components/ui/badge"
@@ -16,7 +16,6 @@ type TalentListProps = {
   filters: TalentFilters
   onFiltersChange: (filters: TalentFilters) => void
   onRetry: () => void
-  onEdit: (talent: Talent) => void
   onDelete: (talent: Talent) => void
 }
 
@@ -24,6 +23,7 @@ const selectClassName = "h-10 rounded-md border border-[var(--line)] bg-[var(--b
 const emptyTalentsMessage = "暂无匹配人才。"
 
 export function TalentList(props: TalentListProps) {
+  const navigate = useNavigate()
   const tagOptions = [...new Set((props.talents ?? []).flatMap((talent) => talent.tags))].sort()
   return (
     <div className="space-y-4">
@@ -32,7 +32,7 @@ export function TalentList(props: TalentListProps) {
       {!props.loading && !props.failed ? (
         <ResponsiveList
           actions={[
-            { label: "编辑", ariaLabel: (talent) => `编辑 ${talent.name}`, onClick: props.onEdit },
+            { label: "编辑", ariaLabel: (talent) => `编辑 ${talent.name}`, onClick: (talent) => void navigate(`/talents/${talent.id}?edit=1`) },
             { label: "删除", ariaLabel: (talent) => `删除 ${talent.name}`, onClick: props.onDelete },
           ]}
           card={(talent) => ({
