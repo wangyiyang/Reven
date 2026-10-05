@@ -56,6 +56,18 @@ Questions to answer:
 - 同页出现多个同名按钮（如详情页档案卡与跟进卡各有「编辑」）时加区分性 aria-label（如 `编辑人才档案`），否则 `getByRole` 与读屏歧义。
 - 不为拆分新增 `/new`、`/:id/edit` 路由，也不为此拆 `useResourceList`。
 
+### Convention: Drawer/Dialog 受控开合，禁止提前卸载
+
+**What**：浮层调用方始终渲染组件、以 `open` prop 受控，禁止 `if (!open) return null`。`Drawer`（`web/src/components/ui/drawer.tsx`）经 Radix `data-[state=open/closed]` 触发 `index.css` 的 `drawer-fade/slide-in/out` keyframes，Radix Presence 等 `animationend` 后才卸载 children——提前 return null 会让退出动画永远播不了。
+
+**Why**：7 个抽屉曾全部 `if (!open) return null`，开关瞬现瞬隐（GH 前 #186 时代遗留）。自含状态的表单组件放进 Drawer children 还有第二个收益：Presence 关闭后才卸载，下次打开重新挂载，表单自然重置，语义与旧卸载模式一致、无需 reset effect。
+
+**约束**：
+- 父级在关闭时立即清空数据源的场景（如 finance `entry` 置空、sops `viewing` 置空），用 ref 快照最后一次打开的会话数据渲染，避免 240ms 退出动画期间内容闪变/结构消失。
+- 仅标题一词之差（「编辑 X」→「新建 X」）属可接受 cosmetic，不值得加快照。
+- 浮层只用共享组件：`Drawer`（侧滑）/ `ConfirmDialog`（居中确认，深遮罩 `bg-black/55` 为既有设计，勿"统一"成浅遮罩）。禁止页面内联手写 `Dialog.Overlay/Content`（先例：sops 查看弹窗、confirm-settle-dialog 已收敛）。
+- `Drawer` 必渲染 sr-only `Dialog.Description`（缺省复用 title），消除 Radix a11y 警告。
+
 ---
 
 ## Props Conventions
