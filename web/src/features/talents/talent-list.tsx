@@ -84,8 +84,8 @@ export function TalentList(props: TalentListProps) {
 
 function TalentFiltersBar({ filters, onChange, tagOptions }: { filters: TalentFilters; onChange: TalentListProps["onFiltersChange"]; tagOptions: string[] }) {
   return (
-    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto] md:items-end">
-      <div className="space-y-2">
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="min-w-56 flex-1 space-y-2">
         <Label htmlFor="talents-search">搜索</Label>
         <Input
           id="talents-search"
