@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.7.1] - 2026-10-05
+
+### 本版变更（自 v0.7.0）
+
+**新功能**
+
+- web 前端支持部署到 Vercel：新增 `web/vercel.json`（/api 优先代理 + SPA fallback）与部署文档 `docs/vercel-deploy.md`（#120 #200）。
+
+**修复**
+
+- CSRF Origin 校验新增白名单配置 `REVEN_CSRF_ALLOWED_ORIGINS`（逗号分隔、逐项归一化校验、默认空向后兼容）：前后端分域名部署（如前端在 Vercel）时浏览器写请求不再被 403 拒绝（#200）。
+
+**数据库迁移**
+
+- 无。
+
 ## [v0.7.0] - 2026-10-05
 
 ### 本版变更（自 v0.6.0）
