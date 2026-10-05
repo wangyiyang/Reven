@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -232,7 +233,7 @@ function BlogTemplateForm({ assets }: { assets: BrandAsset[] }) {
   const imageAssets = assets.filter((asset) => asset.enabled)
   return (
     <div className="grid gap-4 pt-5 sm:grid-cols-2">
-      <TemplateStatus published={published} hasDraft={Boolean(template.data?.draft)} onPublish={() => publish.mutate()} onSave={() => save.mutate()} saving={save.isPending || publish.isPending} />
+      <TemplateStatus published={published} hasDraft={Boolean(template.data?.draft)} onPublish={() => publish.mutate()} onSave={() => save.mutate()} saving={save.isPending || publish.isPending} className="sm:col-span-2" />
       <div>
         <Label className="mb-1.5 block text-xs text-[var(--muted)]">博客署名（留空用品牌默认署名）</Label>
         <Input
@@ -273,15 +274,16 @@ function AssetSelect({ assets, label, value, onChange }: { assets: BrandAsset[];
   )
 }
 
-function TemplateStatus({ published, hasDraft, onSave, onPublish, saving }: {
+function TemplateStatus({ published, hasDraft, onSave, onPublish, saving, className }: {
   published: { version: number } | null
   hasDraft: boolean
   onSave: () => void
   onPublish: () => void
   saving: boolean
+  className?: string
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4 sm:col-span-2">
+    <div className={cn("flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4", className)}>
       <p className="text-xs text-[var(--muted)]">
         {published ? `当前已发布 v${published.version}` : "尚未发布模板，请保存草稿后发布新版本"}
         {hasDraft && " · 存在未发布草稿"}
