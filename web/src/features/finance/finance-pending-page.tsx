@@ -110,9 +110,12 @@ export function FinancePendingPage() {
         </p>
       ) : null}
       <ConfirmSettleDialog entry={confirming} onClose={() => setConfirming(null)} />
-      {editing ? (
-        <EntryFormDrawer entry={editing} onClose={() => setEditing(null)} open variant={variantForEntry(editing)} />
-      ) : null}
+      <EntryFormDrawer
+        entry={editing}
+        onClose={() => setEditing(null)}
+        open={editing !== null}
+        variant={editing ? variantForEntry(editing) : "income-settled"}
+      />
       <ConfirmDialog
         busy={deleteMutation.isPending}
         confirmLabel={`确认删除「${deleting?.name ?? ""}」`}

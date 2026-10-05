@@ -156,7 +156,7 @@ describe("SopsPage", () => {
 
     await userEvent.click(screen.getAllByRole("button", { name: "查看 客户首次沟通 SOP" })[0])
     expect(await screen.findByRole("dialog")).toHaveTextContent("1. 确认背景")
-    await userEvent.click(screen.getByRole("button", { name: "关闭" }))
+    await userEvent.click(screen.getByRole("button", { name: "关闭抽屉" }))
 
     await userEvent.click(screen.getAllByRole("button", { name: "编辑 客户首次沟通 SOP" })[0])
     const drawer = await screen.findByRole("dialog")

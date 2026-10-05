@@ -14,15 +14,15 @@ type TalentFormDrawerProps = {
 }
 
 export function TalentFormDrawer(props: TalentFormDrawerProps) {
-  if (!props.open) return null
   return (
-    <Drawer onClose={props.onClose} open title="新建人才">
+    <Drawer onClose={props.onClose} open={props.open} title="新建人才">
       <TalentForm
         busy={props.busy}
         editing={false}
         onCancel={props.onClose}
         onChange={props.onChange}
         onSubmit={props.onSubmit}
+        singleColumn
         tagSuggestions={props.tagSuggestions}
         values={props.form}
       />

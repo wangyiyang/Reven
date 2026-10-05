@@ -35,7 +35,7 @@ export function SopForm(props: SopFormProps) {
           value={props.values.title}
         />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4">
         <div className="space-y-2">
           <Label htmlFor="sop-kind">类型</Label>
           <select
@@ -84,9 +84,9 @@ export function SopForm(props: SopFormProps) {
           value={props.values.body}
         />
       </div>
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-3 pt-2">
+        <Button onClick={props.onCancel} type="button" variant="outline">{props.editing ? "取消编辑" : "取消"}</Button>
         <Button disabled={props.busy} type="submit">{props.editing ? "保存修改" : "添加 SOP"}</Button>
-        {props.editing ? <Button onClick={props.onCancel} type="button" variant="ghost">取消编辑</Button> : null}
       </div>
     </form>
   )
