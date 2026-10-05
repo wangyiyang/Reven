@@ -347,3 +347,36 @@ Issue #108 全流程交付：后端 entries 筛选(status多值/month/category) 
 ### Status
 
 [OK] **Completed**
+
+## 2026-10-05 #189 表单 Drawer 化
+
+- 任务 10-05-form-modalization：CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。
+- 关键决策：编辑入口不进窗口——有详情页的实体（CRM）编辑收进详情页 `?edit=1` 页内切换，无详情页的走同一 Drawer；依据 #186 固化进 spec 的约定。
+- 实现：4 个并行子代理按模块落地（受控 Drawer 壳 + useResourceList onSaved；RSS 走自包含模式参照 finance），trellis-check 修 2 处（SOP 按钮文案对齐、projects closeDrawer 边界）。
+- 验证：vitest 233 全绿、tsc/eslint 零告警。4 个原子提交在 worktree 分支 issue/gh-189-feat-web，待 push + PR。
+- 经验：#186 talents 草稿留在 main 工作区未提交，worktree 模式需先协调；建议 #186 尽快合入，避免 talents 与本批模式漂移。
+
+
+## Session 10: #189 各资源页面表单 Drawer 化
+
+**Date**: 2026-10-05
+**Task**: #189 各资源页面表单 Drawer 化
+**Package**: web
+**Branch**: `main`
+
+### Summary
+
+CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。决策：编辑入口不进窗口（有详情页的 CRM 编辑收进详情页 ?edit=1，无详情页的走同一 Drawer），对齐 #186 spec 约定。4 模块并行子代理落地，trellis-check 修 2 处，vitest 233 全绿 + tsc/eslint 零告警。4 个原子提交在 worktree 分支 issue/gh-189-feat-web，PR 待开。遗留：#186 talents 草稿仍在 main 工作区（talents-page 两个文件疑似被还原），建议尽快合入避免模式漂移。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b95dbf0` | (see git log) |
+| `369e6c1` | (see git log) |
+| `a67d9fe` | (see git log) |
+| `dafe96e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
