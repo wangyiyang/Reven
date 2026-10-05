@@ -1,15 +1,24 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, CalendarClock } from "lucide-react"
-import { Link, Navigate, useParams } from "react-router-dom"
+import { useState } from "react"
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 
 import { ContactsSection } from "./contacts-section"
-import { crmKeys, getCustomer } from "./crm-api"
+import { crmKeys, getCustomer, updateCustomer } from "./crm-api"
+import { CustomerForm } from "./customer-form"
+import {
+  customerFormToInput,
+  customerToForm,
+  validateCustomerForm,
+  type CustomerFormValues,
+} from "./customer-form-model"
 import { FollowUpsSection } from "./follow-ups-section"
-import type { Customer } from "./types"
+import type { Customer, CustomerInput } from "./types"
 
 export function CustomerDetailPage() {
   const { customerId } = useParams()
@@ -43,14 +52,58 @@ function DetailHeading({ customer }: { customer: Customer }) {
 }
 
 function CustomerSummary({ customer }: { customer: Customer }) {
+  const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const [editing, setEditing] = useState(() => searchParams.get("edit") === "1")
+  const [form, setForm] = useState<CustomerFormValues>(() => customerToForm(customer))
+  const updateMutation = useMutation({
+    mutationFn: (input: CustomerInput) => updateCustomer(customer.id, input),
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(crmKeys.customer(updated.id), updated)
+      await queryClient.invalidateQueries({ queryKey: crmKeys.customers })
+      setEditing(false)
+      toast.success("客户已更新")
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "请求失败"),
+  })
+
+  function startEdit() {
+    setForm(customerToForm(customer))
+    setEditing(true)
+  }
+
+  function submit() {
+    const error = validateCustomerForm(form)
+    if (error) return toast.error(error)
+    updateMutation.mutate(customerFormToInput(form))
+  }
+
   return (
     <Card>
-      <CardHeader><h2 className="text-lg font-medium text-[var(--ink)]">当前推进</h2></CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <div><p className="text-xs text-[var(--muted)]">下一步行动</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.next_action ?? "尚未安排"}</p></div>
-        <div><p className="text-xs text-[var(--muted)]">下次跟进</p><p className="mt-1 flex items-center gap-2 text-sm"><CalendarClock aria-hidden size={15} />{customer.next_follow_up_on ?? "无计划"}</p></div>
-        {customer.notes ? <div className="md:col-span-2"><p className="text-xs text-[var(--muted)]">备注</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.notes}</p></div> : null}
-      </CardContent>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-medium text-[var(--ink)]">客户档案</h2>
+          {editing ? null : <Button aria-label="编辑客户档案" onClick={startEdit} size="sm" type="button" variant="outline">编辑</Button>}
+        </div>
+      </CardHeader>
+      {editing ? (
+        <CardContent>
+          <CustomerForm
+            busy={updateMutation.isPending}
+            editing
+            onCancel={() => setEditing(false)}
+            onChange={setForm}
+            onSubmit={submit}
+            values={form}
+          />
+        </CardContent>
+      ) : (
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div><p className="text-xs text-[var(--muted)]">下一步行动</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.next_action ?? "尚未安排"}</p></div>
+          <div><p className="text-xs text-[var(--muted)]">下次跟进</p><p className="mt-1 flex items-center gap-2 text-sm"><CalendarClock aria-hidden size={15} />{customer.next_follow_up_on ?? "无计划"}</p></div>
+          {customer.notes ? <div className="md:col-span-2"><p className="text-xs text-[var(--muted)]">备注</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.notes}</p></div> : null}
+        </CardContent>
+      )}
     </Card>
   )
 }

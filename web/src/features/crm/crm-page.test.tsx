@@ -50,7 +50,6 @@ describe("CrmPage", () => {
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "CRM" })).toBeInTheDocument()
-    expect(screen.getByLabelText("备注")).toHaveClass("text-[var(--ink)]", "placeholder:text-[var(--muted)]")
     expect((await screen.findAllByText("星河科技"))[0]).toBeInTheDocument()
     expect(screen.getAllByText("跟进中")[0]).toBeInTheDocument()
     expect(screen.getAllByText(/逾期 · 2020-01-01/)[0]).toBeInTheDocument()
@@ -78,7 +77,7 @@ describe("CrmPage", () => {
     })
   })
 
-  it("创建客户后刷新列表并清空表单", async () => {
+  it("在抽屉中创建客户后刷新列表并关闭抽屉", async () => {
     let requestBody: unknown
     let customers = [customer]
     server.use(
@@ -92,10 +91,14 @@ describe("CrmPage", () => {
     )
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("客户名称"), " 远山工作室 ")
-    await userEvent.selectOptions(screen.getByLabelText("关系状态", { selector: "#crm-customer-status" }), "潜在客户")
-    await userEvent.type(screen.getByLabelText("客户来源"), "官网")
-    await userEvent.click(screen.getByRole("button", { name: "添加客户" }))
+    await screen.findByRole("article", { name: "星河科技 客户摘要" })
+    await userEvent.click(screen.getByRole("button", { name: "新建客户" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByLabelText("备注")).toHaveClass("text-[var(--ink)]", "placeholder:text-[var(--muted)]")
+    await userEvent.type(within(dialog).getByLabelText("客户名称"), " 远山工作室 ")
+    await userEvent.selectOptions(within(dialog).getByLabelText("关系状态", { selector: "#crm-customer-status" }), "潜在客户")
+    await userEvent.type(within(dialog).getByLabelText("客户来源"), "官网")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加客户" }))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("客户已添加"))
     expect(requestBody).toEqual({
@@ -106,7 +109,7 @@ describe("CrmPage", () => {
       next_action: null,
       next_follow_up_on: null,
     })
-    expect(screen.getByLabelText("客户名称")).toHaveValue("")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect((await screen.findAllByText("远山工作室"))[0]).toBeInTheDocument()
   })
 
@@ -118,25 +121,22 @@ describe("CrmPage", () => {
     }))
 
     renderPage()
-    await userEvent.type(await screen.findByLabelText("客户名称"), "待验证客户")
-    await userEvent.type(screen.getByLabelText("下次跟进日期"), "2026-09-01")
-    await userEvent.click(screen.getByRole("button", { name: "添加客户" }))
+    await screen.findByRole("article", { name: "星河科技 客户摘要" })
+    await userEvent.click(screen.getByRole("button", { name: "新建客户" }))
+    const dialog = await screen.findByRole("dialog")
+    await userEvent.type(within(dialog).getByLabelText("客户名称"), "待验证客户")
+    await userEvent.type(within(dialog).getByLabelText("下次跟进日期"), "2026-09-01")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加客户" }))
 
     expect(toast.error).toHaveBeenCalledWith("设置跟进日期时请填写下一步行动")
     expect(posted).toBe(false)
   })
 
-  it("支持编辑客户，并在确认后删除", async () => {
+  it("支持在确认后删除客户", async () => {
     let customers = [customer]
-    let updatedBody: unknown
     let deleted = false
     server.use(
       http.get("/api/crm/customers", () => HttpResponse.json(customers)),
-      http.put("/api/crm/customers/:customerId", async ({ request }) => {
-        updatedBody = await request.json()
-        customers = [{ ...customer, name: "星河科技有限公司" }]
-        return HttpResponse.json(customers[0])
-      }),
       http.delete("/api/crm/customers/:customerId", () => {
         deleted = true
         customers = []
@@ -145,16 +145,7 @@ describe("CrmPage", () => {
     )
 
     renderPage()
-    await userEvent.click((await screen.findAllByRole("button", { name: "编辑 星河科技" }))[0])
-    const nameInput = screen.getByLabelText("客户名称")
-    await userEvent.clear(nameInput)
-    await userEvent.type(nameInput, "星河科技有限公司")
-    await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
-
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("客户已更新"))
-    expect(updatedBody).toMatchObject({ name: "星河科技有限公司", status: "跟进中" })
-
-    await userEvent.click((await screen.findAllByRole("button", { name: "删除 星河科技有限公司" }))[0])
+    await userEvent.click((await screen.findAllByRole("button", { name: "删除 星河科技" }))[0])
     const dialog = await screen.findByRole("dialog")
     expect(deleted).toBe(false)
     await userEvent.click(within(dialog).getByRole("button", { name: /确认删除/ }))

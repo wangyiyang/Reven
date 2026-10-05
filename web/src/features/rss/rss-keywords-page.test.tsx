@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { HttpResponse, http } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -64,6 +64,25 @@ describe("RssKeywordsPage", () => {
     expect(screen.getByRole("region", { name: "反向关键词" })).toHaveTextContent("sponsored post")
   })
 
+  it("opens the create drawer and closes it via cancel or close button", async () => {
+    server.use(
+      http.get("/api/rss/sources", () => HttpResponse.json([])),
+      http.get("/api/rss/keywords", () => HttpResponse.json([])),
+    )
+    renderPage()
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "新建关键词" }))
+    expect(screen.getByRole("dialog", { name: "新建关键词" })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "取消" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole("button", { name: "新建关键词" }))
+    await userEvent.click(screen.getByRole("button", { name: "关闭抽屉" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
   it("adds a keyword to the selected negative list", async () => {
     let currentKeywords: typeof keywords = []
     let requestBody: unknown
@@ -84,15 +103,18 @@ describe("RssKeywordsPage", () => {
     )
     renderPage()
 
-    await userEvent.type(await screen.findByLabelText("关键词"), "press release")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "关键词类型" }), "negative")
-    await userEvent.click(screen.getByRole("button", { name: "添加关键词" }))
+    await userEvent.click(await screen.findByRole("button", { name: "新建关键词" }))
+    const dialog = screen.getByRole("dialog", { name: "新建关键词" })
+    await userEvent.type(within(dialog).getByLabelText("关键词"), "press release")
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "关键词类型" }), "negative")
+    await userEvent.click(within(dialog).getByRole("button", { name: "添加关键词" }))
 
     expect(await screen.findByRole("region", { name: "反向关键词" })).toHaveTextContent("press release")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(requestBody).toEqual({ term: "press release", kind: "negative", enabled: true })
   })
 
-  it("edits and reclassifies a keyword through the shared form", async () => {
+  it("edits and reclassifies a keyword through the drawer", async () => {
     let currentKeywords = keywords
     let requestBody: unknown
     server.use(
@@ -109,13 +131,16 @@ describe("RssKeywordsPage", () => {
     renderPage()
 
     await userEvent.click(await screen.findByRole("button", { name: "编辑 AI agents" }))
-    await userEvent.clear(screen.getByLabelText("关键词"))
-    await userEvent.type(screen.getByLabelText("关键词"), "AI systems")
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "关键词类型" }), "negative")
-    await userEvent.click(screen.getByRole("button", { name: "保存关键词" }))
+    const dialog = screen.getByRole("dialog", { name: "编辑关键词" })
+    expect(within(dialog).getByLabelText("关键词")).toHaveValue("AI agents")
+    await userEvent.clear(within(dialog).getByLabelText("关键词"))
+    await userEvent.type(within(dialog).getByLabelText("关键词"), "AI systems")
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "关键词类型" }), "negative")
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存关键词" }))
 
     expect(await screen.findByRole("region", { name: "反向关键词" })).toHaveTextContent("AI systems")
     expect(screen.getByRole("region", { name: "正向关键词" })).not.toHaveTextContent("AI agents")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(requestBody).toEqual({ term: "AI systems", kind: "negative", enabled: true })
   })
 

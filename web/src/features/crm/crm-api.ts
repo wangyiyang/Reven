@@ -4,6 +4,7 @@ import type {
   Contact,
   ContactInput,
   Customer,
+  CustomerInput,
   FollowUp,
   FollowUpInput,
 } from "./types"
@@ -17,6 +18,10 @@ export const crmKeys = {
 
 export function getCustomer(customerId: string): Promise<Customer> {
   return apiRequest<Customer>(`/crm/customers/${customerId}`)
+}
+
+export function updateCustomer(customerId: string, input: CustomerInput): Promise<Customer> {
+  return apiRequest<Customer>(`/crm/customers/${customerId}`, jsonRequest("PUT", input))
 }
 
 export function listContacts(customerId: string): Promise<Contact[]> {
