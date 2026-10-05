@@ -81,4 +81,5 @@ Tailwind 实用类；组件级样式变体经可选 props（如 `column.classNam
 ## Common Mistakes
 
 - **平行 JSX 树漂移**：同一数据渲染两遍时改动只改一处——用 `ResponsiveList` 杜绝。
+- **复刻共享格式化函数**：金额格式化的唯一真相源是 `@/features/finance/finance-utils`（`formatMoney`），新 feature 一律导入复用，不在自己的 `*-api.ts` 里重写（先例：10-05 dashboard 复刻后被 check 收敛）。
 - **浅 partition**：把一张卡片拆成 5 个 props 雷同的子组件不会带来复用，只是更宽的 interface；先过删除测试：删掉它复杂度是集中还是只是搬家。

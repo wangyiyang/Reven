@@ -1,0 +1,15 @@
+{"file": ".trellis/spec/reven-server/backend/index.md", "reason": "后端包入口规范与 Pre-Development Checklist"}
+{"file": ".trellis/spec/reven-server/backend/directory-structure.md", "reason": "新建 dashboard 包与 api/routes、api/schemas 的落位约定"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "聚合端点错误处理约定"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "后端质量门：ruff/mypy/pytest 要求"}
+{"file": ".trellis/spec/reven-server/backend/finance-summary-contract.md", "reason": "财务 summary 口径与金额单位约定"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "CRM 跟进/逾期口径，list_due_follow_ups 复用依据"}
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "RSS 状态机 candidate/saved 口径"}
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "5 个 provider 清单与 missing 判定"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "前端包入口规范与 Pre-Development Checklist"}
+{"file": ".trellis/spec/web/frontend/directory-structure.md", "reason": "features/dashboard 目录结构约定"}
+{"file": ".trellis/spec/web/frontend/component-guidelines.md", "reason": "卡片/页面组件写法约定"}
+{"file": ".trellis/spec/web/frontend/hook-guidelines.md", "reason": "useQuery 等 hook 使用约定"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "API 类型定义约定"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "前端质量门：pnpm test/build 要求"}
+{"file": ".trellis/tasks/10-05-dashboard/research/api-surface.md", "reason": "各模块现成接口与缺口盘点，聚合端点复用依据"}
