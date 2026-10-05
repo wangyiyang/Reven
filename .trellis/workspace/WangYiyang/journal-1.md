@@ -380,3 +380,27 @@ CRM/项目/SOP/RSS 创建编辑表单弹窗化，全站统一 Drawer。决策：
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: 工作台 Dashboard 首页：聚合端点 + 默认落地页
+<!-- trellis-session: v=2 fp=e3f25c73ba10da76 -->
+
+**Date**: 2026-10-05
+**Task**: 工作台 Dashboard 首页：聚合端点 + 默认落地页
+**Branch**: `feat/dashboard`
+
+### Summary
+
+经 grilling 三轮共识后交付工作台首页：后端新增 GET /api/dashboard/summary 聚合端点（财务待收款含逾期、RSS 待审核/抓取状态、CRM 待跟进 Top5 复用 list_due_follow_ups 与飞书提醒同源、进行中项目、集成缺失含 COS 检查）；前端新增 / 工作台页（可关闭集成横幅 + 四卡片，逾期红显，跳转闭环），取代 /rss/candidates 成为默认落地页，登录回退与 logo 链接同步。质量门全绿：861 pytest / 243 前端测试 / ruff / mypy / build。PR #198。规范沉淀：formatMoney 唯一真相源入组件规范。分支插曲：提交曾误落 feat/unified-drawer-redesign，已 cherry-pick 回 feat/dashboard 并还原抽屉分支。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c81a3d9` | feat(server): 新增工作台聚合端点 /api/dashboard/summary |
+| `b2b4cbb` | feat(web): 工作台首页成为默认落地页与导航首项 |
+| `2b9ff3f` | docs(trellis): dashboard 任务规划产物 + formatMoney 复用约定入组件规范 |
+
+### Status
+
+[OK] **Completed**

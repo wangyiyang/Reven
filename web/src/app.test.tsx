@@ -15,7 +15,18 @@ function CurrentLocation() {
 
 function renderApp(path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  server.use(http.get("/api/rss/candidates", () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 30 })))
+  server.use(
+    http.get("/api/dashboard/summary", () =>
+      HttpResponse.json({
+        finance: { receivable_cents: 0, receivable_count: 0, overdue_receivable_cents: 0, overdue_receivable_count: 0 },
+        rss: { candidate_count: 0, saved_count: 0, latest_run: null },
+        crm: { overdue_count: 0, today_count: 0, due_items: [] },
+        projects: { active_count: 0, items: [] },
+        integrations: { missing_providers: [], cos_configured: true },
+      }),
+    ),
+    http.get("/api/rss/candidates", () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 30 })),
+  )
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}><App /><CurrentLocation /></MemoryRouter>
@@ -24,25 +35,25 @@ function renderApp(path: string) {
 }
 
 describe("App routes", () => {
-  it.each(["/", "/articles", "/articles/retired-id"])("routes %s to content discovery", async (path) => {
+  it.each(["/", "/articles", "/articles/retired-id"])("routes %s to the dashboard workbench", async (path) => {
     renderApp(path)
-    expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
-    expect(screen.getByLabelText("当前地址")).toHaveTextContent("/rss/candidates")
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(screen.getByLabelText("当前地址")).toHaveTextContent("/")
     expect(screen.queryByRole("link", { name: "稿件" })).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Reven 首页" })).toHaveAttribute("href", "/rss/candidates")
-    for (const name of ["CRM", "人才库", "财务", "项目", "SOP（标准作业流程）", "品牌管理"]) {
+    expect(screen.getByRole("link", { name: "Reven 首页" })).toHaveAttribute("href", "/")
+    for (const name of ["工作台", "CRM", "人才库", "财务", "项目", "SOP（标准作业流程）", "品牌管理"]) {
       expect(screen.getByRole("link", { name })).toBeInTheDocument()
     }
   })
 
   it.each(["/login", "/login?next=https%3A%2F%2Fevil.example", "/login?next=%2F%2Fevil.example"])(
-    "uses the content discovery landing page after %s", async (path) => {
+    "lands on the dashboard workbench after %s", async (path) => {
       server.use(http.post("/api/auth/login", () => HttpResponse.json({ ok: true })))
       renderApp(path)
       await userEvent.type(screen.getByLabelText("管理员密码"), "test-password")
       await userEvent.click(screen.getByRole("button", { name: "登录" }))
-      expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
-      expect(screen.getByLabelText("当前地址")).toHaveTextContent("/rss/candidates")
+      expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+      expect(screen.getByLabelText("当前地址")).toHaveTextContent("/")
     },
   )
 

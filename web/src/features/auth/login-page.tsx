@@ -18,7 +18,7 @@ export function LoginPage() {
     try {
       await apiRequest("/auth/login", { method: "POST", body: JSON.stringify({ password }) })
       const next = params.get("next")
-      navigate(next?.startsWith("/") && !next.startsWith("//") ? next : "/rss/candidates", { replace: true })
+      navigate(next?.startsWith("/") && !next.startsWith("//") ? next : "/", { replace: true })
     } catch (err) {
       setError(err instanceof ApiError && err.status === 429 ? "尝试次数过多，请稍后再试" : "密码错误")
     } finally {
