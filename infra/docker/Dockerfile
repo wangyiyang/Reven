@@ -21,9 +21,11 @@ COPY server/pyproject.toml server/pyproject.toml
 COPY server/src/ server/src/
 RUN uv sync --frozen --no-dev --all-packages
 
-FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS runtime
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS runtime
+# perl-base 显式升级：基础镜像尚未 rebuilt 携带 deb12u4（CVE-2026-13221/42496/8376，trivy CRITICAL 门禁）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tini util-linux \
+    && apt-get install -y --only-upgrade perl-base \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 # /data/dsh is the writable DSH_HOME for the embedded dsh agent (profiles, session logs).

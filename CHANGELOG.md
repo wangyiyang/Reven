@@ -12,6 +12,10 @@
 
 - CSRF Origin 校验新增白名单配置 `REVEN_CSRF_ALLOWED_ORIGINS`（逗号分隔、逐项归一化校验、默认空向后兼容）：前后端分域名部署（如前端在 Vercel）时浏览器写请求不再被 403 拒绝（#200）。
 
+**基础设施**
+
+- 生产镜像 runtime 基础镜像 digest 升级，并显式升级 `perl-base` 至 deb12u4，修复 3 个 CRITICAL CVE（CVE-2026-13221 / CVE-2026-42496 / CVE-2026-8376）。
+
 **数据库迁移**
 
 - 无。
