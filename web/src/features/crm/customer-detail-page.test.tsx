@@ -49,7 +49,7 @@ const followUp: FollowUp = {
   customer_id: customerId,
   contact_id: contact.id,
   contact_name_snapshot: contact.name,
-  kind: "会议",
+  kind: "面谈",
   occurred_on: "2026-08-20",
   summary: "确认了知识库一期范围",
   next_action: "发送报价方案",
@@ -255,7 +255,7 @@ describe("CustomerDetailPage", () => {
     expect(updatedContact).toMatchObject({ name: "陈晨（更新）", is_primary: true })
     expect(await screen.findByRole("article", { name: "陈晨（更新） 联系人摘要" })).toBeInTheDocument()
 
-    const followUpCard = screen.getByRole("article", { name: "2026-08-20 会议 跟进记录" })
+    const followUpCard = screen.getByRole("article", { name: "2026-08-20 面谈 跟进记录" })
     await userEvent.click(within(followUpCard).getByRole("button", { name: "删除" }))
     const dialog = await screen.findByRole("dialog")
     expect(dialog).toHaveTextContent("客户当前计划将回退到次新记录")

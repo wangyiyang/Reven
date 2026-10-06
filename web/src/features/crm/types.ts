@@ -1,5 +1,5 @@
 export const CUSTOMER_STATUSES = ["潜在客户", "跟进中", "合作客户", "暂停跟进", "已流失"] as const
-export const FOLLOW_UP_KINDS = ["电话", "会议", "微信", "邮件", "其他"] as const
+export const FOLLOW_UP_KINDS = ["电话", "面谈", "微信", "邮件", "其他"] as const
 export const DUE_FILTERS = ["overdue", "today", "upcoming", "none"] as const
 
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number]

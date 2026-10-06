@@ -1,5 +1,5 @@
 export const TALENT_STATUSES = ["候选", "接洽中", "已合作", "搁置"] as const
-export const INTERACTION_CHANNELS = ["面谈", "电话语音", "微信", "邮件"] as const
+export const INTERACTION_CHANNELS = ["面谈", "电话", "微信", "邮件", "其他"] as const
 export const RATE_UNITS = ["按小时", "按天", "按项目"] as const
 export const DUE_FILTERS = ["overdue", "today", "upcoming", "none"] as const
 
