@@ -10,7 +10,7 @@ import { toast } from "sonner"
 import { server } from "@/test/server"
 
 import { TalentDetailPage } from "./talent-detail-page"
-import type { Talent, TalentInteraction } from "./types"
+import type { Talent, TalentEducation, TalentExperience, TalentInteraction } from "./types"
 
 vi.mock("sonner", () => ({
   toast: {
@@ -25,6 +25,10 @@ const talent: Talent = {
   name: "林晚",
   organization: "远山工作室",
   tags: ["插画", "品牌设计"],
+  phone: "13800001111",
+  email: "linwan@example.com",
+  wechat: "wx-linwan",
+  preferences: ["咖啡", "徒步"],
   capability: "视觉设计",
   engagement_terms: "月结，需签保密协议",
   availability: "每周 20 小时",
@@ -45,6 +49,39 @@ const interaction: TalentInteraction = {
   next_action: "发送作品集",
   next_due_on: "2020-01-01",
   created_at: "2026-08-20T08:00:00Z",
+}
+const experience: TalentExperience = {
+  id: "44444444-4444-4444-4444-444444444444",
+  talent_id: talentId,
+  company: "远山设计",
+  title: "视觉设计师",
+  description: "负责品牌视觉体系",
+  start_on: "2023-03-01",
+  end_on: null,
+  created_at: "2026-08-20T08:00:00Z",
+  updated_at: "2026-08-20T08:00:00Z",
+}
+const endedExperience: TalentExperience = {
+  id: "55555555-5555-5555-5555-555555555555",
+  talent_id: talentId,
+  company: "晨光互动",
+  title: "设计助理",
+  description: null,
+  start_on: "2020-01-01",
+  end_on: "2021-06-01",
+  created_at: "2026-08-20T08:00:00Z",
+  updated_at: "2026-08-20T08:00:00Z",
+}
+const education: TalentEducation = {
+  id: "66666666-6666-6666-6666-666666666666",
+  talent_id: talentId,
+  school: "中央美术学院",
+  degree: "本科",
+  major: "视觉传达",
+  start_on: "2016-09-01",
+  end_on: "2020-06-01",
+  created_at: "2026-08-20T08:00:00Z",
+  updated_at: "2026-08-20T08:00:00Z",
 }
 
 function renderPage(entry = `/talents/${talentId}`) {
@@ -67,6 +104,8 @@ describe("TalentDetailPage", () => {
     server.use(
       http.get("/api/talents/:talentId", () => HttpResponse.json(talent)),
       http.get("/api/talents/:talentId/interactions", () => HttpResponse.json([interaction])),
+      http.get("/api/talents/:talentId/experiences", () => HttpResponse.json([experience, endedExperience])),
+      http.get("/api/talents/:talentId/educations", () => HttpResponse.json([education])),
       // 编辑态的标签建议走与列表页同 key 的列表查询
       http.get("/api/talents", () => HttpResponse.json([talent])),
     )
@@ -85,6 +124,123 @@ describe("TalentDetailPage", () => {
     expect(card).toHaveTextContent("沟通了品牌视觉报价")
     expect(card).toHaveTextContent("下一步：发送作品集 · 2020-01-01")
     expect(within(card).getByText("已逾期")).toBeInTheDocument()
+  })
+
+  it("展示画像区与履历、院校时间线", async () => {
+    renderPage()
+
+    // 画像区：联系方式与喜好
+    expect(await screen.findByText("13800001111")).toBeInTheDocument()
+    expect(screen.getByText("linwan@example.com")).toBeInTheDocument()
+    expect(screen.getByText("wx-linwan")).toBeInTheDocument()
+    expect((await screen.findAllByText("咖啡"))[0]).toBeInTheDocument()
+
+    // 履历时间线：至今在前、倒序、精度到月
+    const current = await screen.findByRole("article", { name: "远山设计 视觉设计师 履历" })
+    expect(current).toHaveTextContent("2023-03 — 至今")
+    const ended = screen.getByRole("article", { name: "晨光互动 设计助理 履历" })
+    expect(ended).toHaveTextContent("2020-01 — 2021-06")
+    const articles = screen.getAllByRole("article")
+    expect(articles.indexOf(current)).toBeLessThan(articles.indexOf(ended))
+
+    // 院校时间线：精度到月、学位专业展示
+    const educationCard = screen.getByRole("article", { name: "中央美术学院 院校经历" })
+    expect(educationCard).toHaveTextContent("2016-09 — 2020-06")
+    expect(educationCard).toHaveTextContent("本科 · 视觉传达")
+  })
+
+  it("新增履历提交月精度日期并刷新列表", async () => {
+    let experiences = [experience, endedExperience]
+    let requestBody: unknown
+    server.use(
+      http.get("/api/talents/:talentId/experiences", () => HttpResponse.json(experiences)),
+      http.post("/api/talents/:talentId/experiences", async ({ request }) => {
+        requestBody = await request.json()
+        const created: TalentExperience = {
+          ...experience,
+          id: "77777777-7777-7777-7777-777777777777",
+          company: "自由职业",
+          title: "独立设计师",
+          description: null,
+          start_on: "2024-05-01",
+          end_on: null,
+        }
+        experiences = [created, ...experiences]
+        return HttpResponse.json(created, { status: 201 })
+      }),
+    )
+
+    renderPage()
+    await screen.findByRole("article", { name: "远山设计 视觉设计师 履历" })
+    await userEvent.type(screen.getByLabelText("公司"), "自由职业")
+    await userEvent.type(screen.getByLabelText("职务"), "独立设计师")
+    // 录入任意日，序列化层强制落为该月 1 日
+    await userEvent.type(screen.getByLabelText("开始月份"), "2024-05-20")
+    await userEvent.click(screen.getByRole("button", { name: "添加履历" }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("履历已添加"))
+    expect(requestBody).toMatchObject({
+      company: "自由职业",
+      title: "独立设计师",
+      description: null,
+      start_on: "2024-05-01",
+      end_on: null,
+    })
+    expect((await screen.findAllByText("自由职业"))[0]).toBeInTheDocument()
+  })
+
+  it("编辑履历走嵌套路由 PUT", async () => {
+    let experiences = [experience, endedExperience]
+    let updatedBody: Record<string, unknown> | null = null
+    let putPath = ""
+    server.use(
+      http.get("/api/talents/:talentId/experiences", () => HttpResponse.json(experiences)),
+      http.put("/api/talents/:talentId/experiences/:experienceId", async ({ params, request }) => {
+        putPath = new URL(request.url).pathname
+        updatedBody = await request.json() as Record<string, unknown>
+        experiences = experiences.map((item) =>
+          item.id === params.experienceId ? { ...item, title: String(updatedBody?.title) } : item
+        )
+        return HttpResponse.json(experiences.find((item) => item.id === params.experienceId))
+      }),
+    )
+
+    renderPage()
+    const card = await screen.findByRole("article", { name: "远山设计 视觉设计师 履历" })
+    await userEvent.click(within(card).getByRole("button", { name: "编辑" }))
+    const title = screen.getByLabelText("职务")
+    await userEvent.clear(title)
+    await userEvent.type(title, "设计总监")
+    await userEvent.click(screen.getByRole("button", { name: "保存履历" }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("履历已更新"))
+    expect(putPath).toBe(`/api/talents/${talentId}/experiences/${experience.id}`)
+    expect(updatedBody).toMatchObject({ company: "远山设计", title: "设计总监", start_on: "2023-03-01", end_on: null })
+  })
+
+  it("删除院校经历前需要确认", async () => {
+    let educations = [education]
+    let deleted = false
+    server.use(
+      http.get("/api/talents/:talentId/educations", () => HttpResponse.json(educations)),
+      http.delete("/api/talents/:talentId/educations/:educationId", () => {
+        deleted = true
+        educations = []
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    renderPage()
+    const card = await screen.findByRole("article", { name: "中央美术学院 院校经历" })
+    await userEvent.click(within(card).getByRole("button", { name: "删除" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("人才档案不受影响")
+    expect(deleted).toBe(false)
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认删除这条院校经历" }))
+
+    await waitFor(() => expect(deleted).toBe(true))
+    expect(toast.success).toHaveBeenCalledWith("院校经历已删除")
+    expect(await screen.findByText("暂无院校经历，在上方录入一段教育经历完善画像。")).toBeInTheDocument()
   })
 
   it("新增跟随后提交完整数据并刷新列表", async () => {
@@ -186,7 +342,17 @@ describe("TalentDetailPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "保存修改" }))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("人才已更新"))
-    expect(updatedBody).toMatchObject({ name: "林晚（更新）", status: "接洽中", rate_amount: "500.00", rate_unit: "按天", rating: 4 })
+    expect(updatedBody).toMatchObject({
+      name: "林晚（更新）",
+      status: "接洽中",
+      phone: "13800001111",
+      email: "linwan@example.com",
+      wechat: "wx-linwan",
+      preferences: ["咖啡", "徒步"],
+      rate_amount: "500.00",
+      rate_unit: "按天",
+      rating: 4,
+    })
     expect(screen.queryByLabelText("姓名")).not.toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "林晚（更新）" })).toBeInTheDocument()
   })

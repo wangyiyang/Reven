@@ -13,6 +13,10 @@ export type Talent = {
   name: string
   organization: string | null
   tags: string[]
+  phone: string | null
+  email: string | null
+  wechat: string | null
+  preferences: string[]
   capability: string | null
   engagement_terms: string | null
   availability: string | null
@@ -29,6 +33,10 @@ export type TalentInput = {
   name: string
   organization: string | null
   tags: string[]
+  phone: string | null
+  email: string | null
+  wechat: string | null
+  preferences: string[]
   capability: string | null
   engagement_terms: string | null
   availability: string | null
@@ -64,4 +72,44 @@ export type TalentInteractionInput = {
   summary: string | null
   next_action: string | null
   next_due_on: string | null
+}
+
+export type TalentExperience = {
+  id: string
+  talent_id: string
+  company: string
+  title: string
+  description: string | null
+  start_on: string
+  end_on: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TalentExperienceInput = {
+  company: string
+  title: string
+  description: string | null
+  start_on: string
+  end_on: string | null
+}
+
+export type TalentEducation = {
+  id: string
+  talent_id: string
+  school: string
+  degree: string | null
+  major: string | null
+  start_on: string
+  end_on: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TalentEducationInput = {
+  school: string
+  degree: string | null
+  major: string | null
+  start_on: string
+  end_on: string | null
 }

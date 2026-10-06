@@ -33,7 +33,9 @@ export function TalentForm(props: TalentFormProps) {
   return (
     <form className="space-y-4" onSubmit={submit}>
       <TalentIdentityFields {...props} />
+      <TalentContactFields {...props} />
       <TalentTagsField {...props} />
+      <TalentPreferencesField {...props} />
       <TalentProfileFields {...props} />
       <TalentRateFields {...props} />
       <div className="space-y-2">
@@ -89,6 +91,41 @@ function TalentIdentityFields({ values, singleColumn, onChange }: TalentFormProp
   )
 }
 
+function TalentContactFields({ values, singleColumn, onChange }: TalentFormProps) {
+  return (
+    <div className={singleColumn ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
+      <div className="space-y-2">
+        <Label htmlFor="talent-phone">电话</Label>
+        <Input
+          id="talent-phone"
+          onChange={(event) => onChange({ ...values, phone: event.target.value })}
+          placeholder="手机或座机"
+          value={values.phone}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="talent-email">邮箱</Label>
+        <Input
+          id="talent-email"
+          onChange={(event) => onChange({ ...values, email: event.target.value })}
+          placeholder="name@example.com"
+          type="email"
+          value={values.email}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="talent-wechat">微信</Label>
+        <Input
+          id="talent-wechat"
+          onChange={(event) => onChange({ ...values, wechat: event.target.value })}
+          placeholder="微信号"
+          value={values.wechat}
+        />
+      </div>
+    </div>
+  )
+}
+
 function TalentTagsField({ values, tagSuggestions, onChange }: TalentFormProps) {
   const [draft, setDraft] = useState("")
   const candidates = tagSuggestions.filter((tag) => !values.tags.includes(tag))
@@ -115,7 +152,7 @@ function TalentTagsField({ values, tagSuggestions, onChange }: TalentFormProps) 
           list="talent-tag-suggestions"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="输入后回车或点添加，如：插画、前端、翻译"
+          placeholder="能力或行业，如：插画、前端、翻译"
           value={draft}
         />
         <datalist id="talent-tag-suggestions">
@@ -132,6 +169,56 @@ function TalentTagsField({ values, tagSuggestions, onChange }: TalentFormProps) 
                 aria-label={`移除标签 ${tag}`}
                 className="ml-1"
                 onClick={() => onChange({ ...values, tags: removeTag(values.tags, tag) })}
+                type="button"
+              >
+                ×
+              </button>
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function TalentPreferencesField({ values, onChange }: TalentFormProps) {
+  const [draft, setDraft] = useState("")
+
+  function addDraft() {
+    const preferences = appendTag(values.preferences, draft)
+    if (preferences !== values.preferences) onChange({ ...values, preferences })
+    setDraft("")
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      addDraft()
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="talent-preferences-input">喜好</Label>
+      <div className="flex gap-2">
+        <Input
+          id="talent-preferences-input"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="个人喜好或偏好，如：咖啡、远程工作、徒步"
+          value={draft}
+        />
+        <Button onClick={addDraft} type="button" variant="outline">添加喜好</Button>
+      </div>
+      {values.preferences.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {values.preferences.map((preference) => (
+            <Badge key={preference}>
+              {preference}
+              <button
+                aria-label={`移除喜好 ${preference}`}
+                className="ml-1"
+                onClick={() => onChange({ ...values, preferences: removeTag(values.preferences, preference) })}
                 type="button"
               >
                 ×

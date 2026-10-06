@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 
 import { InteractionsSection } from "./interactions-section"
+import { EducationsSection } from "./educations-section"
+import { ExperiencesSection } from "./experiences-section"
 import { TalentForm } from "./talent-form"
 import { talentFormToInput, talentToForm, validateTalentForm, type TalentFormValues } from "./talent-form-model"
 import { getTalent, talentsKeys } from "./talents-api"
@@ -34,6 +36,8 @@ function TalentDetail({ talentId }: { talentId: string }) {
     <main className="page-enter mx-auto w-full max-w-6xl space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-14">
       <DetailHeading talent={talentQuery.data} />
       <TalentSummary talent={talentQuery.data} />
+      <ExperiencesSection talentId={talentId} />
+      <EducationsSection talentId={talentId} />
       <InteractionsSection talentId={talentId} />
     </main>
   )
@@ -128,6 +132,17 @@ function TalentSummary({ talent }: { talent: Talent }) {
         </CardContent>
       ) : (
         <CardContent className="grid gap-4 md:grid-cols-2">
+          <SummaryItem label="电话" value={talent.phone} />
+          <SummaryItem label="邮箱" value={talent.email} />
+          <SummaryItem label="微信" value={talent.wechat} />
+          <div>
+            <p className="text-xs text-[var(--muted)]">喜好</p>
+            {talent.preferences.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-2">
+                {talent.preferences.map((preference) => <Badge key={preference}>{preference}</Badge>)}
+              </div>
+            ) : <p className="mt-1 text-sm">未记录</p>}
+          </div>
           <SummaryItem label="能力" value={talent.capability} />
           <SummaryItem label="可用时间" value={talent.availability} />
           <SummaryItem label="合作条件" value={talent.engagement_terms} />
