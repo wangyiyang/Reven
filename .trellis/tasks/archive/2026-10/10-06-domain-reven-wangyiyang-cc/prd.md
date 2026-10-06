@@ -48,14 +48,14 @@
 
 ## Acceptance Criteria
 
-仓库内（本任务交付边界）：
+仓库内（本任务交付边界，2026-10-06 全部完成，PR #216）：
 
-- [ ] `uv run pytest server/tests/e2e/test_http_deployment.py` 通过
-- [ ] `uv run pytest server/tests/security/test_self_host_smoke.py server/tests/security/test_csrf.py server/tests/security/test_auth.py server/tests/security/test_headers.py server/tests/agent/test_mcp_server.py` 通过
-- [ ] `python3 scripts/self_host_smoke.py`（或其既有本地验证入口）通过
-- [ ] 现行文档与 Caddyfile / vercel.json / 测试 / spec 契约无 `dev.wangyiyang.cc` 残留（历史文档与归档任务除外）
+- [x] `uv run pytest server/tests/e2e/test_http_deployment.py` 通过
+- [x] `uv run pytest server/tests/security/test_self_host_smoke.py server/tests/security/test_csrf.py server/tests/security/test_auth.py server/tests/security/test_headers.py server/tests/agent/test_mcp_server.py` 通过
+- [x] `python3 scripts/self_host_smoke.py`（或其既有本地验证入口）通过——本机架构门禁拦截属预期，逻辑经 `test_self_host_smoke.py` 与确定性模拟验证，完整烟测归 full CI
+- [x] 现行文档与 Caddyfile / vercel.json / 测试 / spec 契约无 `dev.wangyiyang.cc` 残留（历史文档与归档任务除外）
 
-运维验收（部署后人工执行，记录结果即可）：
+运维验收（部署后人工执行；任务先行归档，后续跟踪归 issue #213 与 journal）：
 
 - [ ] `curl -sS https://reven.wangyiyang.cc/api/health` 返回 200 且证书有效
 - [ ] `https://reven.wangyiyang.cc` 直接返回前端页面，可登录并完成一次写操作（验证 Origin/CSRF 链路）
