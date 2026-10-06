@@ -1,12 +1,4 @@
-"""结构化健康检查（#177）：db 失败 503 驱动 LB/哨兵；dsh/runner 降级保持 200 并显式标注。
-
-- db：SELECT 1 实测（带超时）；失败即 503，容器编排/LB 据此摘流，杜绝"静态 200 误判部署成功"；
-- dsh：运行时启动失败/未就绪标 degraded——保持 200 不触发重启风暴，供监控抓字段告警；
-- background_runner：主循环任务死亡标 degraded；未挂载（start_background_tasks=False 等）标 disabled。
-
-响应形态：``{"service": "reven", "status": "ok|degraded|fail", "checks": {"db", "dsh", "background_runner"}}``；
-各检查项 status ∈ ok / degraded / disabled / fail（fail 仅 db）。
-"""
+"""数据库故障返回 503；Agent、检查点与后台任务的降级均可观测。"""
 
 import asyncio
 import logging
@@ -36,12 +28,31 @@ async def _check_db(request: Request) -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _check_dsh(request: Request) -> dict[str, str]:
-    """dsh 运行时：未配置为 disabled；已配置但启动失败/未拉起为 degraded。"""
+async def _check_agent(request: Request) -> dict[str, str]:
     runtime = getattr(request.app.state, "agent_runtime", None)
-    if runtime is None or not runtime.configured:
+    if runtime is None:
+        return {"status": "disabled"}
+    try:
+        config = await asyncio.wait_for(runtime.resolve_config(), timeout=_DB_CHECK_TIMEOUT_SECONDS)
+    except Exception as error:
+        logger.warning("健康检查模型配置读取失败（error_type=%s）", type(error).__name__)
+        return {"status": "degraded"}
+    if config is None:
         return {"status": "disabled"}
     return {"status": "ok"} if runtime.available else {"status": "degraded"}
+
+
+async def _check_checkpointer(request: Request) -> dict[str, str]:
+    runtime = getattr(request.app.state, "agent_runtime", None)
+    checkpoints = getattr(runtime, "checkpoints", None)
+    if checkpoints is None:
+        return {"status": "disabled"}
+    try:
+        ready = await asyncio.wait_for(checkpoints.ready(), timeout=_DB_CHECK_TIMEOUT_SECONDS)
+    except Exception as error:
+        logger.warning("健康检查检查点探测失败（error_type=%s）", type(error).__name__)
+        ready = False
+    return {"status": "ok" if ready else "degraded"}
 
 
 def _check_background_runner(request: Request) -> dict[str, str]:
@@ -59,7 +70,8 @@ def _check_background_runner(request: Request) -> dict[str, str]:
 async def health(request: Request) -> JSONResponse:
     checks = {
         "db": await _check_db(request),
-        "dsh": _check_dsh(request),
+        "agent": await _check_agent(request),
+        "checkpointer": await _check_checkpointer(request),
         "background_runner": _check_background_runner(request),
     }
     if checks["db"]["status"] == "fail":

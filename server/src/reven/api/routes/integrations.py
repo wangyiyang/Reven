@@ -7,7 +7,8 @@ startup; Task 13 wires this router into ``create_app``.
 
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated
+from contextlib import AbstractAsyncContextManager, nullcontext
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.exceptions import RequestValidationError
@@ -101,14 +102,22 @@ def _to_response(service: IntegrationService, integration: Integration) -> Integ
     return response
 
 
-def _model_refs_in_use(request: Request) -> frozenset[str]:
-    """读取 REST 与飞书共享的会话选择；服务未初始化时返回空集。"""
+async def _model_refs_in_use(request: Request) -> frozenset[str]:
+    """读取数据库中未终止运行和待确认操作；服务未初始化时返回空集。"""
     service = getattr(request.app.state, "agent_service", None)
     getter = getattr(service, "model_refs_in_use", None)
     if not callable(getter):
         return frozenset()
-    refs = getter()
+    refs = await getter()
     return frozenset(refs) if refs else frozenset()
+
+
+def _model_update_guard(request: Request, provider: str) -> AbstractAsyncContextManager[object]:
+    service = getattr(request.app.state, "agent_service", None)
+    guard = getattr(service, "model_update_guard", None)
+    if provider == AGENT_LLM_PROVIDER and callable(guard):
+        return cast(AbstractAsyncContextManager[object], guard())
+    return nullcontext()
 
 
 def _reload_feishu_bot_supervisor(request: Request, provider: str) -> None:
@@ -182,24 +191,25 @@ async def put_integration(
         return _error_response(exc)
     service = _service(credentials, session)
     try:
-        if provider == AGENT_LLM_PROVIDER:
-            # agent-llm 走 merge 语义：models[] 写回 + api_key/model_keys 增量合并（#173）
-            assert isinstance(body, AgentLlmIntegrationPut)
-            integration = await service.upsert_agent_llm(
-                public_config=body.public_config.model_dump(mode="json", exclude_none=True),
-                api_key=body.secret.api_key if body.secret is not None else None,
-                model_keys=body.secret.model_keys if body.secret is not None else None,
-                refs_in_use=_model_refs_in_use(request),
-            )
-        else:
-            integration = await service.upsert_integration(
-                provider=provider,
-                public_config=body.public_config.model_dump(mode="json", exclude_none=True),
-                secret=body.secret.model_dump(exclude_none=True) if body.secret is not None else None,
-            )
+        async with _model_update_guard(request, provider):
+            if provider == AGENT_LLM_PROVIDER:
+                # agent-llm 走 merge 语义：models[] 写回 + api_key/model_keys 增量合并（#173）
+                assert isinstance(body, AgentLlmIntegrationPut)
+                integration = await service.upsert_agent_llm(
+                    public_config=body.public_config.model_dump(mode="json", exclude_none=True),
+                    api_key=body.secret.api_key if body.secret is not None else None,
+                    model_keys=body.secret.model_keys if body.secret is not None else None,
+                    refs_in_use=await _model_refs_in_use(request),
+                )
+            else:
+                integration = await service.upsert_integration(
+                    provider=provider,
+                    public_config=body.public_config.model_dump(mode="json", exclude_none=True),
+                    secret=body.secret.model_dump(exclude_none=True) if body.secret is not None else None,
+                )
+            await session.commit()
     except IntegrationError as exc:
         return _error_response(exc)
-    await session.commit()
     _reload_feishu_bot_supervisor(request, provider)
     return _to_response(service, integration)
 
@@ -211,10 +221,11 @@ async def delete_secret(
     try:
         _ensure_known_provider(provider)
         service = _service(credentials, session)
-        integration = await service.delete_secret(provider)
+        async with _model_update_guard(request, provider):
+            integration = await service.delete_secret(provider)
+            await session.commit()
     except IntegrationError as exc:
         return _error_response(exc)
-    await session.commit()
     _reload_feishu_bot_supervisor(request, provider)
     return _to_response(service, integration)
 
@@ -229,10 +240,11 @@ async def set_default_model(
     """把 models[] 中的附加模型设为默认（服务端完成 key 材料交换，明文不出后端）。"""
     service = _service(credentials, session)
     try:
-        integration = await service.set_default_agent_model(body.ref)
+        async with _model_update_guard(request, AGENT_LLM_PROVIDER):
+            integration = await service.set_default_agent_model(body.ref)
+            await session.commit()
     except IntegrationError as exc:
         return _error_response(exc)
-    await session.commit()
     return _to_response(service, integration)
 
 

@@ -83,6 +83,7 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
                     "talent_experiences, talent_educations, talent_interactions, talents, "
                     "finance_entries, projects, "
                     "sops, brand_versions, channel_template_versions, brand_assets, "
+                    "agent_operations, agent_approvals, agent_runs, agent_sessions, agent_config_revisions, "
                     "integrations, auth_sessions, "
                     "system_state RESTART IDENTITY CASCADE"
                 )

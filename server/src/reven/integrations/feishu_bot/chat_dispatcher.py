@@ -16,9 +16,11 @@ import logging
 import threading
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Literal, Protocol, TypeVar
+from uuid import UUID
 
-from reven.agent.errors import AgentModelUnavailableError
-from reven.agent.service import AgentTurn, SessionModelState
+from reven.agent.context import AgentActor
+from reven.agent.errors import AgentError, AgentModelUnavailableError
+from reven.agent.service_types import AgentTurn, RunState, SessionModelState
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.commands import (
     USAGE_TEXT,
@@ -34,15 +36,24 @@ from reven.integrations.feishu_bot.commands import (
     render_use_switched,
 )
 from reven.integrations.feishu_bot.config import PROVIDER
+from reven.integrations.feishu_bot.run_commands import (
+    RESULT_UNAVAILABLE_TEXT,
+    RUN_USAGE_TEXT,
+    RunCommand,
+    parse_run_command,
+    render_run_error,
+    render_run_state,
+)
 
 logger = logging.getLogger(__name__)
 
-_CHAT_TIMEOUT_SECONDS = 120.0  # 单轮对话总超时（PRD 硬编码，不做配置项）
+_CHAT_TIMEOUT_SECONDS = 120.0  # 接口等待期限，底层运行由应用生命周期持有
 _PRECHECK_TIMEOUT_SECONDS = 10.0  # 白名单预检桥等待主事件循环返回的上限
+_BRIDGE_GRACE_SECONDS = 5.0  # 让服务先返回包含运行编号的等待状态
 
 GUIDE_TEXT = "@我 并输入你想问的问题。"
 THINKING_TEXT = "思考中…"
-FALLBACK_TEXT = "出了点问题，请稍后重试。"
+FALLBACK_TEXT = RESULT_UNAVAILABLE_TEXT
 UNSUPPORTED_TEXT = "暂只支持文字提问。"
 
 # 回复必须在共享 HTTP 客户端所属的主循环执行，失败由桥接收敛。
@@ -54,11 +65,40 @@ RouteKind = Literal["chat", "guide", "unsupported"]
 class AgentChatService(Protocol):
     """Agent 对话口（reven.agent.service.AgentService 满足该协议）；本地定义避免跨层依赖 api 层。"""
 
-    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn: ...
+    async def chat(
+        self,
+        message: str,
+        session_id: str | None = None,
+        *,
+        actor: AgentActor,
+        request_key: str | None = None,
+        wait_timeout_seconds: float | None = None,
+    ) -> AgentTurn: ...
 
-    async def model_state(self, session_id: str) -> SessionModelState: ...
+    async def model_state(self, session_id: str, *, actor: AgentActor) -> SessionModelState: ...
 
-    async def use_model(self, session_id: str, model_ref: str) -> SessionModelState: ...
+    async def use_model(self, session_id: str, model_ref: str, *, actor: AgentActor) -> SessionModelState: ...
+
+    async def get_run(self, run_id: UUID, *, actor: AgentActor, session_id: str | None = None) -> RunState: ...
+
+    async def resolve_approval(
+        self,
+        approval_id: UUID,
+        decision: Literal["approve", "reject"],
+        session_id: str,
+        *,
+        actor: AgentActor,
+        wait_timeout_seconds: float | None = None,
+    ) -> RunState: ...
+
+    async def resume_run(
+        self,
+        run_id: UUID,
+        *,
+        actor: AgentActor,
+        session_id: str | None = None,
+        wait_timeout_seconds: float | None = None,
+    ) -> AgentTurn: ...
 
 
 class ChatDispatch(Protocol):
@@ -142,26 +182,32 @@ class FeishuChatDispatcher:
         if allowed is not True:
             return  # 非白名单/配置缺失/预检失败：全静默（连「思考中…」都不发）
         if kind == "guide":
-            self._reply_via(loop, message_id, GUIDE_TEXT)
+            self._reply_via(loop, message_id, GUIDE_TEXT, open_id)
             return
         if kind == "unsupported":
-            self._reply_via(loop, message_id, UNSUPPORTED_TEXT)
+            self._reply_via(loop, message_id, UNSUPPORTED_TEXT, open_id)
             return
-        command = parse_model_command(text)
+        command = parse_model_command(text) or parse_run_command(text)
         if command is not None:
             # 指令消息：直接回复，不发占位、不进入 Agent、不计入会话历史
             answer = self._bridge(
-                loop, self._handle_model_command(chat_id, open_id, command), timeout=self._timeout_seconds
+                loop,
+                self._handle_command(chat_id, open_id, command),
+                timeout=self._timeout_seconds + _BRIDGE_GRACE_SECONDS,
             )
-            self._reply_via(loop, message_id, answer if answer is not None else FALLBACK_TEXT)
+            self._reply_via(loop, message_id, answer if answer is not None else FALLBACK_TEXT, open_id)
             return
-        if not self._reply_via(loop, message_id, THINKING_TEXT):
+        if not self._reply_via(loop, message_id, THINKING_TEXT, open_id):
             return  # 占位未送达时放弃本轮，避免后续结果破坏回复顺序
-        answer = self._bridge(loop, self._chat(chat_id, open_id, text), timeout=self._timeout_seconds)
+        answer = self._bridge(
+            loop,
+            self._chat(chat_id, open_id, text, message_id),
+            timeout=self._timeout_seconds + _BRIDGE_GRACE_SECONDS,
+        )
         if answer is None:
-            self._reply_via(loop, message_id, FALLBACK_TEXT)
+            self._reply_via(loop, message_id, FALLBACK_TEXT, open_id)
             return
-        self._reply_via(loop, message_id, answer)
+        self._reply_via(loop, message_id, answer, open_id)
 
     def _bridge(self, loop: asyncio.AbstractEventLoop, coro: Coroutine[Any, Any, _T], *, timeout: float) -> _T | None:
         """run_coroutine_threadsafe 桥：调度失败 close 协程；超时/异常收敛为 None + 脱敏日志。"""
@@ -184,10 +230,12 @@ class FeishuChatDispatcher:
             )
             return None
 
-    def _reply_via(self, loop: asyncio.AbstractEventLoop, message_id: str, text: str) -> bool:
-        return self._bridge(loop, self._send_reply(message_id, text), timeout=self._timeout_seconds) is True
+    def _reply_via(self, loop: asyncio.AbstractEventLoop, message_id: str, text: str, open_id: str) -> bool:
+        return self._bridge(loop, self._send_reply(message_id, text, open_id), timeout=self._timeout_seconds) is True
 
-    async def _send_reply(self, message_id: str, text: str) -> bool:
+    async def _send_reply(self, message_id: str, text: str, open_id: str) -> bool:
+        if not await self._is_allowed(open_id):
+            return False
         await self._reply(message_id, text)
         return True  # reply 的 None 是成功返回值，bridge 的 None 则表示失败
 
@@ -200,30 +248,98 @@ class FeishuChatDispatcher:
     def _session_id(chat_id: str, open_id: str) -> str:
         return f"feishu:{chat_id}:{open_id}"
 
+    @staticmethod
+    def _actor(open_id: str) -> AgentActor:
+        return AgentActor(owner_id=f"feishu:{open_id}", channel="feishu")
+
+    async def _handle_command(self, chat_id: str, open_id: str, command: ModelCommand | RunCommand) -> str:
+        if not await self._is_allowed(open_id):
+            return ""
+        try:
+            if isinstance(command, ModelCommand):
+                return await self._handle_model_command(chat_id, open_id, command)
+            return await self._handle_run_command(chat_id, open_id, command)
+        except AgentModelUnavailableError as exc:
+            self._log_agent_error(exc)
+            return render_model_unavailable(exc.model_ref)
+        except AgentError as exc:
+            self._log_agent_error(exc)
+            return render_run_error(exc)
+
+    async def _handle_run_command(self, chat_id: str, open_id: str, command: RunCommand) -> str:
+        if command.identifier is None:
+            return RUN_USAGE_TEXT
+        session_id, actor = self._session_id(chat_id, open_id), self._actor(open_id)
+        if command.action == "approve" or command.action == "reject":
+            run = await self._agent.resolve_approval(
+                command.identifier,
+                command.action,
+                session_id,
+                actor=actor,
+                wait_timeout_seconds=self._timeout_seconds,
+            )
+            return render_run_state(run)
+        if command.action == "status":
+            return render_run_state(await self._agent.get_run(command.identifier, actor=actor, session_id=session_id))
+        if command.action == "resume":
+            turn = await self._agent.resume_run(
+                command.identifier,
+                actor=actor,
+                session_id=session_id,
+                wait_timeout_seconds=self._timeout_seconds,
+            )
+            return self._render_turn(turn)
+        return RUN_USAGE_TEXT
+
     async def _handle_model_command(self, chat_id: str, open_id: str, command: ModelCommand) -> str:
         session_id = self._session_id(chat_id, open_id)
+        actor = self._actor(open_id)
         if command.action == "list":
-            return render_model_list(await self._agent.model_state(session_id))
+            return render_model_list(await self._agent.model_state(session_id, actor=actor))
         if command.action == "current":
-            return render_current(await self._agent.model_state(session_id))
+            return render_current(await self._agent.model_state(session_id, actor=actor))
         if command.action == "use":
             ref = command.model_ref
             if ref is None or not is_valid_model_ref(ref):
                 return USAGE_TEXT
             try:
-                state = await self._agent.use_model(session_id, ref)
+                state = await self._agent.use_model(session_id, ref, actor=actor)
             except AgentModelUnavailableError:
-                return render_use_rejected(ref, await self._agent.model_state(session_id))
+                return render_use_rejected(ref, await self._agent.model_state(session_id, actor=actor))
             return render_use_switched(ref) if state.is_override else render_use_reset_to_default(ref)
         return USAGE_TEXT
 
-    async def _chat(self, chat_id: str, open_id: str, text: str) -> str:
+    async def _chat(self, chat_id: str, open_id: str, text: str, message_id: str) -> str:
+        if not await self._is_allowed(open_id):
+            return ""
         try:
-            turn = await self._agent.chat(text, self._session_id(chat_id, open_id))
+            turn = await self._agent.chat(
+                text,
+                self._session_id(chat_id, open_id),
+                actor=self._actor(open_id),
+                request_key=message_id,
+                wait_timeout_seconds=self._timeout_seconds,
+            )
         except AgentModelUnavailableError as exc:
             # 严格语义：override 模型不可达时明确报错，绝不静默回落默认模型
             logger.warning("飞书机器人会话模型不可用（model=%s, error_code=%s）", exc.model_ref, exc.code)
             return render_model_unavailable(exc.model_ref)
+        except AgentError as exc:
+            self._log_agent_error(exc)
+            return render_run_error(exc)
+        return self._render_turn(turn)
+
+    @staticmethod
+    def _render_turn(turn: AgentTurn) -> str:
         if turn.is_override and turn.model_ref is not None:
             return render_answer_with_model(turn.response, turn.model_ref)
         return turn.response
+
+    @staticmethod
+    def _log_agent_error(error: AgentError) -> None:
+        logger.warning(
+            "飞书机器人 Agent 请求失败（provider=%s, error_type=%s, error_code=%s）",
+            PROVIDER,
+            type(error).__name__,
+            error.code,
+        )

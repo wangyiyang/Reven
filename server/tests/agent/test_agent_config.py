@@ -7,7 +7,6 @@
 import base64
 import os
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 import pytest
 from reven.agent.config import AgentConfig, resolve_agent_config, resolve_agent_model_config
@@ -65,9 +64,7 @@ async def _save_integration(
 
 
 @pytest.mark.anyio
-async def test_resolves_config_from_integration_table(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
+async def test_resolves_config_from_integration_table(session_factory: async_sessionmaker[AsyncSession]) -> None:
     await _save_integration(
         session_factory,
         public_config={
@@ -77,7 +74,7 @@ async def test_resolves_config_from_integration_table(
         },
         api_key="sk-db-key",
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
 
     config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
@@ -86,17 +83,15 @@ async def test_resolves_config_from_integration_table(
         model="deepseek-v4-pro",
         base_url="https://api.deepseek.com",
         api_key="sk-db-key",
-        dsh_home=tmp_path / "dsh",
-        cwd=tmp_path / "dsh",
     )
 
 
 @pytest.mark.anyio
-async def test_db_config_wins_over_env(session_factory: async_sessionmaker[AsyncSession], tmp_path: Path) -> None:
+async def test_db_config_wins_over_env(session_factory: async_sessionmaker[AsyncSession]) -> None:
     await _save_integration(
         session_factory, public_config={"provider": "deepseek-official", "model": "m"}, api_key="sk-db"
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env")
+    settings = _make_settings(agent_api_key="sk-env")
 
     config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
@@ -105,10 +100,8 @@ async def test_db_config_wins_over_env(session_factory: async_sessionmaker[Async
 
 
 @pytest.mark.anyio
-async def test_falls_back_to_env_when_db_empty(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
-    settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env", agent_model="env-model")
+async def test_falls_back_to_env_when_db_empty(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    settings = _make_settings(agent_api_key="sk-env", agent_model="env-model")
 
     config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
@@ -118,26 +111,22 @@ async def test_falls_back_to_env_when_db_empty(
 
 
 @pytest.mark.anyio
-async def test_returns_none_when_unconfigured(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+async def test_returns_none_when_unconfigured(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    settings = _make_settings()
     assert await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings) is None
 
 
 @pytest.mark.anyio
-async def test_falls_back_when_integration_has_no_secret(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
+async def test_falls_back_when_integration_has_no_secret(session_factory: async_sessionmaker[AsyncSession]) -> None:
     await _save_integration(session_factory, public_config={"provider": "p", "model": "m"}, api_key=None)
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
 
     assert await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings) is None
 
 
 @pytest.mark.anyio
 async def test_undecryptable_secret_degrades_to_none(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path, caplog: pytest.LogCaptureFixture
+    session_factory: async_sessionmaker[AsyncSession], caplog: pytest.LogCaptureFixture
 ) -> None:
     await _save_integration(
         session_factory,
@@ -145,7 +134,7 @@ async def test_undecryptable_secret_degrades_to_none(
         api_key="sk-db",
         master_key=OTHER_MASTER_KEY,
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
 
     with caplog.at_level("ERROR", logger="reven.integrations.credentials"):
         config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
@@ -155,9 +144,9 @@ async def test_undecryptable_secret_degrades_to_none(
 
 
 @pytest.mark.anyio
-async def test_credentials_unavailable_uses_env_only(tmp_path: Path) -> None:
+async def test_credentials_unavailable_uses_env_only() -> None:
     """credentials 为 None（无库或 seam 构造失败降级）时只走 env fallback，绝不抛出。"""
-    settings = _make_settings(dsh_home=tmp_path / "dsh", agent_api_key="sk-env")
+    settings = _make_settings(agent_api_key="sk-env")
 
     config = await resolve_agent_config(None, settings)
 
@@ -169,10 +158,8 @@ async def test_credentials_unavailable_uses_env_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_resolve_model_config_hits_extra_entry(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
-    """命中附加条目：返回该模型的 provider/model/base_url/key，dsh_home 取自 settings。"""
+async def test_resolve_model_config_hits_extra_entry(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """命中附加条目：返回该模型的 provider/model/base_url/key，不需要文件目录。"""
     await _save_integration(
         session_factory,
         public_config={
@@ -182,7 +169,7 @@ async def test_resolve_model_config_hits_extra_entry(
         },
         api_key="sk-db",
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
 
     config = await resolve_agent_model_config(
         IntegrationCredentials(session_factory, settings), settings, "openai/gpt-5"
@@ -193,17 +180,14 @@ async def test_resolve_model_config_hits_extra_entry(
     assert config.model == "gpt-5"
     assert config.base_url == "https://api.openai.com/v1"
     assert config.api_key == "sk-db"  # 无独立 key 时回落默认条目
-    assert config.dsh_home == tmp_path / "dsh"
 
 
 @pytest.mark.anyio
-async def test_resolve_model_config_hits_default_entry(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
+async def test_resolve_model_config_hits_default_entry(session_factory: async_sessionmaker[AsyncSession]) -> None:
     await _save_integration(
         session_factory, public_config={"provider": "deepseek-official", "model": "deepseek-v4-flash"}, api_key="sk-db"
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
 
     config = await resolve_agent_model_config(
         IntegrationCredentials(session_factory, settings), settings, "deepseek-official/deepseek-v4-flash"
@@ -215,7 +199,7 @@ async def test_resolve_model_config_hits_default_entry(
 
 @pytest.mark.anyio
 async def test_resolve_model_config_returns_none_for_unknown_or_disabled(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """未注册与已禁用的 ref 均返回 None（调用方据此明确拒绝，不静默降级）。"""
     await _save_integration(
@@ -227,7 +211,7 @@ async def test_resolve_model_config_returns_none_for_unknown_or_disabled(
         },
         api_key="sk-db",
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
     credentials = IntegrationCredentials(session_factory, settings)
 
     assert await resolve_agent_model_config(credentials, settings, "openai/gpt-5") is None
@@ -236,9 +220,9 @@ async def test_resolve_model_config_returns_none_for_unknown_or_disabled(
 
 @pytest.mark.anyio
 async def test_resolve_model_config_returns_none_when_unconfigured(
-    session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings()
     credentials = IntegrationCredentials(session_factory, settings)
 
     assert await resolve_agent_model_config(credentials, settings, "openai/gpt-5") is None

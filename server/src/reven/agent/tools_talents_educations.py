@@ -4,7 +4,6 @@ from datetime import date
 from typing import Annotated
 
 from pydantic import Field
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.talents_tool_support import (
     ConfirmTalentNameParam,
@@ -18,19 +17,17 @@ from reven.agent.talents_tool_support import (
     _talent_not_found,
     _validate,
 )
+from reven.agent.tool_binding import ToolSessionBinding
 from reven.talents.inputs import TalentEducationCreate, TalentEducationUpdate
 from reven.talents.models import TalentEducation
 from reven.talents.repository import TalentsRepository
 from reven.talents.service import TalentsService
 
 
-class TalentsEducationTools:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
+class TalentsEducationTools(ToolSessionBinding):
     async def list_educations(self, talent_id: TalentIdParam) -> str:
         """列出指定人才的全部院校经历，在读（至今）的排最前，其余按开始日期倒序。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             repository = TalentsRepository(session)
             talent = await repository.get_talent(talent_id)
             if talent is None:
@@ -69,12 +66,15 @@ class TalentsEducationTools:
             },
         )
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 talent = await repository.get_talent(talent_id)
                 if talent is None:
                     raise _talent_not_found(talent_id)
-                education = await TalentsService(session).create_education(talent, payload.model_dump())
+                education = await TalentsService(session, commit=self._commits).create_education(
+                    talent, payload.model_dump()
+                )
+                self._record_entity(education)
         return f"已为人才「{talent.name}」添加院校经历：{_education_line(0, education).removeprefix('0. ')}"
 
     async def update_education(
@@ -97,14 +97,15 @@ class TalentsEducationTools:
         )
         payload = _validate(TalentEducationUpdate, values)
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 education = await repository.get_education(talent_id, education_id)
                 if education is None:
                     raise _education_not_found(education_id)
-                updated = await TalentsService(session).update_education(
+                updated = await TalentsService(session, commit=self._commits).update_education(
                     education, payload.model_dump(exclude_unset=True)
                 )
+                self._record_entity(updated)
         return f"已更新院校经历：{_education_line(0, updated).removeprefix('0. ')}"
 
     async def delete_education(
@@ -118,14 +119,15 @@ class TalentsEducationTools:
         调用前必须与用户确认删除意图，并把所属人才名称逐字填入 confirm_talent_name。
         """
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 await _confirm_talent_name(session, talent_id, confirm_talent_name)
                 repository = TalentsRepository(session)
                 education = await repository.get_education(talent_id, education_id)
                 if education is None:
                     raise _education_not_found(education_id)
                 label = education.school
-                await TalentsService(session).delete_education(education)
+                await TalentsService(session, commit=self._commits).delete_education(education)
+                self._record_entity(education)
         return f"已删除院校经历「{label}」（id={education_id}）。"
 
 

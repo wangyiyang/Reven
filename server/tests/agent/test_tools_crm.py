@@ -295,7 +295,7 @@ async def test_follow_up_update_clear_flags_validate_complete_input(
 
 
 @pytest.mark.anyio
-async def test_follow_up_contact_update_is_callable_over_mcp_protocol(
+async def test_mcp_cannot_write_follow_up_but_preserves_read_output(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     customers = CrmCustomerTools(session_factory)
@@ -309,17 +309,20 @@ async def test_follow_up_contact_update_is_callable_over_mcp_protocol(
             kind="电话",
             occurred_on=_today(),
             summary="电话沟通",  # type: ignore[arg-type]
+            contact_id=contact_id,
         )
     )
     mcp = create_agent_mcp_server(session_factory, token="test-token")
     async with Client(mcp) as client:
-        result = await client.call_tool(
-            "crm_follow_up_update",
-            {"customer_id": str(customer_id), "follow_up_id": str(follow_up_id), "contact_id": str(contact_id)},
-        )
+        with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+            await client.call_tool(
+                "crm_follow_up_update",
+                {"customer_id": str(customer_id), "follow_up_id": str(follow_up_id), "clear_contact": True},
+            )
+        result = await client.call_tool("crm_follow_up_list", {"customer_id": str(customer_id)})
     block = result.content[0]
     assert isinstance(block, TextContent)
-    assert "已更新跟进记录" in block.text and "联系人：王经理" in block.text
+    assert "跟进记录" in block.text and "联系人：王经理" in block.text
 
 
 @pytest.mark.anyio
@@ -455,6 +458,7 @@ async def test_delete_customer_cascades_contacts_and_follow_ups(
 
 @pytest.mark.anyio
 async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    await CrmCustomerTools(session_factory).create_customer(name="协议客户", status="跟进中")
     mcp = create_agent_mcp_server(session_factory, token="test-token")
 
     async with Client(mcp) as client:
@@ -486,13 +490,8 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
         for delete_tool in crm_delete_tools:
             assert "confirm_customer_name" in delete_tool.input_schema.get("required", []), delete_tool.name
 
-        created = await client.call_tool(
-            "crm_customer_create",
-            {"name": "协议客户", "status": "跟进中"},
-        )
-        block = created.content[0]
-        assert isinstance(block, TextContent)
-        assert "已创建客户" in block.text and "协议客户" in block.text
+        with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+            await client.call_tool("crm_customer_create", {"name": "机器请求客户", "status": "跟进中"})
 
         listed = await client.call_tool("crm_customer_list", {"query": "协议"})
         list_block = listed.content[0]

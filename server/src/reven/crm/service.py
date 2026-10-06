@@ -19,9 +19,10 @@ from reven.crm.repository import CrmRepository
 
 
 class CrmService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, commit: bool = True) -> None:
         self._session = session
         self._repository = CrmRepository(session)
+        self._commit_mutations = commit
 
     async def create_customer(self, payload: CustomerCreate) -> Customer:
         customer = await self._repository.add_customer(payload.model_dump())
@@ -37,7 +38,7 @@ class CrmService:
     async def delete_customer(self, customer_id: UUID) -> Customer:
         customer = await self._customer(customer_id)
         await self._session.delete(customer)
-        await self._session.commit()
+        await self._finish_mutation()
         return customer
 
     async def create_contact(self, customer_id: UUID, payload: ContactCreate) -> tuple[Customer, Contact]:
@@ -59,7 +60,7 @@ class CrmService:
     async def delete_contact(self, customer_id: UUID, contact_id: UUID) -> Contact:
         contact = await self._contact(customer_id, contact_id)
         await self._session.delete(contact)
-        await self._session.commit()
+        await self._finish_mutation()
         return contact
 
     async def create_follow_up(self, customer_id: UUID, payload: FollowUpCreate) -> tuple[Customer, FollowUp]:
@@ -85,7 +86,7 @@ class CrmService:
     async def delete_follow_up(self, customer_id: UUID, follow_up_id: UUID) -> FollowUp:
         follow_up = await self._follow_up(customer_id, follow_up_id)
         await self._session.delete(follow_up)
-        await self._session.commit()
+        await self._finish_mutation()
         return follow_up
 
     async def _customer(self, customer_id: UUID) -> Customer:
@@ -107,8 +108,14 @@ class CrmService:
         return follow_up
 
     async def _commit_and_refresh(self, model: Customer | Contact | FollowUp) -> None:
-        await self._session.commit()
+        await self._finish_mutation()
         await self._session.refresh(model)
+
+    async def _finish_mutation(self) -> None:
+        if self._commit_mutations:
+            await self._session.commit()
+        else:
+            await self._session.flush()
 
 
 def _assign(model: Customer | Contact | FollowUp, values: dict[str, object]) -> None:

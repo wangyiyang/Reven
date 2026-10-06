@@ -180,18 +180,21 @@ class IntegrationService:
         与通用 upsert 的差异：
         - api_key 缺省时保留现有默认密钥；model_keys 增量合并（空串=清除该模型独立密钥）；
         - 每次写回 prune 掉不再被 models[] 引用的 ``model_key:<ref>`` 扁平键；
-        - 从 models[] 移除被飞书会话 override 引用中的模型时拒绝（409 AGENT_MODEL_IN_USE）。
+        - 移除仍有未终止运行或待确认操作的模型时拒绝（409 AGENT_MODEL_IN_USE）。
         """
         integration = await self.repository.get_by_provider(AGENT_LLM_PROVIDER)
-        new_refs = _model_entry_refs(public_config)
+        new_refs = _model_entry_refs(public_config) | {_default_model_ref(public_config)}
         if integration is not None and refs_in_use:
-            removed = _model_entry_refs(integration.public_config) - new_refs
+            existing_refs = _model_entry_refs(integration.public_config) | {
+                _default_model_ref(integration.public_config)
+            }
+            removed = existing_refs - new_refs
             blocked = sorted(removed & refs_in_use)
             if blocked:
                 raise IntegrationError(
                     status_code=409,
                     code="AGENT_MODEL_IN_USE",
-                    message=f"模型 {', '.join(blocked)} 正被飞书会话使用，请先 /model use 切换其他模型",
+                    message=f"模型 {', '.join(blocked)} 仍有未完成运行或待确认操作，请先查询原运行",
                 )
 
         existing: dict[str, str] = {}

@@ -1,4 +1,4 @@
-"""RSS 关键词 dsh 工具集：直连 RssSettingsRepository，冲突映射为模型可读错误。
+"""RSS 关键词工具集：直连 RssSettingsRepository，冲突映射为模型可读错误。
 
 create/update 写库后触发增量 embedding refresh（与 REST /embeddings/rebuild 同一 seam）：
 embedder 不可用或刷新失败时词仍入库，响应以 embedding_status="pending" 标注，不静默、不抛出。
@@ -8,11 +8,11 @@ import logging
 from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
-from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from reven.agent.tool_binding import ToolSessionBinding
 from reven.rss.models import RssKeyword
 from reven.rss.normalization import normalize_keyword
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
@@ -37,28 +37,17 @@ class KeywordEmbeddingHooks(Protocol):
     async def estimate_hits(self, keyword_id: UUID) -> int | None: ...
 
 
-def register_rss_tools(
-    mcp: FastMCP,
-    session_factory: async_sessionmaker[AsyncSession],
-    embedding_refresher: KeywordEmbeddingHooks | None = None,
-) -> None:
-    """把 RSS 关键词 CRUD 注册为 MCP 工具（模型侧呈现为 mcp__reven__rss_keyword_*）。"""
-    tools = RssKeywordTools(session_factory, embedding_refresher)
-    mcp.tool(tools.create_keyword, name="rss_keyword_create")
-    mcp.tool(tools.list_keywords, name="rss_keyword_list")
-    mcp.tool(tools.update_keyword, name="rss_keyword_update")
-    mcp.tool(tools.delete_keyword, name="rss_keyword_delete")
-
-
-class RssKeywordTools:
-    """RSS 关键词工具实现；每次调用独立开库会话并提交，与 API 路由的写语义一致。"""
+class RssKeywordTools(ToolSessionBinding):
+    """单独调用自行提交；Agent 绑定真实 session 时由操作执行器提交。"""
 
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         embedding_refresher: KeywordEmbeddingHooks | None = None,
+        *,
+        session: AsyncSession | None = None,
     ) -> None:
-        self._session_factory = session_factory
+        super().__init__(session_factory, session=session)
         self._embedding_refresher = embedding_refresher
 
     async def create_keyword(self, term: TermParam, kind: KindParam, enabled: EnabledParam = True) -> KeywordPayload:
@@ -68,22 +57,18 @@ class RssKeywordTools:
         不可估计时为 null）。
         """
         _validate_normalized_length(term)
-        async with self._session_factory() as session:
+        async with self._session() as session:
             try:
                 keyword = await RssSettingsRepository(session).create_keyword(term=term, kind=kind, enabled=enabled)
             except RssSettingsConflictError as exc:
                 raise _conflict_tool_error(exc) from exc
-            await session.commit()
-        embedding_status = await self._refresh_embedding()
-        hit_count = await self._estimate_hits(keyword.id) if embedding_status == "ready" else None
-        payload = _serialize(keyword)
-        payload["embedding_status"] = embedding_status
-        payload["hit_count"] = hit_count
-        return payload
+            self._record_entity(keyword)
+            await self._commit(session)
+        return await self._write_payload(keyword, include_hits=True)
 
     async def list_keywords(self) -> list[KeywordPayload]:
         """列出全部 RSS 关键词（含 id、kind、enabled），供后续 update/delete 取用。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             keywords = await RssSettingsRepository(session).list_keywords()
         return [_serialize(keyword) for keyword in keywords]
 
@@ -96,7 +81,7 @@ class RssKeywordTools:
     ) -> KeywordPayload:
         """全量更新一个关键词。先调用 rss_keyword_list 获取现状，再在此基础上修改。"""
         _validate_normalized_length(term)
-        async with self._session_factory() as session:
+        async with self._session() as session:
             try:
                 keyword = await RssSettingsRepository(session).update_keyword(
                     keyword_id,
@@ -108,20 +93,35 @@ class RssKeywordTools:
                 raise _conflict_tool_error(exc) from exc
             if keyword is None:
                 raise _not_found_tool_error(keyword_id)
-            await session.commit()
-        embedding_status = await self._refresh_embedding()
-        payload = _serialize(keyword)
-        payload["embedding_status"] = embedding_status
-        return payload
+            self._record_entity(keyword)
+            await self._commit(session)
+        return await self._write_payload(keyword, include_hits=False)
 
     async def delete_keyword(self, keyword_id: KeywordIdParam) -> KeywordPayload:
         """删除一个关键词。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             deleted = await RssSettingsRepository(session).delete_keyword(keyword_id)
             if not deleted:
                 raise _not_found_tool_error(keyword_id)
-            await session.commit()
+            self._record_id(RssKeyword.__tablename__, keyword_id)
+            await self._commit(session)
         return {"id": str(keyword_id), "deleted": True}
+
+    async def _write_payload(self, keyword: RssKeyword, *, include_hits: bool) -> KeywordPayload:
+        payload = {**_serialize(keyword), "embedding_status": "pending"}
+        if include_hits:
+            payload["hit_count"] = None
+        return await self.refresh_result(payload) if self._commits else payload
+
+    async def refresh_result(self, payload: KeywordPayload) -> KeywordPayload:
+        """补做提交后 embedding 工作；重放只使用保存的关键词 ID，不再执行 CRUD。"""
+        if payload.get("embedding_status") == "ready":
+            return payload
+        result = dict(payload)
+        result["embedding_status"] = await self._refresh_embedding()
+        if "hit_count" in result and result["embedding_status"] == "ready":
+            result["hit_count"] = await self._estimate_hits(UUID(str(result["id"])))
+        return result
 
     async def _refresh_embedding(self) -> str:
         """增量补算关键词 embedding；未装配或失败时降级 pending（词已入库，下轮每日调度兜底）。"""

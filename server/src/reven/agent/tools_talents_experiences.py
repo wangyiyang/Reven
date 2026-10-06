@@ -4,7 +4,6 @@ from datetime import date
 from typing import Annotated
 
 from pydantic import Field
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.talents_tool_support import (
     ConfirmTalentNameParam,
@@ -18,19 +17,17 @@ from reven.agent.talents_tool_support import (
     _talent_not_found,
     _validate,
 )
+from reven.agent.tool_binding import ToolSessionBinding
 from reven.talents.inputs import TalentExperienceCreate, TalentExperienceUpdate
 from reven.talents.models import TalentExperience
 from reven.talents.repository import TalentsRepository
 from reven.talents.service import TalentsService
 
 
-class TalentsExperienceTools:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
+class TalentsExperienceTools(ToolSessionBinding):
     async def list_experiences(self, talent_id: TalentIdParam) -> str:
         """列出指定人才的全部工作履历，在职（至今）的排最前，其余按开始日期倒序。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             repository = TalentsRepository(session)
             talent = await repository.get_talent(talent_id)
             if talent is None:
@@ -69,12 +66,15 @@ class TalentsExperienceTools:
             },
         )
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 talent = await repository.get_talent(talent_id)
                 if talent is None:
                     raise _talent_not_found(talent_id)
-                experience = await TalentsService(session).create_experience(talent, payload.model_dump())
+                experience = await TalentsService(session, commit=self._commits).create_experience(
+                    talent, payload.model_dump()
+                )
+                self._record_entity(experience)
         return f"已为人才「{talent.name}」添加履历：{_experience_line(0, experience).removeprefix('0. ')}"
 
     async def update_experience(
@@ -97,14 +97,15 @@ class TalentsExperienceTools:
         )
         payload = _validate(TalentExperienceUpdate, values)
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 experience = await repository.get_experience(talent_id, experience_id)
                 if experience is None:
                     raise _experience_not_found(experience_id)
-                updated = await TalentsService(session).update_experience(
+                updated = await TalentsService(session, commit=self._commits).update_experience(
                     experience, payload.model_dump(exclude_unset=True)
                 )
+                self._record_entity(updated)
         return f"已更新履历：{_experience_line(0, updated).removeprefix('0. ')}"
 
     async def delete_experience(
@@ -118,14 +119,15 @@ class TalentsExperienceTools:
         调用前必须与用户确认删除意图，并把所属人才名称逐字填入 confirm_talent_name。
         """
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 await _confirm_talent_name(session, talent_id, confirm_talent_name)
                 repository = TalentsRepository(session)
                 experience = await repository.get_experience(talent_id, experience_id)
                 if experience is None:
                     raise _experience_not_found(experience_id)
                 label = f"{experience.company}·{experience.title}"
-                await TalentsService(session).delete_experience(experience)
+                await TalentsService(session, commit=self._commits).delete_experience(experience)
+                self._record_entity(experience)
         return f"已删除履历「{label}」（id={experience_id}）。"
 
 

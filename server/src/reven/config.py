@@ -1,14 +1,11 @@
 import re
 from datetime import time
-from pathlib import Path
 from typing import Annotated
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from reven.security.origin import normalize_origin
-
-DEFAULT_AGENT_MCP_URL = "http://127.0.0.1:8000/agent/mcp"
 
 
 class Settings(BaseSettings):
@@ -46,15 +43,14 @@ class Settings(BaseSettings):
     notify_push_time: str = "09:00"
     notify_push_chat_id: str | None = None
     notify_push_heartbeat: bool = False
-    dsh_home: Path = Path(".dsh-runtime")
     agent_provider: str = "deepseek-official"
     agent_model: str = "deepseek-v4-flash"
     agent_base_url: str | None = None
     agent_api_key: SecretStr | None = None
     agent_mcp_token: SecretStr | None = None
-    agent_mcp_url: str = DEFAULT_AGENT_MCP_URL
-    # dsh 单轮对话执行超时（#177）：防 dsh 挂死耗尽 anyio 线程池；超时将该会话标记作废
+    # 执行期限与接口等待预算独立；等待超时不取消持久运行。
     agent_run_timeout_seconds: float = Field(default=180.0, gt=0)
+    agent_wait_timeout_seconds: float = Field(default=120.0, gt=0)
 
     @field_validator("public_base_url")
     @classmethod

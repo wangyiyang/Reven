@@ -168,11 +168,10 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
             "talent_education_delete",
             "talent_import_profile",
         }
-        # 带空白的输入在 MCP 边界经 pydantic 约束自动 strip（与 API schema 行为一致）
-        created = await client.call_tool("rss_keyword_create", {"term": " MCP 协议 ", "kind": "positive"})
-        assert created.data["term"] == "MCP 协议"
-        assert created.data["embedding_status"] == "pending"
-        assert created.data["hit_count"] is None
+        with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+            await client.call_tool("rss_keyword_create", {"term": " MCP 协议 ", "kind": "positive"})
+        assert await RssKeywordTools(session_factory).list_keywords() == []
+        await RssKeywordTools(session_factory).create_keyword(term="MCP 协议", kind="positive")
         listed = await client.call_tool("rss_keyword_list", {})
         assert [item["term"] for item in listed.data] == ["MCP 协议"]
 

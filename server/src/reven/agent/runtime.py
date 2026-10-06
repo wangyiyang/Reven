@@ -1,104 +1,78 @@
-"""dsh 嵌入式运行时封装：单例生命周期 + 同步 SDK 的异步包装 + 按模型的 harness 缓存池。"""
+"""原生异步图与检查点生命周期，不拥有业务会话或审批状态。"""
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from pathlib import Path
-from uuid import uuid4
+from typing import TYPE_CHECKING, Any, cast
 
-from anyio import to_thread
-from deepseek_harness import DeepSeekHarness, RunResult
-from deepseek_harness.errors import HarnessError, JsonRpcError
+import httpx
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command, StateSnapshot
+from langsmith import tracing_context
 
+from reven.agent.checkpoint import AgentCheckpoints
 from reven.agent.config import AgentConfig
-from reven.agent.errors import AgentModelUnavailableError, AgentNotConfiguredError, AgentRuntimeError
-from reven.agent.mcp_server import AgentMcpContext
+from reven.agent.context import AgentContext
+from reven.agent.errors import AgentModelUnavailableError, AgentRuntimeError
+from reven.agent.graph import AgentGraph, build_agent_graph
+from reven.agent.model_guard import ModelErrorBoundary
+from reven.agent.models import AgentConfigRevision, AgentRun
+from reven.agent.providers import build_chat_model
 from reven.integrations.providers import model_ref_of
 
+if TYPE_CHECKING:
+    from reven.agent.tool_registry import ToolRegistry
+
 logger = logging.getLogger(__name__)
-
-DSH_PATCH_FILE = Path(__file__).with_name("dsh.patch.yml")
-
-# 模型引用（provider/model）→ 运行时配置；未注册/未启用返回 None。
-# 由组合根装配（agent.config.resolve_agent_model_config），运行时不直接依赖凭证 seam。
 ModelConfigResolver = Callable[[str], Awaitable[AgentConfig | None]]
+DefaultConfigResolver = Callable[[], Awaitable[AgentConfig | None]]
+ChatModelFactory = Callable[[AgentConfig], BaseChatModel]
 
 
-def _launch(config: AgentConfig, mcp: AgentMcpContext | None) -> DeepSeekHarness:
-    config.dsh_home.mkdir(parents=True, exist_ok=True)
-    env: dict[str, str] = {}
-    patches = config.patches
-    if mcp is not None:
-        # dsh.patch.yml 的 !!js 表达式依赖这两个变量；token 仅经 env 传递，不写日志
-        env = {"REVEN_AGENT_MCP_URL": mcp.url, "REVEN_AGENT_MCP_TOKEN": mcp.token}
-        patches = (*patches, str(DSH_PATCH_FILE))
-    harness = DeepSeekHarness(
-        dsh_home=str(config.dsh_home),
-        cwd=str(config.cwd),
-        provider=config.provider,
-        model=config.model,
-        base_url=config.base_url,
-        api_key=config.api_key,
-        patches=patches,
-        env=env,
+def graph_config(run: AgentRun) -> RunnableConfig:
+    return {
+        "configurable": {"thread_id": str(run.session_id)},
+        "metadata": {"reven_run_id": str(run.id), "reven_revision_id": str(run.revision_id)},
+        "recursion_limit": 60,
+    }
+
+
+def final_response(values: dict[str, Any]) -> str:
+    messages = values.get("messages", [])
+    if not messages or not isinstance(messages[-1], AIMessage) or messages[-1].tool_calls:
+        raise AgentRuntimeError("AGENT_RESPONSE_INCOMPLETE", "Agent 尚未生成最终结果")
+    content = messages[-1].content
+    if isinstance(content, str):
+        return content
+    return "".join(
+        block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
     )
-    try:
-        harness.start()
-    except Exception:
-        harness.close()
-        raise
-    return harness
-
-
-def _is_session_exists_conflict(exc: HarnessError) -> bool:
-    """识别"磁盘上存在但进程内存中不存在"的会话冲突（dsh 无 resume API，进程重启后出现）。"""
-    if not isinstance(exc, JsonRpcError):
-        return False
-    return "already exists" in str(exc)
-
-
-def _chat_failed_error(session_id: str, exc: HarnessError) -> AgentRuntimeError:
-    """dsh 会话异常收敛为稳定错误：message 只含 session_id，不带异常原文——上游报错可能
-    回显凭证，禁止进 API 响应；日志同样只记 error_type（与 _harness_for 拉起失败同一纪律，#176）。"""
-    logger.error("dsh 会话执行失败（session_id=%s, error_type=%s）", session_id, type(exc).__name__)
-    return AgentRuntimeError("AGENT_CHAT_FAILED", f"dsh 会话执行失败（session_id={session_id}）")
 
 
 class AgentRuntime:
-    """持有 DeepSeekHarness 主实例与按模型缓存池，由 FastAPI lifespan 管理启动与关闭。
-
-    SDK 为同步客户端，所有调用经 anyio.to_thread 包装，不阻塞事件循环；
-    M0.4 已实测单实例多线程并发 run()（独立 session_id）真并发，不加全局锁。
-    启动失败不抛出：置为不可用状态并记日志，应用照常启动（已拍板降级策略）。
-
-    多模型（#163）：dsh SDK 的 run() 无 per-call model 参数，模型在 initialize 握手时
-    固定——因此切换模型 = 换用按该模型配置拉起的另一个 harness 实例（缓存池懒加载，
-    进程内每模型至多一个实例）。override 模型未注册/拉起失败时抛
-    AgentModelUnavailableError，绝不静默回落默认模型（OpenClaw 严格语义）。
-
-    单轮超时（#177）：run() 经 asyncio.wait_for 包裹（阈值走配置，默认 180s），
-    防 dsh 挂死耗尽 anyio 线程池拖垮全站；超时抛 AGENT_CHAT_TIMEOUT 并把该会话标记作废
-    （外部 id 重铸新活跃 id），后续消息不再落入可能仍在挂起执行的旧会话。
-    注意 to_thread 无法真取消：超时后后台线程仍跑完，但调用方已释放。
-    """
-
     def __init__(
         self,
         config: AgentConfig | None,
-        mcp: AgentMcpContext | None = None,
         *,
+        database_url: str | None = None,
+        registry: "ToolRegistry | None" = None,
+        config_resolver: DefaultConfigResolver | None = None,
         model_resolver: ModelConfigResolver | None = None,
-        run_timeout_seconds: float = 180.0,
+        model_factory: ChatModelFactory | None = None,
+        run_timeout_seconds: float = 180,
     ) -> None:
         self._config = config
-        self._mcp = mcp
+        self.registry = registry
+        self._config_resolver = config_resolver
         self._model_resolver = model_resolver
+        self._model_factory = model_factory
         self._run_timeout_seconds = run_timeout_seconds
-        self._harness: DeepSeekHarness | None = None
-        self._harness_pool: dict[str, DeepSeekHarness] = {}
-        self._pool_locks: dict[str, asyncio.Lock] = {}
-        self._start_failed = False
-        self._session_aliases: dict[str, str] = {}
+        self.checkpoints = AgentCheckpoints(database_url) if database_url is not None else None
+        self._available = False
+        self._http: httpx.AsyncClient | None = None
+        self._sync_http: httpx.Client | None = None
 
     @property
     def configured(self) -> bool:
@@ -106,141 +80,86 @@ class AgentRuntime:
 
     @property
     def available(self) -> bool:
-        """默认模型主 harness 已拉起可用（#177 健康检查用）：启动失败/未启动/已关闭均为 False。"""
-        return self._harness is not None
+        return self._available
 
     @property
     def default_model_ref(self) -> str | None:
-        """默认模型引用（主 harness 所用模型）；未配置时为 None。"""
-        if self._config is None:
-            return None
-        return model_ref_of(self._config.provider, self._config.model)
+        return model_ref_of(self._config.provider, self._config.model) if self._config else None
+
+    async def resolve_config(self, model_ref: str | None = None) -> AgentConfig | None:
+        self._config = await self._config_resolver() if self._config_resolver else self._config
+        if model_ref is None:
+            return self._config
+        if self._model_resolver is not None:
+            return await self._model_resolver(model_ref)
+        return self._config if model_ref == self.default_model_ref else None
 
     async def start(self) -> None:
-        """拉起 dsh 子进程并完成 initialize 握手；未配置或已失败时为空操作。
-
-        启动失败（含 HarnessError / OSError / TimeoutError 等任意异常）仅记录
-        结构化日志并标记不可用，绝不阻止应用启动；chat 在该状态返回 502。
-        仅拉起默认模型主实例；override 模型的池实例在首次使用时懒加载。
-        """
-        if self._config is None or self._harness is not None or self._start_failed:
+        if self.available or self.checkpoints is None:
             return
         try:
-            self._harness = await to_thread.run_sync(_launch, self._config, self._mcp)
-        except Exception as exc:
-            self._start_failed = True
-            logger.error("dsh 运行时启动失败，Agent 降级为不可用（error_type=%s）", type(exc).__name__)
+            await self.checkpoints.open()
+            self._http = httpx.AsyncClient(timeout=60, trust_env=False)
+            self._sync_http = httpx.Client(timeout=60, trust_env=False)
+            self._available = True
+        except Exception as error:
+            logger.error("Agent 初始化失败，运行时降级（error_type=%s）", type(error).__name__)
 
     async def close(self) -> None:
-        """关闭主实例与缓存池全部实例并复位失败标记；幂等，未启动时为空操作。"""
-        harness = self._harness
-        self._harness = None
-        self._start_failed = False
-        pool = tuple(self._harness_pool.values())
-        self._harness_pool.clear()
-        for instance in (harness, *pool):
-            if instance is not None:
-                await to_thread.run_sync(instance.close)
+        self._available = False
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
+        if self._sync_http is not None:
+            self._sync_http.close()
+            self._sync_http = None
+        if self.checkpoints is not None:
+            await self.checkpoints.close()
 
-    async def chat(self, message: str, session_id: str | None = None, *, model: str | None = None) -> tuple[str, str]:
-        """执行一轮对话，返回 (实际使用的 session_id, 最终响应文本)；session_id 缺省时生成。
-
-        model 为可选模型引用（provider/model，来自 /model 指令的会话级 override）：
-        缺省或命中默认模型时走主实例；否则经 model_resolver 校验后使用缓存池实例——
-        未注册/未启用/拉起失败均抛 AgentModelUnavailableError，不静默降级。
-
-        进程重启后 dsh 内存会话表清空而磁盘会话仍在，旧 session_id 会触发 "already exists"
-        冲突：为该外部 id 重铸活跃 id（`<外部 id>~r<随机>`）重试一次并记录进程内别名，
-        后续同外部 id 的消息经别名沿用同一活跃会话；别名不持久化，重启后首次冲突会再次重铸。
-        """
-        if self._config is None:
-            raise AgentNotConfiguredError()
-        if self._start_failed:
-            raise AgentRuntimeError("AGENT_RUNTIME_UNAVAILABLE", "dsh 运行时启动失败，Agent 暂不可用")
-        harness = await self._resolve_harness(model)
-        return await self._run_turn(harness, message, session_id)
-
-    async def _resolve_harness(self, model: str | None) -> DeepSeekHarness:
-        """按模型引用选择 harness：默认走主实例，override 走缓存池（严格校验，不回落）。"""
-        if model is None or model == self.default_model_ref:
-            harness = self._harness
-            if harness is None:
-                raise AgentRuntimeError("AGENT_RUNTIME_NOT_STARTED", "dsh 运行时未启动")
-            return harness
-        if self._model_resolver is None:
-            raise AgentModelUnavailableError(model, "运行时未接入模型注册表")
-        config = await self._model_resolver(model)
-        if config is None:
-            raise AgentModelUnavailableError(model)
-        return await self._harness_for(model, config)
-
-    async def _harness_for(self, model_ref: str, config: AgentConfig) -> DeepSeekHarness:
-        """缓存池取实例；未命中则按该模型配置懒拉起一个（同模型并发首用经 per-ref 锁去重）。"""
-        cached = self._harness_pool.get(model_ref)
-        if cached is not None:
-            return cached
-        lock = self._pool_locks.setdefault(model_ref, asyncio.Lock())
-        async with lock:
-            cached = self._harness_pool.get(model_ref)
-            if cached is not None:
-                return cached
-            try:
-                instance = await to_thread.run_sync(_launch, config, self._mcp)
-            except Exception as exc:
-                # 拉起失败只记异常类型：异常 message 可能含上游凭证回显，禁止进日志与错误消息
-                logger.error("dsh 模型实例拉起失败（model=%s, error_type=%s）", model_ref, type(exc).__name__)
-                raise AgentModelUnavailableError(model_ref, "运行时拉起失败") from exc
-            self._harness_pool[model_ref] = instance
-            return instance
-
-    async def _run_turn(self, harness: DeepSeekHarness, message: str, session_id: str | None) -> tuple[str, str]:
-        """在指定 harness 上执行一轮对话（含 already exists 冲突的重铸重试）。每条路径都带超时护栏。"""
-        resolved_session_id = self._session_aliases.get(session_id, session_id) if session_id else uuid4().hex
-        try:
-            result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
-        except HarnessError as exc:
-            if not session_id or not _is_session_exists_conflict(exc):
-                raise _chat_failed_error(resolved_session_id, exc) from exc
-            resolved_session_id = f"{session_id}~r{uuid4().hex[:8]}"
-            logger.info("dsh 会话冲突，重铸活跃 id 重试（session_id=%s, resolved=%s）", session_id, resolved_session_id)
-            try:
-                result = await self._run_with_timeout(harness, message, resolved_session_id, external_id=session_id)
-            except HarnessError as retry_exc:
-                raise _chat_failed_error(session_id, retry_exc) from retry_exc
-            self._session_aliases[session_id] = resolved_session_id
-        return result.session_id, result.final_response
-
-    async def _run_with_timeout(
-        self,
-        harness: DeepSeekHarness,
-        message: str,
-        resolved_session_id: str,
-        *,
-        external_id: str | None,
-    ) -> RunResult:
-        """带超时的单轮执行（#177）：超时抛 AGENT_CHAT_TIMEOUT 并将该会话标记作废。"""
-        try:
-            return await asyncio.wait_for(
-                to_thread.run_sync(lambda: harness.run(message, session_id=resolved_session_id)),
-                timeout=self._run_timeout_seconds,
+    def build_graph(self, run: AgentRun, revision: AgentConfigRevision, config: AgentConfig) -> AgentGraph:
+        if not self.available or self.checkpoints is None or self.registry is None:
+            raise AgentRuntimeError("AGENT_RUNTIME_UNAVAILABLE", "Agent 检查点或工具尚未就绪")
+        if model_ref_of(config.provider, config.model) != run.model_ref:
+            raise AgentModelUnavailableError(run.model_ref, "原运行模型配置不一致")
+        frozen = run.snapshot
+        if (
+            frozen.get("runtime_contract") != 1
+            or frozen.get("provider") != config.provider
+            or frozen.get("model") != config.model
+            or frozen.get("base_url") != config.base_url
+            or frozen.get("tool_names") != revision.tool_names
+        ):
+            raise AgentRuntimeError("AGENT_CONFIG_CHANGED", "原运行配置已变化，不能继续执行")
+        model = (
+            self._model_factory(config)
+            if self._model_factory
+            else build_chat_model(
+                config.provider,
+                config.model,
+                config.base_url,
+                config.api_key,
+                http_async_client=self._http,
+                http_client=self._sync_http,
             )
-        except TimeoutError as exc:
-            self._void_session(external_id, resolved_session_id)
-            raise AgentRuntimeError(
-                "AGENT_CHAT_TIMEOUT",
-                f"dsh 会话执行超时（>{self._run_timeout_seconds:.0f}s），会话已标记作废",
-            ) from exc
-
-    def _void_session(self, external_id: str | None, resolved_session_id: str) -> None:
-        """超时会话作废：外部 id 重铸新活跃 id，后续消息不再落入可能仍在挂起执行的旧会话。"""
-        if external_id is None:
-            logger.warning("dsh 会话执行超时（session_id=%s），本次会话已放弃", resolved_session_id)
-            return
-        renewed = f"{external_id}~r{uuid4().hex[:8]}"
-        self._session_aliases[external_id] = renewed
-        logger.warning(
-            "dsh 会话执行超时，会话标记作废并重铸（session_id=%s, abandoned=%s, renewed=%s）",
-            external_id,
-            resolved_session_id,
-            renewed,
         )
+        return build_agent_graph(
+            model=model,
+            tools=self.registry.native_tools(revision.tool_names),
+            system_prompt=revision.prompt,
+            checkpointer=self.checkpoints.saver,
+            middleware=[ModelErrorBoundary(), self.registry.middleware()],
+            confirmation_tools=self.registry.confirmation_tools(revision.tool_names),
+        )
+
+    async def invoke(
+        self, graph: AgentGraph, run: AgentRun, input_: dict[str, Any] | Command[Any] | None
+    ) -> dict[str, Any]:
+        context = AgentContext(run.owner_id, run.session_id, run.id)
+        with tracing_context(enabled=False):
+            async with asyncio.timeout(self._run_timeout_seconds):
+                return cast(
+                    dict[str, Any], await graph.ainvoke(input_, graph_config(run), context=context, durability="sync")
+                )
+
+    async def state(self, graph: AgentGraph, run: AgentRun) -> StateSnapshot:
+        return await graph.aget_state(graph_config(run))

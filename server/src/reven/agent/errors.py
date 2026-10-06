@@ -18,7 +18,7 @@ class AgentNotConfiguredError(AgentError):
 
 
 class AgentRuntimeError(AgentError):
-    """dsh 运行时启动或会话执行失败。"""
+    """原生 Agent 运行时或检查点执行失败。"""
 
 
 class AgentModelUnavailableError(AgentError):
