@@ -5,9 +5,10 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ScalarSelect, Select, or_, select
+from sqlalchemy import ScalarSelect, Select, String, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from reven.db import escape_like
 from reven.talents.models import Talent, TalentEducation, TalentExperience, TalentInteraction
 
 
@@ -18,10 +19,6 @@ class TalentPlan:
     talent: Talent
     next_action: str | None
     next_due_on: date | None
-
-
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _latest_action_subquery() -> ScalarSelect[str | None]:
@@ -118,11 +115,41 @@ class TalentsRepository:
             statement = statement.where(Talent.status == status)
         statement = self._filter_due(statement, due, today)
         if query:
-            pattern = f"%{_escape_like(query)}%"
+            pattern = f"%{escape_like(query)}%"
+            experience_match = exists(
+                select(TalentExperience.id).where(
+                    TalentExperience.talent_id == Talent.id,
+                    or_(
+                        TalentExperience.company.ilike(pattern, escape="\\"),
+                        TalentExperience.title.ilike(pattern, escape="\\"),
+                        TalentExperience.description.ilike(pattern, escape="\\"),
+                    ),
+                )
+            )
+            education_match = exists(
+                select(TalentEducation.id).where(
+                    TalentEducation.talent_id == Talent.id,
+                    or_(
+                        TalentEducation.school.ilike(pattern, escape="\\"),
+                        TalentEducation.degree.ilike(pattern, escape="\\"),
+                        TalentEducation.major.ilike(pattern, escape="\\"),
+                    ),
+                )
+            )
             statement = statement.where(
                 or_(
                     Talent.name.ilike(pattern, escape="\\"),
                     Talent.organization.ilike(pattern, escape="\\"),
+                    Talent.notes.ilike(pattern, escape="\\"),
+                    Talent.capability.ilike(pattern, escape="\\"),
+                    Talent.phone.ilike(pattern, escape="\\"),
+                    Talent.email.ilike(pattern, escape="\\"),
+                    Talent.wechat.ilike(pattern, escape="\\"),
+                    # JSONB 数组整体 cast 为文本做包含匹配（JSON 标点噪声对 %词% 无害）
+                    Talent.tags.cast(String).ilike(pattern, escape="\\"),
+                    Talent.preferences.cast(String).ilike(pattern, escape="\\"),
+                    experience_match,
+                    education_match,
                 )
             )
         if tag:

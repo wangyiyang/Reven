@@ -8,6 +8,7 @@ from sqlalchemy import ScalarSelect, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.crm.models import Contact, Customer, FollowUp
+from reven.db import escape_like
 from reven.scheduling import utc_now
 
 
@@ -86,22 +87,24 @@ class CrmRepository:
 
     @staticmethod
     def _customer_search(query: str):  # type: ignore[no-untyped-def]
-        pattern = f"%{query}%"
+        pattern = f"%{escape_like(query)}%"
         contact_match = exists(
             select(Contact.id).where(
                 Contact.customer_id == Customer.id,
                 or_(
-                    Contact.name.ilike(pattern),
-                    Contact.phone.ilike(pattern),
-                    Contact.email.ilike(pattern),
-                    Contact.wechat.ilike(pattern),
+                    Contact.name.ilike(pattern, escape="\\"),
+                    Contact.role.ilike(pattern, escape="\\"),
+                    Contact.phone.ilike(pattern, escape="\\"),
+                    Contact.email.ilike(pattern, escape="\\"),
+                    Contact.wechat.ilike(pattern, escape="\\"),
+                    Contact.notes.ilike(pattern, escape="\\"),
                 ),
             )
         )
         return or_(
-            Customer.name.ilike(pattern),
-            Customer.source.ilike(pattern),
-            Customer.notes.ilike(pattern),
+            Customer.name.ilike(pattern, escape="\\"),
+            Customer.source.ilike(pattern, escape="\\"),
+            Customer.notes.ilike(pattern, escape="\\"),
             contact_match,
         )
 

@@ -42,12 +42,17 @@ class TalentsTalentTools:
 
     async def list_talents(
         self,
-        query: Annotated[str | None, Field(description="模糊检索词：匹配人才姓名/当前单位")] = None,
+        query: Annotated[
+            str | None,
+            Field(
+                description="模糊检索词：匹配人才姓名/当前单位/备注/能力描述/联系方式，以及标签/喜好和履历（公司/职位/描述）/院校（学校/学位/专业）"
+            ),
+        ] = None,
         status: TalentStatusParam | None = None,
         due: DueFilterParam | None = None,
         tag: Annotated[str | None, Field(description="按单个能力/行业标签精确筛选（如：设计）")] = None,
     ) -> str:
-        """检索人才列表，可按姓名/单位关键词模糊搜索、按人才状态筛选、按跟进日期筛选、按能力标签精确筛选。
+        """检索人才列表，可按画像关键词模糊搜索（姓名/单位/能力/标签/喜好/联系方式/履历/院校）、按人才状态筛选、按跟进日期筛选、按能力标签精确筛选。
 
         返回每个人才的 id、姓名、状态、单位、标签与当前跟进计划（派生自最新一条互动记录）；
         拿到 id 后可调用 talent_get 看完整画像，或 talent_update / talent_delete 做变更。

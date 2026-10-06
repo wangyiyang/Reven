@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
+- **Total Sessions**: 22
 - **Last Active**: 2026-10-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~618 | Active |
+| `journal-1.md` | ~658 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-10-06 | 搜索扩展到画像字段（#201 P4） | `df2b34b`, `546cc46`, `694584c`, `5c65353` | `issue/gh-201-p4-search-profile-fields` |
 | 20 | 2026-10-06 | talents agent 工具与枚举统一（#201 P3） | `fccd5c4`, `c734d4d`, `a6f51bd`, `5afa799` | `issue/gh-201-p3-talent-agent-tools` |
 | 19 | 2026-10-06 | 前后端统一 VPS 发布 v0.7.2 | `dd2429c`, `81fce80`, `bd38059` | `codex/unify-vps-deploy-record` |
 | 18 | 2026-10-06 | v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环） | `7807718`, `13fe57f` | `chore/journal-session-16` |

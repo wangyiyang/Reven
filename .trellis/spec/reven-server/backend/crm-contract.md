@@ -87,8 +87,10 @@ take it from `reven.scheduling.SHANGHAI` (`datetime.now(SHANGHAI).date()`), neve
 `date.today()` — the latter follows the runner's local timezone and flakes in
 CI during the UTC 16:00–24:00 window when Shanghai has already crossed
 midnight but UTC has not. Search covers customer name/source/notes and
-contact name/phone/email/WeChat through an `EXISTS` subquery so one customer is
-never duplicated by multiple matching contacts.
+contact name/role/phone/email/WeChat/notes through an `EXISTS` subquery so one
+customer is never duplicated by multiple matching contacts. Search terms are
+LIKE-escaped (`\`, `%`, `_` via `reven.db.escape_like`, `ilike(...,
+escape="\\")`) — wildcards match literally.
 
 All responses use UUID strings, ISO dates (`YYYY-MM-DD`), and ISO datetimes.
 Optional text is trimmed and stored/returned as `null`, not an empty string.

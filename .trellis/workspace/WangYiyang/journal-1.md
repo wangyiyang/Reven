@@ -616,3 +616,43 @@ talents 域 18 个 MCP 工具（主档 CRUD + 三类子项 CRUD + import_profile
 
 - P4：画像字段搜索扩展（crm _customer_search 与 talents q 覆盖 experience/education/tags/preferences）
 - 开发工具 tinypool 漏洞升级另行处理；本次未升级依赖、未执行生产回滚，CRM/人才库无现有记录，未制造详情测试数据。
+
+
+## Session 22: 搜索扩展到画像字段（#201 P4）
+<!-- trellis-session: v=2 fp=3a455c195c1a4614 -->
+
+**Date**: 2026-10-06
+**Task**: 搜索扩展到画像字段（#201 P4）
+**Branch**: `issue/gh-201-p4-search-profile-fields`
+
+### Summary
+
+CRM 客户搜索补联系人职务/备注并修复通配符未转义缺陷；talents q 从 name/organization 扩展到 15 个画像字段（主表 5 字段 + tags/preferences JSONB 模糊 + 履历/院校 EXISTS），REST/MCP 一处生效
+
+### Main Changes
+
+- escape_like 提升到 reven/db.py 两域共用；CRM 9 处 ilike 补 escape 转义（修既有缺陷）
+- CRM 联系人 EXISTS 加 role/notes；talents 主表 or_ 加 notes/capability/phone/email/wechat
+- talents JSONB tags/preferences 用 cast(String).ilike；experiences/educations 各新建 EXISTS 子查询（禁 JOIN，不重复返回）
+- 文案同步：MCP 工具描述 ×2、web placeholder ×2、spec 契约句 ×2（含排除项：合作条件/可用时间/费率/跟进全文）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `df2b34b` | feat(server): 搜索扩展到画像字段（#201 P4） |
+| `546cc46` | feat(web): 搜索框 placeholder 同步画像覆盖面（#201 P4） |
+| `694584c` | docs(spec): 搜索覆盖面契约句同步（#201 P4） |
+| `5c65353` | docs(trellis): P4 任务规划与调研产物（#201） |
+
+### Testing
+
+- [OK] server 926 测试 + 13 迁移 + ruff + mypy（改动三文件覆盖率 100%）；web 247 测试 + lint + tsc；trellis-check R1-R6 独立复跑通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- #201 四期全部落地，闭环收尾

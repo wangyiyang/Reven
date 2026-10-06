@@ -110,6 +110,7 @@ async def test_talent_list_supports_query_status_due_and_tag_filters(
 ) -> None:
     talents = TalentsTalentTools(session_factory)
     interactions = TalentsInteractionTools(session_factory)
+    experiences = TalentsExperienceTools(session_factory)
     overdue_id = await _create_talent(talents, name="逾期人才", status="接洽中", tags=["开发"])
     await interactions.create_interaction(
         overdue_id,
@@ -119,7 +120,20 @@ async def test_talent_list_supports_query_status_due_and_tag_filters(
         next_action="电话回访",
         next_due_on=_today() - timedelta(days=1),
     )
-    await _create_talent(talents, name="无计划人才", organization="某科技公司", status="已合作", tags=["设计"])
+    await _create_talent(
+        talents,
+        name="无计划人才",
+        organization="某科技公司",
+        status="已合作",
+        tags=["设计"],
+        capability="品牌视觉",
+    )
+    await experiences.create_experience(
+        overdue_id,
+        company="远山设计",
+        title="视觉设计师",
+        start_on=_today() - timedelta(days=365),
+    )
 
     full = await talents.list_talents()
     assert "共 2 个人才" in full and "逾期人才" in full and "无计划人才" in full
@@ -131,6 +145,12 @@ async def test_talent_list_supports_query_status_due_and_tag_filters(
 
     by_organization = await talents.list_talents(query="科技公司")
     assert "无计划人才" in by_organization and "逾期人才" not in by_organization
+
+    by_capability = await talents.list_talents(query="品牌视觉")
+    assert "无计划人才" in by_capability and "逾期人才" not in by_capability
+
+    by_experience_company = await talents.list_talents(query="远山")
+    assert "逾期人才" in by_experience_company and "无计划人才" not in by_experience_company
 
     by_status = await talents.list_talents(status="已合作")  # type: ignore[arg-type]
     assert "无计划人才" in by_status and "逾期人才" not in by_status

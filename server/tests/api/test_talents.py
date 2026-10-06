@@ -138,6 +138,72 @@ def test_talent_query_escapes_like_wildcards(workbench) -> None:  # type: ignore
     assert [item["id"] for item in response.json()] == [percent["id"]]
 
 
+def test_talent_query_matches_profile_fields(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    talent = _create_talent(
+        client,
+        name="画像人才",
+        organization="独立工作室",
+        tags=["插画"],
+        preferences=["远程工作"],
+        phone="13711112222",
+        email="profile@example.com",
+        wechat="wx-profile",
+        capability="动态图形设计",
+        notes="老客户推荐",
+    )
+    decoy = _create_talent(
+        client,
+        name="路人甲",
+        organization="无关公司",
+        tags=["开发"],
+        preferences=["坐班"],
+        phone="13600000000",
+        email="other@example.com",
+        wechat="wx-other",
+        capability="后端开发",
+        notes="无",
+    )
+    experience = client.post(
+        f"/api/talents/{talent['id']}/experiences",
+        json={"company": "远山设计", "title": "动效负责人", "description": "主导品牌升级", "start_on": "2023-03-01"},
+    )
+    assert experience.status_code == 201, experience.text
+    education = client.post(
+        f"/api/talents/{talent['id']}/educations",
+        json={"school": "中央美术学院", "degree": "本科", "major": "视觉传达", "start_on": "2016-09-01"},
+    )
+    assert education.status_code == 201, education.text
+
+    def hit_ids(keyword: str) -> list[str]:
+        return [item["id"] for item in client.get("/api/talents", params={"q": keyword}).json()]
+
+    # 主表画像字段
+    assert hit_ids("老客户") == [talent["id"]]  # notes
+    assert hit_ids("动态图形") == [talent["id"]]  # capability
+    assert hit_ids("1371111") == [talent["id"]]  # phone
+    assert hit_ids("profile@example") == [talent["id"]]  # email
+    assert hit_ids("wx-profile") == [talent["id"]]  # wechat
+    # JSONB 字段模糊匹配（cast 文本包含，元素内子串即可命中）
+    assert hit_ids("插") == [talent["id"]]  # tags
+    assert hit_ids("远程") == [talent["id"]]  # preferences
+    # 履历 EXISTS：company/title/description
+    assert hit_ids("远山") == [talent["id"]]
+    assert hit_ids("动效") == [talent["id"]]
+    assert hit_ids("品牌升级") == [talent["id"]]
+    # 院校 EXISTS：school/degree/major
+    assert hit_ids("中央美术学院") == [talent["id"]]
+    assert hit_ids("本科") == [talent["id"]]
+    assert hit_ids("视觉传达") == [talent["id"]]
+    # 排除项不命中：engagement_terms/availability（默认 fixture 两者均有值）
+    assert hit_ids("预付") == []
+    assert hit_ids("每周") == []
+    # tag 参数保持元素级精确匹配，不做模糊
+    assert [item["id"] for item in client.get("/api/talents", params={"tag": "插画"}).json()] == [talent["id"]]
+    assert client.get("/api/talents", params={"tag": "插"}).json() == []
+    assert decoy["id"] not in hit_ids("画像")  # 关键词只应命中目标人才
+
+
 def test_talent_validation_is_explicit(workbench) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
     assert client.post("/api/talents", json={"organization": "缺名字"}).status_code == 422
