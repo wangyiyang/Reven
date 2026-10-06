@@ -50,7 +50,8 @@ Database tables（0015 起均有 RLS；0026 起含画像）:
 Talent statuses are exactly `候选`, `接洽中`, `已合作`, and `搁置`. There is
 no state machine: status only changes via explicit `PATCH`, and an
 `已合作` talent may be patched back to `接洽中`. Interaction channels are
-exactly `面谈`, `电话语音`, `微信`, and `邮件`. `rate_unit` is exactly
+exactly `电话`, `面谈`, `微信`, `邮件`, and `其他`（0027 起 `电话语音` 并入
+`电话` 并补 `其他`，与 CRM 跟进方式统一为同一五值集合）. `rate_unit` is exactly
 `按小时`, `按天`, or `按项目`.
 
 `due` accepts `overdue`, `today`, `upcoming`, or `none`; it compares the
