@@ -528,3 +528,26 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环）
+<!-- trellis-session: v=2 fp=bc2a12f16570e0a9 -->
+
+**Date**: 2026-10-06
+**Task**: v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环）
+**Branch**: `chore/journal-session-16`
+
+### Summary
+
+取消卡住的 v0.7.1 构建后定位根因：--cache-to 的 image-manifest=true 与 oci-mediatypes=false 互斥导致 buildcache 从未写入（PR #208 修复）；重打 tag 后 release 成功部署 v0.7.1，四项端到端验证全过（Vercel 登录链路 403→401、VPS 根路径 404 纯 API 生效、/api/health 200、Vercel 站 200）。但日志证实阿里云 ACR 拒绝 buildkit 缓存制品（unknown manifest class，75 分钟白传），遂 PR #209 切换 type=gha 缓存（对下次发版生效）。已在 issue #120 评论记录第一期完成状态。另清理 main 上因 squash 合并复活的 tasks/10-05-vps-api-only 重复目录。已写会话 handoff 文档至 $TMPDIR/reven-handoff-issue120.md。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7807718` | fix(ci): 修复 release 构建缓存导出的互斥配置 |
+| `13fe57f` | fix(ci): buildx 缓存后端从 registry 切换为 GitHub Actions cache |
+
+### Status
+
+[OK] **Completed**
