@@ -490,3 +490,28 @@ Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 p
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: Talent 画像扩展（#201 P2）
+<!-- trellis-session: v=2 fp=3ff5d467cb7bf496 -->
+
+**Date**: 2026-10-06
+**Task**: Talent 画像扩展（#201 P2）
+**Branch**: `issue/gh-201-crm-talents-talent`
+
+### Summary
+
+Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画像区与月精度时间线，到期语义对齐最新记录；885+247 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b95d9a` | feat(server): Talent 画像扩展——联系方式/喜好/履历/院校子表与嵌套端点，到期语义对齐最新记录 |
+| `0234b06` | feat(web): Talent 表单加联系方式与喜好，详情页新增画像区与履历/院校时间线 |
+| `e446e67` | docs(spec): talents-contract 更新——画像契约、最新记录到期语义、两种子表路由形状说明 |
+| `c446cf1` | docs(trellis): 10-05-talent-profile-expansion 任务规划产物 |
+
+### Status
+
+[OK] **Completed**
