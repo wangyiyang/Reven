@@ -35,7 +35,7 @@ class CrmCustomerTools:
         self,
         query: Annotated[
             str | None,
-            Field(description="模糊检索词：匹配客户名称/来源/备注，以及联系人的姓名/电话/邮箱/微信"),
+            Field(description="模糊检索词：匹配客户名称/来源/备注，以及联系人的姓名/职务/电话/邮箱/微信/备注"),
         ] = None,
         status: CustomerStatusParam | None = None,
         due: DueFilterParam | None = None,

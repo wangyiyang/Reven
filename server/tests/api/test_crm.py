@@ -63,7 +63,7 @@ def test_customer_crud_search_and_filters(workbench) -> None:  # type: ignore[no
         next_action="电话回访",
         next_due_on=(_today() - timedelta(days=1)).isoformat(),
     )
-    no_plan = _create_customer(client, name="无计划客户", status="合作客户")
+    no_plan = _create_customer(client, name="无计划客户", status="合作客户", source="行业展会", notes="")
     _create_contact(client, overdue["id"], name="可搜索联系人", phone="13900000000")
 
     customers = client.get("/api/crm/customers").json()
@@ -82,6 +82,19 @@ def test_customer_crud_search_and_filters(workbench) -> None:  # type: ignore[no
     assert [item["id"] for item in by_due.json()] == [overdue["id"]]
     by_contact = client.get("/api/crm/customers", params={"query": "可搜索"})
     assert [item["id"] for item in by_contact.json()] == [overdue["id"]]
+    # 逐字段覆盖：客户 source/notes、联系人 role/notes
+    by_source = client.get("/api/crm/customers", params={"query": "展会"})
+    assert [item["id"] for item in by_source.json()] == [no_plan["id"]]
+    by_notes = client.get("/api/crm/customers", params={"query": "内容运营"})
+    assert [item["id"] for item in by_notes.json()] == [overdue["id"]]
+    by_contact_role = client.get("/api/crm/customers", params={"query": "创始人"})
+    assert [item["id"] for item in by_contact_role.json()] == [overdue["id"]]
+    by_contact_notes = client.get("/api/crm/customers", params={"query": "决策人"})
+    assert [item["id"] for item in by_contact_notes.json()] == [overdue["id"]]
+    # 多个联系人命中同一关键词时客户不重复返回（EXISTS 语义）
+    _create_contact(client, overdue["id"], name="可搜索副手", is_primary=False)
+    by_multi_contacts = client.get("/api/crm/customers", params={"query": "可搜索"})
+    assert [item["id"] for item in by_multi_contacts.json()] == [overdue["id"]]
 
     updated = client.put(
         f"/api/crm/customers/{overdue['id']}",
@@ -94,6 +107,16 @@ def test_customer_crud_search_and_filters(workbench) -> None:  # type: ignore[no
 
     assert client.delete(f"/api/crm/customers/{overdue['id']}").status_code == 204
     assert client.get(f"/api/crm/customers/{overdue['id']}").status_code == 404
+
+
+def test_customer_query_escapes_like_wildcards(workbench) -> None:  # type: ignore[no-untyped-def]
+    client, _factory = workbench
+    percent = _create_customer(client, name="达成 100% 客户", source="", notes="")
+    _create_customer(client, name="普通客户", source="", notes="")
+
+    response = client.get("/api/crm/customers", params={"query": "%"})
+
+    assert [item["id"] for item in response.json()] == [percent["id"]]
 
 
 def test_customer_validation_is_explicit(workbench) -> None:  # type: ignore[no-untyped-def]

@@ -13,6 +13,11 @@ class Base(DeclarativeBase):
     pass
 
 
+def escape_like(value: str) -> str:
+    r"""转义 LIKE/ILIKE 模式的特殊字符（`\`、`%`、`_`），调用方须配 `escape="\\"`。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def create_session_factory(settings: Settings) -> async_sessionmaker[AsyncSession]:
     engine = create_async_engine(
         settings.database_url.get_secret_value(),

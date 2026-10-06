@@ -81,7 +81,9 @@ async def test_customer_list_supports_query_status_and_due_filters(
         next_due_on=_today() - timedelta(days=1),
     )
     await _create_customer(customers, name="无计划客户", status="合作客户")
-    await contacts.create_contact(overdue_id, name="可搜索联系人", phone="13900000000")
+    await contacts.create_contact(
+        overdue_id, name="可搜索联系人", phone="13900000000", role="品牌顾问", notes="展会结识"
+    )
 
     full = await customers.list_customers()
     assert "共 2 个客户" in full and "逾期客户" in full and "无计划客户" in full
@@ -92,6 +94,12 @@ async def test_customer_list_supports_query_status_and_due_filters(
 
     by_contact = await customers.list_customers(query="可搜索")
     assert "逾期客户" in by_contact and "无计划客户" not in by_contact
+
+    by_contact_role = await customers.list_customers(query="品牌顾问")
+    assert "逾期客户" in by_contact_role and "无计划客户" not in by_contact_role
+
+    by_contact_notes = await customers.list_customers(query="展会结识")
+    assert "逾期客户" in by_contact_notes and "无计划客户" not in by_contact_notes
 
     by_status = await customers.list_customers(status="合作客户")  # type: ignore[arg-type]
     assert "无计划客户" in by_status and "逾期客户" not in by_status
