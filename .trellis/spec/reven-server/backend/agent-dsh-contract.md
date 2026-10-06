@@ -21,6 +21,7 @@
 - `agent/service.py`：共享 `AgentService` 拥有会话模型选择与单轮模型身份；`chat(message, session_id)` 返回 `AgentTurn`，session_id 缺省生成 UUID hex。REST 仍返回既有 session_id/response JSON。
 - **dsh 会话无 resume 语义**（SDK 仅 `session/prompt`）：进程重启后，磁盘上已存在的 session_id 再 prompt 报 `JsonRpcError: session "..." already exists`，该会话永久不可用（#161，2026-09-30 生产实测）。`AgentRuntime.chat` 的应对：进程内 `_session_aliases` 映射外部 id → 活跃 id，捕获 already exists 冲突后重铸 `~r` 后缀新 id、记别名、重试一次；别名不持久化，重启后首次冲突再次重铸（预期行为）。调用方（如飞书桥接）可以丢弃返回的 session_id——别名常驻 runtime 进程内。
 - `agent/tools_rss.py`：关键词 MCP 工具写路径（create/update）成功后**必须触发 `RssEmbeddingRefresher.refresh()` 增量刷新**——无 embedding 的关键词在语义筛选中静默不生效（REST 侧靠 `/embeddings/rebuild`，MCP 侧曾无人触发，#153 修复）；refresh 失败返回成功但标 `embedding_status=pending`（词已入库，下轮兜底），不静默不抛出。
+- `agent/tools_talents.py` + `agent/talents_tool_support.py`：talents 域 18 个 MCP 工具（主档 CRUD + interaction/experience/education 子项 CRUD + `talent_import_profile` 批量画像导入），复刻 CRM 工具面模式；子项更新/删除必须 `talent_id` + 子 id 双参归属校验（刻意区别于 REST 扁平路由），4 个 delete 工具强制 `confirm_talent_name` 逐字确认；互动方式枚举与 CRM 跟进方式统一为 `电话/面谈/微信/邮件/其他` 五值（0027 起）。
 - 路由为 `/api/agent/chat`（非 PRD 字面的 `/agent/chat`）——挂 `/api/*` 下才能被 AuthMiddleware fail-closed 保护。
 
 ## 会话模型选择与生效身份契约

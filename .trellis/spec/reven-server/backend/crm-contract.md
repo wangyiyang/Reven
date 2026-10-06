@@ -77,8 +77,8 @@ Database tables:
 ## 3. Contracts
 
 Customer statuses are exactly `潜在客户`, `跟进中`, `合作客户`, `暂停跟进`,
-and `已流失`. Follow-up kinds are exactly `电话`, `会议`, `微信`, `邮件`, and
-`其他`.
+and `已流失`. Follow-up kinds are exactly `电话`, `面谈`, `微信`, `邮件`, and
+`其他`（0027 起 `会议` 并入 `面谈`，与 talents 互动方式统一为同一五值集合）.
 
 `due` accepts `overdue`, `today`, `upcoming`, or `none`; comparisons use the
 Asia/Shanghai calendar date and compare against the **derived** `next_due_on`

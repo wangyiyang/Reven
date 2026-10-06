@@ -25,7 +25,7 @@ type FollowUpFormValues = {
 }
 
 function emptyFollowUp(): FollowUpFormValues {
-  return { contact_id: "", kind: "会议", occurred_on: todayInShanghai(), summary: "", next_action: "", next_due_on: "" }
+  return { contact_id: "", kind: "面谈", occurred_on: todayInShanghai(), summary: "", next_action: "", next_due_on: "" }
 }
 
 export function FollowUpsSection({ customerId }: { customerId: string }) {

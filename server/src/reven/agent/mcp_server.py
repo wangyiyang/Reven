@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.tools_crm import register_crm_tools
 from reven.agent.tools_rss import KeywordEmbeddingHooks, register_rss_tools
+from reven.agent.tools_talents import register_talents_tools
 from reven.config import DEFAULT_AGENT_MCP_URL, Settings
 
 AGENT_MCP_MOUNT_PREFIX = "/agent"
@@ -53,6 +54,7 @@ def create_agent_mcp_server(
     mcp = FastMCP("reven", auth=verifier)
     register_rss_tools(mcp, session_factory, embedding_refresher=embedding_refresher)
     register_crm_tools(mcp, session_factory)
+    register_talents_tools(mcp, session_factory)
     return mcp
 
 

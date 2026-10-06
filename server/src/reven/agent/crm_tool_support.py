@@ -24,7 +24,7 @@ CustomerStatusParam = Annotated[
 ]
 FollowUpKindParam = Annotated[
     FollowUpKind,
-    Field(description="跟进方式：电话 / 会议（即拜访、面谈）/ 微信 / 邮件 / 其他"),
+    Field(description="跟进方式：电话 / 面谈（即拜访、当面沟通）/ 微信 / 邮件 / 其他"),
 ]
 DueFilterParam = Annotated[
     Literal["overdue", "today", "upcoming", "none"],

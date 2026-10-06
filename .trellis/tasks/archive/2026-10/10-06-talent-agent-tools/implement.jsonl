@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/tool-contracts/backend/index.md", "reason": "MCP 工具层 spec 入口与约定"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "talents 域契约：端点、画像字段、嵌套子表、最新记录语义——工具话术对齐依据"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "CRM 工具/校验层分层先例（crm/inputs.py 域层 + api 重导出）"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "0027 枚举 check 约束迁移写法约定"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "ToolError 与域异常映射约定"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "枚举常量与 API payload 类型同步约定"}
+{"file": ".trellis/tasks/10-06-talent-agent-tools/research/touchpoints.md", "reason": "P3 全触点清单（注册点、枚举约束名、测试范式），实施依据"}

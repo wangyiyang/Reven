@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/tool-contracts/backend/index.md", "reason": "工具层契约核对与待更新标记"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "服务端质量门"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "枚举条款与话术语义核对"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "web 质量门"}
+{"file": ".trellis/tasks/10-06-talent-agent-tools/research/touchpoints.md", "reason": "触点核对无遗漏；旧枚举值全库零残留核对"}

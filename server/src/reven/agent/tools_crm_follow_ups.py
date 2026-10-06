@@ -57,7 +57,7 @@ class CrmFollowUpTools:
         next_action: Annotated[str | None, Field(description="下一步行动；设置下次跟进日期时必填")] = None,
         next_due_on: Annotated[date | None, Field(description="下次跟进日期，格式 YYYY-MM-DD")] = None,
     ) -> str:
-        """为客户记录一次跟进（拜访）记录：方式（会议=拜访/面谈）、日期、内容纪要，可选下一步计划。
+        """为客户记录一次跟进（拜访）记录：方式（面谈=拜访/当面沟通）、日期、内容纪要，可选下一步计划。
 
         最新一条跟进上的 next_action / next_due_on 即该客户的当前计划：记录后自动生效，无需额外同步。
         """

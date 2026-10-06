@@ -1,6 +1,8 @@
 """Persistence queries for talents and their follow-up interactions."""
 
+from dataclasses import dataclass
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ScalarSelect, Select, or_, select
@@ -9,8 +11,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from reven.talents.models import Talent, TalentEducation, TalentExperience, TalentInteraction
 
 
+@dataclass(frozen=True)
+class TalentPlan:
+    """人才与其派生当前计划：最新一条互动记录（occurred_on/created_at/id 倒序）的下一步行动与到期日。"""
+
+    talent: Talent
+    next_action: str | None
+    next_due_on: date | None
+
+
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _latest_action_subquery() -> ScalarSelect[str | None]:
+    return (
+        select(TalentInteraction.next_action)
+        .where(TalentInteraction.talent_id == Talent.id)
+        .order_by(
+            TalentInteraction.occurred_on.desc(),
+            TalentInteraction.created_at.desc(),
+            TalentInteraction.id.desc(),
+        )
+        .limit(1)
+        .correlate(Talent)
+        .scalar_subquery()
+    )
 
 
 def _latest_due_subquery() -> ScalarSelect[date | None]:
@@ -41,7 +67,53 @@ class TalentsRepository:
         tag: str | None,
         today: date,
     ) -> list[Talent]:
-        statement = select(Talent)
+        statement = self._filtered(select(Talent), status=status, due=due, query=query, tag=tag, today=today)
+        return list((await self.session.scalars(statement)).all())
+
+    async def list_talent_plans(
+        self,
+        *,
+        status: str | None,
+        due: str | None,
+        query: str | None,
+        tag: str | None,
+        today: date,
+    ) -> list[TalentPlan]:
+        """与 list_talents 同筛选同排序，但随行带出派生当前计划（供 MCP 列表行展示）。"""
+        statement = self._filtered(
+            select(Talent, _latest_action_subquery(), _latest_due_subquery()),
+            status=status,
+            due=due,
+            query=query,
+            tag=tag,
+            today=today,
+        )
+        rows = (await self.session.execute(statement)).all()
+        return [TalentPlan(talent=row[0], next_action=row[1], next_due_on=row[2]) for row in rows]
+
+    async def get_talent_plan(self, talent_id: UUID) -> TalentPlan | None:
+        """单个人才 + 派生当前计划；人才不存在返回 None。"""
+        statement = select(Talent, _latest_action_subquery(), _latest_due_subquery()).where(Talent.id == talent_id)
+        row = (await self.session.execute(statement)).one_or_none()
+        if row is None:
+            return None
+        return TalentPlan(talent=row[0], next_action=row[1], next_due_on=row[2])
+
+    async def find_talents_by_name(self, name: str) -> list[Talent]:
+        """按姓名精确匹配（ talent_import_profile 的同名判定用；重名返回多个）。"""
+        statement = select(Talent).where(Talent.name == name).order_by(Talent.created_at, Talent.id)
+        return list((await self.session.scalars(statement)).all())
+
+    def _filtered(
+        self,
+        statement: Select[Any],
+        *,
+        status: str | None,
+        due: str | None,
+        query: str | None,
+        tag: str | None,
+        today: date,
+    ) -> Select[Any]:
         if status:
             statement = statement.where(Talent.status == status)
         statement = self._filter_due(statement, due, today)
@@ -55,11 +127,10 @@ class TalentsRepository:
             )
         if tag:
             statement = statement.where(Talent.tags.contains([tag]))
-        statement = statement.order_by(Talent.updated_at.desc(), Talent.id)
-        return list((await self.session.scalars(statement)).all())
+        return statement.order_by(Talent.updated_at.desc(), Talent.id)
 
     @staticmethod
-    def _filter_due(statement: Select[tuple[Talent]], due: str | None, today: date) -> Select[tuple[Talent]]:
+    def _filter_due(statement: Select[Any], due: str | None, today: date) -> Select[Any]:
         if due is None:
             return statement
         latest_due = _latest_due_subquery()

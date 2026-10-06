@@ -23,9 +23,10 @@ from reven.api.schemas.talents import (
     TalentUpdate,
 )
 from reven.scheduling import SHANGHAI
+from reven.talents.errors import InvalidDateRangeError, InvalidRatePairError
 from reven.talents.models import Talent, TalentEducation, TalentExperience, TalentInteraction, TalentStatus
 from reven.talents.repository import TalentsRepository
-from reven.talents.service import InvalidDateRangeError, InvalidRatePairError, TalentsService
+from reven.talents.service import TalentsService
 
 router = APIRouter(prefix="/api/talents", tags=["talents"])
 DueFilter = Literal["overdue", "today", "upcoming", "none"]

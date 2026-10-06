@@ -21,7 +21,7 @@ class CustomerStatus(StrEnum):
 
 class FollowUpKind(StrEnum):
     PHONE = "电话"
-    MEETING = "会议"
+    IN_PERSON = "面谈"
     WECHAT = "微信"
     EMAIL = "邮件"
     OTHER = "其他"

@@ -530,6 +530,24 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 [OK] **Completed**
 
 
+## Session 20: talents agent 工具与枚举统一（#201 P3）
+<!-- trellis-session: v=2 fp=8348510d1ecefb9d -->
+
+**Date**: 2026-10-06
+**Task**: talents agent 工具与枚举统一（#201 P3）
+**Branch**: `issue/gh-201-p3-talent-agent-tools`
+
+### Summary
+
+talents 域 18 个 MCP 工具（主档 CRUD + 三类子项 CRUD + import_profile 批量画像导入），CRM/talents 方式枚举统一为 电话/面谈/微信/邮件/其他（migration 0027），校验层抽离 talents/inputs.py+errors.py
+
+### Main Changes
+
+- 18 个 talents MCP 工具：talents_tool_support + tools_talents 聚合，挂 mcp_server；子项更新/删除双参归属校验，delete 强制 confirm_talent_name
+- 枚举统一五值：FollowUpKind.MEETING→IN_PERSON(面谈)，InteractionChannel.CALL→电话+新增其他；0027 drop+add 两个 check 约束，双向回归测试
+- 校验层抽离：talents/inputs.py（8 模型+辅助）+ talents/errors.py，api/schemas 改重导出，agent 层对 reven.api 零 import
+- talent_import_profile 单事务（校验先行带序号文案/0-1-N 名匹配/单 commit），fastmcp list[pydantic] 嵌套参数 spike 可用
+- web 5 处枚举字面量同步；spec 三处（crm/talents 枚举行、agent-dsh 模块契约行）
 ## Session 18: v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环）
 <!-- trellis-session: v=2 fp=bc2a12f16570e0a9 -->
 
@@ -545,6 +563,14 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 
 | Hash | Message |
 |------|---------|
+| `fccd5c4` | feat(server): talents agent 工具全套与方式枚举统一（#201 P3） |
+| `c734d4d` | feat(web): 跟进/互动方式枚举字面量同步（#201 P3） |
+| `a6f51bd` | docs(spec): 枚举五值与 talents 工具模块契约同步（#201 P3） |
+| `5afa799` | docs(trellis): P3 任务规划与调研产物（#201） |
+
+### Testing
+
+- [OK] server 910 测试 + 13 迁移 + ruff + mypy 全绿（覆盖率 94.67%）；web 247 测试 + lint + tsc 全绿；trellis-check R1-R5 独立复跑通过
 | `7807718` | fix(ci): 修复 release 构建缓存导出的互斥配置 |
 | `13fe57f` | fix(ci): buildx 缓存后端从 registry 切换为 GitHub Actions cache |
 
@@ -588,4 +614,5 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 
 ### Next Steps
 
+- P4：画像字段搜索扩展（crm _customer_search 与 talents q 覆盖 experience/education/tags/preferences）
 - 开发工具 tinypool 漏洞升级另行处理；本次未升级依赖、未执行生产回滚，CRM/人才库无现有记录，未制造详情测试数据。

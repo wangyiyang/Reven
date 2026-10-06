@@ -22,9 +22,10 @@ class TalentStatus(StrEnum):
 
 class InteractionChannel(StrEnum):
     IN_PERSON = "面谈"
-    CALL = "电话语音"
+    CALL = "电话"
     WECHAT = "微信"
     EMAIL = "邮件"
+    OTHER = "其他"
 
 
 class RateUnit(StrEnum):
