@@ -128,7 +128,7 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
 
     async with Client(mcp) as client:
         tools = await client.list_tools()
-        # RSS 关键词 4 个 + CRM 人才库 15 个（#169），注册完整性以名集合断言
+        # RSS 关键词 4 个 + CRM 人才库 15 个（#169）+ talents 人才库 18 个（#201 P3），注册完整性以名集合断言
         assert {tool.name for tool in tools} == {
             "rss_keyword_create",
             "rss_keyword_list",
@@ -149,6 +149,24 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
             "crm_follow_up_delete",
             "crm_lead_funnel",
             "crm_due_follow_ups",
+            "talent_list",
+            "talent_get",
+            "talent_create",
+            "talent_update",
+            "talent_delete",
+            "talent_interaction_list",
+            "talent_interaction_create",
+            "talent_interaction_update",
+            "talent_interaction_delete",
+            "talent_experience_list",
+            "talent_experience_create",
+            "talent_experience_update",
+            "talent_experience_delete",
+            "talent_education_list",
+            "talent_education_create",
+            "talent_education_update",
+            "talent_education_delete",
+            "talent_import_profile",
         }
         # 带空白的输入在 MCP 边界经 pydantic 约束自动 strip（与 API schema 行为一致）
         created = await client.call_tool("rss_keyword_create", {"term": " MCP 协议 ", "kind": "positive"})

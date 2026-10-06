@@ -182,7 +182,7 @@ def test_each_talent_status_can_be_saved_and_filtered(workbench, talent_status: 
     assert [item["id"] for item in response.json()] == [talent["id"]]
 
 
-@pytest.mark.parametrize("channel", ["面谈", "电话语音", "微信", "邮件"])
+@pytest.mark.parametrize("channel", ["电话", "面谈", "微信", "邮件", "其他"])
 def test_each_interaction_channel_can_be_saved(workbench, channel: str) -> None:  # type: ignore[no-untyped-def]
     client, _factory = workbench
     talent = _create_talent(client)

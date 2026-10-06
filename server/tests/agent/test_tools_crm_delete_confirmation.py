@@ -57,7 +57,7 @@ async def test_delete_follow_up_requires_exact_name_confirmation(
     follow_up_id = _extract_id(
         await tools.create_follow_up(
             customer_id,
-            kind="会议",  # type: ignore[arg-type]
+            kind="面谈",  # type: ignore[arg-type]
             occurred_on=_today(),
             summary="拜访记录",
         )

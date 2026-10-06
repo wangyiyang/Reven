@@ -42,7 +42,7 @@ def _create_contact(client, customer_id: str, **overrides):  # type: ignore[no-u
 
 def _create_follow_up(client, customer_id: str, **overrides):  # type: ignore[no-untyped-def]
     payload = {
-        "kind": "会议",
+        "kind": "面谈",
         "occurred_on": _today().isoformat(),
         "summary": "确认了内容运营需求",
         "next_action": "发送方案",

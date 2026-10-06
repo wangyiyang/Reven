@@ -45,7 +45,7 @@ def today() -> date:
 
 @pytest.fixture
 def history_input(today: date) -> FollowUpCreate:
-    return FollowUpCreate(kind="会议", occurred_on=today, summary="需求访谈")
+    return FollowUpCreate(kind="面谈", occurred_on=today, summary="需求访谈")
 
 
 @pytest.mark.anyio
@@ -169,7 +169,7 @@ async def test_follow_up_create_commits_once_and_failed_contact_leaves_no_partia
     other = await service.create_customer(CustomerCreate(name="另一客户"))
     _, other_contact = await service.create_contact(other.id, ContactCreate(name="其他联系人"))
     payload = FollowUpCreate(
-        kind="会议",
+        kind="面谈",
         occurred_on=today,
         summary="访谈",
         next_action="发送方案",
@@ -213,7 +213,7 @@ async def test_primary_switch_and_contact_deletion_preserve_history_snapshot(
     await db_session.refresh(second)
     assert first.is_primary and not second.is_primary
     _, history = await service.create_follow_up(
-        customer.id, FollowUpCreate(contact_id=first.id, kind="会议", occurred_on=today, summary="访谈")
+        customer.id, FollowUpCreate(contact_id=first.id, kind="面谈", occurred_on=today, summary="访谈")
     )
     await service.update_contact(customer.id, first.id, ContactUpdate(name="王先生"))
     deleted = await service.delete_contact(customer.id, first.id)

@@ -39,7 +39,7 @@ async def test_customer_create_get_update_delete_roundtrip(session_factory: asyn
 
     logged = await follow_ups.create_follow_up(
         customer_id,
-        kind="会议",  # type: ignore[arg-type]
+        kind="面谈",  # type: ignore[arg-type]
         occurred_on=_today(),
         summary="首次拜访",
         next_action="安排需求访谈",
@@ -172,14 +172,14 @@ async def test_follow_up_crud_and_derived_current_plan(session_factory: async_se
 
     created = await follow_ups.create_follow_up(
         customer_id,
-        kind="会议",  # type: ignore[arg-type]
+        kind="面谈",  # type: ignore[arg-type]
         occurred_on=_today(),
         summary="上门拜访，确认了内容运营需求",
         contact_id=contact_id,
         next_action="发送方案",
         next_due_on=_today() + timedelta(days=3),
     )
-    assert "已为客户「示例科技」记录" in created and "会议跟进" in created
+    assert "已为客户「示例科技」记录" in created and "面谈跟进" in created
     assert "已自动生效为客户当前计划" in created
     assert "set_as_current" not in created and "已同步" not in created
     follow_up_id = _extract_id(created)
@@ -195,7 +195,7 @@ async def test_follow_up_crud_and_derived_current_plan(session_factory: async_se
     assert "已更新跟进记录" in updated and "预算待确认" in updated
 
     deleted = await follow_ups.delete_follow_up(customer_id, follow_up_id, confirm_customer_name="示例科技")
-    assert "已删除" in deleted and "会议跟进" in deleted
+    assert "已删除" in deleted and "面谈跟进" in deleted
     # 删除唯一一条跟进后派生计划归零
     detail_after = await customers.get_customer(customer_id)
     assert "当前跟进计划：未安排" in detail_after
@@ -214,7 +214,7 @@ async def test_backfilled_follow_up_does_not_claim_current_plan(
     due_on = _today() + timedelta(days=3)
     await follow_ups.create_follow_up(
         customer_id,
-        kind="会议",  # type: ignore[arg-type]
+        kind="面谈",  # type: ignore[arg-type]
         occurred_on=_today(),
         summary="最新拜访",
         next_action="发送方案",
@@ -430,7 +430,7 @@ async def test_delete_customer_cascades_contacts_and_follow_ups(
     await contacts.create_contact(customer_id, name="王经理")
     await follow_ups.create_follow_up(
         customer_id,
-        kind="会议",  # type: ignore[arg-type]
+        kind="面谈",  # type: ignore[arg-type]
         occurred_on=_today(),
         summary="拜访记录",
     )
