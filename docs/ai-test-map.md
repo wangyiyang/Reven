@@ -1,7 +1,7 @@
 # Reven AI 测试地图（全功能 / 全路径）
 
 > 用途：给后续 AI 测试代理当“地图”。先做哪条路径、每步预期什么、哪些红线不能碰，都按本文执行。  
-> 适用范围：Reven 当前 `main`（模块化单体：FastAPI + React + Supabase Postgres）。  
+> 适用范围：Reven 源码中的功能契约（模块化单体：FastAPI + React + PostgreSQL）；部署版本须按 `docs/runbook.md` 核实，不把未合并改造当作生产现状。
 > 维护规则：新增/下线页面、API、权限或任务流时，必须同步更新本文；测试代理执行前先读本文件，再读 `docs/runbook.md`。
 
 ---
@@ -25,7 +25,7 @@
 | 项 | 值/方式 | 预期 |
 |---|---|---|
 | Web 入口 | `https://reven.wangyiyang.cc` | 200，静态资源加载成功 |
-| 健康检查 | `GET /api/health` | `{"status":"ok"}` |
+| 健康检查 | `GET /api/health` | db/agent/checkpointer/background_runner 分别报告；db 故障 503，Agent 降级 200/degraded，无模型时 agent disabled |
 | 登录页 | `GET /login` | 显示 Reven 登录页 |
 | 会话 Cookie | `reven_session` | `HttpOnly`；有 `Secure`；`SameSite=Lax` |
 | 未授权保护 | 直接访问任意业务页/API | 页面跳 `/login?next=...`；API 返回 401 |
@@ -293,7 +293,8 @@
 ## 14. 当前自动化测试锚点
 
 - API：RSS candidates/settings、integrations、brand、finance、projects、sops、crm、talents、system。
-- 领域：RSS 发现/翻译/Embedding/采纳竞争/重筛、Agent、飞书审核权限与重放。
+- Agent：原生图/模型协议、数据库运行/配置/审批、25 写操作事务账本、37 工具 schema、REST 与飞书入口。
+- 领域：RSS 发现/翻译/Embedding/采纳竞争/重筛、CRM/人才业务规则、飞书审核权限与重放。
 - 安全：认证、CSRF、网络出站、Secret 脱敏与部署流程。
 - 迁移：空库升级、经营表保留、退役 provider 清理与不可逆边界。
 - 前端：导航、RSS 素材闭环、集成配置、品牌与其他经营模块。
@@ -303,3 +304,23 @@
 - `/system` 系统状态完整页。
 - 财务二期：应收/应付台账、月度归档、分类词典。
 - SOP 二期：版本历史、Tag 组件、正文预览。
+
+## 16. 原生 Agent（AGENT，2026-10-06 迁移契约）
+
+Agent 配置通过 API 管理，模型凭据继续使用集成设置页。飞书保持原会话映射与白名单。完整结构见 [Agent 架构](agent-architecture.md)，旧 DSH 历史保留归档，新运行时不自动导入。
+
+| 用例 | 路径与操作 | 必须核实 |
+| --- | --- | --- |
+| AGENT-001 可信入口 | 已登录 `POST /api/agent/chat`，message/可选 session_id | 成功 JSON 仅 session_id/response，X-Agent-Run-ID 可查询；客户端 actor/额外字段被拒 |
+| AGENT-002 配置版本 | GET/PUT `/api/agent/config`、GET `/api/agent/config/revisions/{id}` | prompt/tool_names 入库，下一新轮生效，原 run 保留 revision；未知工具/重复工具/空白 prompt 被拒 |
+| AGENT-003 删除确认 | 删除隔离测试对象 → 查询 `/api/agent/runs/{id}` → POST `/api/agent/approvals/{id}/resolve` | 展示数据库目标与级联影响；decision 和原 session_id 绑定，未批准/错用户/错会话/目标漂移零删除，重复批准只提交一次 |
+| AGENT-004 请求重发 | 相同 Idempotency-Key 或飞书 message_id 重发 | 原运行 ID 不变，无第二条跟进/履历；相同键不同输入或显式不同会话 409；不同键同意图可正常新增 |
+| AGENT-005 提交后中断 | 在隔离自动化用例注入 COMMIT 后/checkpoint 前中断，再显式恢复 | 账本与业务同时提交，重放原 tool_call_id 返回旧结果；仅后序工具 task 恢复也保持原写序，无死锁 |
+| AGENT-006 超时与重启 | 停止等待后查询原 run；重建 app 再 POST `/api/agent/runs/{id}/resume` | 不宣称未执行；历史/override/审批仍可读；安全检查点继续原输入，否则 needs_reconciliation，不能重新追加原消息 |
+| AGENT-007 飞书确定性指令 | 确认/取消审批 UUID、状态/恢复运行 UUID、/model | 白名单现读，原 chat/open_id 校验，指令不经 LLM；SDK handler 立即返回，引用回复不变 |
+| AGENT-008 模型与密钥 | 切默认/会话 override、删除运行引用模型、失效指定模型 | 下一轮生效，默认与附加模型均受未结束 run 保护；不静默换模型；响应/日志/checkpoint 无明文凭据 |
+| AGENT-009 部署恢复 | 空库/存量迁移 0028 → checkpoint setup → 只读容器启动/重建 | 原生工具实际执行、PG 历史持久；UID/cap/资源限制不变；旧 DSH 卷保留，未删除或伪装新历史 |
+
+自动化锚点：`server/tests/agent/test_native_*`、`test_persistence.py`、`test_tool_*`、`test_service*.py`、`server/tests/api/test_agent*.py`、`server/tests/integrations/feishu_bot/`、`server/tests/migrations/test_agent_persistence_migration.py`。`scripts/native_agent_smoke.py` 验证确定性工具与真实 PostgreSQL，`scripts/self_host_smoke.py` 验证原生 Linux AMD64 容器重建与同源 HTTPS。
+
+HTTP 模型替身、真实 PostgreSQL、真实上游模型分别记录。缺安全模型凭据时标记真实模型未验证，不能以纯文本回复或替身冒充真实工具协议验收。

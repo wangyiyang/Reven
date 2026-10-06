@@ -1,0 +1,31 @@
+{
+  "id": "agent-langgraph-migration",
+  "name": "agent-langgraph-migration",
+  "title": "Agent 运行时迁移至 LangGraph 与数据库持久化",
+  "description": "替换 DeepSeek Harness，保留现有业务工具与飞书入口，建立数据库会话、持久确认和可核实的执行结果",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "WangYiyang",
+  "assignee": "WangYiyang",
+  "createdAt": "2026-10-06",
+  "completedAt": null,
+  "branch": "codex/agent-langgraph-migration",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "implementation_approved": "true",
+    "planning_ready": "true",
+    "planned_branch": "codex/agent-langgraph-migration",
+    "approval_message": "开始实施"
+  }
+}

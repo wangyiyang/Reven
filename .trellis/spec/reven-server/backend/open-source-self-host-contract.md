@@ -60,14 +60,14 @@ dc up -d --wait
 | `REVEN_ADMIN_PASSWORD` | 必填；无默认登录密码 |
 | `REVEN_PUBLIC_BASE_URL` | 必填；公网指南为 `https://自己的域名`，标准 443；本机 override 对应用/Caddy 同时固定为 `http://localhost:8080` |
 | `DATABASE_URL` | Compose 根据数据库密码指向 `postgres:5432/reven`；不依赖维护者账号或 Supabase 专有能力 |
-| `DSH_HOME` | `/data/dsh`，使用独立持久卷 |
+| Agent 检查点 | PostgreSQL 的 `reven_agent_checkpoints` schema；无需 Workspace、`DSH_HOME` 或改写 `HOME` |
 | `SILICONFLOW_*`、`RSS_MODEL_REVIEW_ENABLED`、`COS_*` | Compose 逐项映射；未设置时保留应用默认/降级行为，不将整份秘密配置传给 Caddy/PostgreSQL |
 
 - 三个服务均声明 `platform: linux/amd64`；PostgreSQL/Caddy 从官方镜像按固定 digest 获取，Reven 使用源码 build。
 - Reven 等待 PostgreSQL healthy，Caddy 等待 Reven healthy；entrypoint 自动迁移失败必须停止启动，不切换新版静态资源。
 - 数据库和应用端口不发布到宿主。公网只发布 Caddy 80/443；local override **替换**端口列表，只留下 `127.0.0.1:8080:8080`。
 - 保留 Reven UID 10001、只读根文件系统、tmpfs、资源上限、`cap_drop: ALL`、`no-new-privileges` 和 Docker 默认安全策略。Caddy 保留镜像二进制所需的 `NET_BIND_SERVICE`。
-- 六个 named volumes：`postgres-data`、`reven-data`、`dsh-data`、`reven-static`、`caddy-data`、`caddy-config`。新卷复制镜像目录属主；恢复归档必须保留 UID/GID，不将应用改成 root。
+- 五个活动 named volumes：`postgres-data`、`reven-data`、`reven-static`、`caddy-data`、`caddy-config`。旧 `dsh-data` 不再声明/挂载，保留归档及原镜像/Compose，不自动删除。新卷复制镜像目录属主；恢复归档必须保留 UID/GID，不将应用改成 root。
 - Dockerfile 专属 ignore 覆盖任意层级 `.env`/`.env.*`（仅放行 `.env.example`）、密钥及运行数据；`.gitignore` 不能代替构建上下文保护。
 - 镜像继续携带旧部署所需 `/opt/reven-release/infra/`，运行许可材料位于 `/opt/reven-licenses/`。不得引入整个开发工具树；许可采集不等同于已完成公开分发审查。
 

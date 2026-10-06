@@ -47,6 +47,10 @@ Database tables（0015 起均有 RLS；0026 起含画像）:
 
 ## 3. Contracts
 
+`TalentsService(session, *, commit=True)` 保持网页默认一次提交；Agent 显式 `commit=False`
+参与外部事务，画像导入及追加子项与 `(run_id, tool_call_id)` 操作结果同一 commit。
+同名人才更新并不让画像导入幂等：恢复必须复用账本，不能重复追加履历/院校经历。
+
 Talent statuses are exactly `候选`, `接洽中`, `已合作`, and `搁置`. There is
 no state machine: status only changes via explicit `PATCH`, and an
 `已合作` talent may be patched back to `接洽中`. Interaction channels are

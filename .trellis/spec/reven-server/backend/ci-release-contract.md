@@ -18,7 +18,7 @@ Issue #115 修复了仅限制生产发布入口、却遗漏普通 CI 测试镜�
 - `jobs.container.if` 必须为 `inputs.full`，不得再由变更路径启用。
 - 普通 PR/main CI 不构建 `reven:test`；backend、migration、frontend 保留各自的路径过滤及 full 覆盖。
 - changes 不输出 container，也不维护 container 路径过滤。
-- backend 路径过滤包含 `infra/self-host/**`、`infra/caddy/**`、`infra/compose/**`、`infra/docker/Dockerfile.dockerignore`、`scripts/self_host*.py`、`scripts/licenses/**`，使自托管、生产入口或许可采集单独变化时也运行对应回归；不因此开启 container。
+- backend 路径过滤包含 `infra/self-host/**`、`infra/caddy/**`、`infra/compose/**`、`infra/docker/Dockerfile.dockerignore`、`scripts/self_host*.py`、`scripts/native_agent_smoke.py`、`scripts/licenses/**`，使自托管、生产入口或许可采集单独变化时也运行对应回归；不因此开启 container。
 - 发版完整 CI 保留容器运行、嵌入式 Agent、SBOM 和漏洞检查。正式 image 任务依赖 quality-gate 成功。
 - 正式镜像构建和自动部署由 tag push 触发，不监听 `release.published`。
 - 手动部署和回滚不构建镜像；不得为验证本契约实际触发生产部署。
@@ -77,7 +77,7 @@ if: inputs.full
 - 入口只接受原生 Linux AMD64 Docker 宿主与 AMD64 应用镜像；不将本机 ARM 仿真结果算作正式支持证据。
 - 使用随机 `reven-ci-self-host-*` Compose project、空 named volumes、临时随机凭据；测试只复用本地 `reven:test`，`up --no-build --pull never`，不运行生产脚本。
 - 临时 override 仅添加测试镜像身份；容器仍采用 self-host Compose 的非 root、readonly、cap_drop、no-new-privileges 和资源限制，不使用 privileged、额外 capabilities 或 unconfined。
-- 验证顺序：HTTP 首页/健康/认证/CSRF/MCP拒绝 → 非 root 与许可文件 → 本地 RSS 采纳 → 重建全部容器后会话、素材、数据库与三个应用卷持久化 → 自托管可信 HTTPS → 真实生产 Caddy/Compose 的隔离网关。
+- 验证顺序：HTTP 首页/健康/认证/CSRF/MCP拒绝 → 非 root 与许可文件、原生 Agent 工具/检查点 → 本地 RSS 采纳 → 重建全部容器后会话、Agent 历史、素材、数据库与应用/静态卷持久化 → 自托管可信 HTTPS → 真实生产 Caddy/Compose 的隔离网关。
 - RSS fixture 使用禁用的测试源，直接写入独立数据库的确定性 candidate；通过真实 API 采纳为 saved、重复采纳并核对 saved_at 不变，重建容器后再次验证。不访问外部集成，不冒充真实 RSS 抓取或模型验收。
 - HTTPS 只在临时测试 Caddyfile 添加 `tls internal`，导出根证书并明确传入客户端的 SSL trust store；不得使用 `curl -k`、CERT_NONE 或关闭 hostname 校验。正式 self-host 配置仍使用自动 ACME。
 - 无论启动、断言或诊断在哪一阶段失败，先打印当前 project 状态，再清理该 project 的容器与卷。任何清理失败也必须显式失败；不能清理共享或生产卷。
