@@ -635,6 +635,25 @@ CRM 客户搜索补联系人职务/备注并修复通配符未转义缺陷；tal
 - CRM 联系人 EXISTS 加 role/notes；talents 主表 or_ 加 notes/capability/phone/email/wechat
 - talents JSONB tags/preferences 用 cast(String).ilike；experiences/educations 各新建 EXISTS 子查询（禁 JOIN，不重复返回）
 - 文案同步：MCP 工具描述 ×2、web placeholder ×2、spec 契约句 ×2（含排除项：合作条件/可用时间/费率/跟进全文）
+## Session 19（2026-10-06）：#213 域名迁移仓库内完成
+
+- 任务 `10-06-domain-reven-wangyiyang-cc`（in_progress）→ PR #216 已开，等待合并
+- 改动 16 文件：Caddyfile/compose（:3001 过渡入口下线）、vercel.json、7 测试文件（占位 origin 统一 https://reven.wangyiyang.cc + Secure Cookie 连带 base_url 改 https://testserver）、self_host_smoke、4 现行文档、spec 契约
+- 验证：445 passed（含 postgres 集成）、ruff/mypy 绿、test_deploy_reven.sh 通过、旧域名零残留
+- 关键经验：占位 origin 从 http 改 https 会触发 Secure Cookie 连锁（TestClient base_url 须同步 https）；test_auth.py 需补独立 http 参数保住 spec §6 Cookie 双覆盖
+- 合并后运维动作：DNS A 记录 → VPS .env PUBLIC_BASE_URL → deploy_reven.sh → 验收 curl/登录/写操作/Vercel 回退代理 → 任务归档
+
+
+## Session 21: #213 站点域名迁移 dev.wangyiyang.cc → reven.wangyiyang.cc
+<!-- trellis-session: v=2 fp=fb444ec592bf2a63 -->
+
+**Date**: 2026-10-06
+**Task**: #213 站点域名迁移 dev.wangyiyang.cc → reven.wangyiyang.cc
+**Branch**: `issue/gh-213-domain-reven-wangyiyang-cc`
+
+### Summary
+
+仓库内改动完成并归档（PR #216 待合并）：Caddyfile 站点块改新域名 + :3001 过渡入口下线（compose 端口同步移除）、vercel.json 回退代理、7 个测试文件占位 origin 统一 https://reven.wangyiyang.cc（Secure Cookie 连锁 base_url 改 https://testserver，test_auth.py 补 http 参数保住 Cookie 双覆盖，CSRF 负例保持语义）、self_host_smoke 跟随、4 份现行文档 + spec 契约同步。验证：445 passed（含 postgres 集成）、ruff/mypy/test_deploy_reven.sh 全绿、旧域名零残留。关键经验：测试占位 origin 从 http 升 https 会触发 Secure Cookie 连锁。运维验收（DNS → VPS .env → deploy → curl/登录/写操作/Vercel 代理）待 PR 合并后执行，跟踪归 issue #213。
 
 ### Git Commits
 
@@ -648,6 +667,7 @@ CRM 客户搜索补联系人职务/备注并修复通配符未转义缺陷；tal
 ### Testing
 
 - [OK] server 926 测试 + 13 迁移 + ruff + mypy（改动三文件覆盖率 100%）；web 247 测试 + lint + tsc；trellis-check R1-R6 独立复跑通过
+| `5b4da75` | chore(infra): 站点域名迁移 dev.wangyiyang.cc → reven.wangyiyang.cc (#213) |
 
 ### Status
 
