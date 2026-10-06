@@ -48,6 +48,8 @@ jobs:
           filters: |
             backend:
               - 'server/**'
+              - 'infra/caddy/**'
+              - 'infra/compose/**'
               - 'infra/self-host/**'
               - 'infra/docker/Dockerfile.dockerignore'
               - 'scripts/self_host*.py'

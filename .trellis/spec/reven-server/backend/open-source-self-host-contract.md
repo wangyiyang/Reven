@@ -8,7 +8,7 @@
 两条部署路径共用应用镜像，入口独立：
 
 - `infra/self-host/`：使用者从源码构建，PostgreSQL 17 + Reven + Caddy，公网 HTTPS 或 loopback HTTP。
-- `infra/compose/`、`infra/caddy/`、`scripts/deploy_reven.sh`：维护者既有 ACR digest / HTTP 3001 部署，保留兼容性。
+- `infra/compose/`、`infra/caddy/`、`scripts/deploy_reven.sh`：维护者 ACR digest 部署，正式 HTTPS 入口同源服务前端与 API，HTTP 3001 仅保留过渡兼容。
 
 不能为了本地构建放宽生产镜像来源校验，也不能把开源准备当成迁移现网的授权。
 
@@ -99,7 +99,7 @@ dc up -d --wait
 - `server/tests/security/test_csrf.py`：同源成功、默认端口等价、不同协议/端口/无效输入/缺头为 403、转发头无法绕过；白名单内 Origin 放行、白名单外（含子域后缀仿冒）仍为 403。
 - `server/tests/security/test_auth.py`：HTTP/HTTPS Cookie 属性、内部代理 HTTP 的配置决定行为、注销及旧 Cookie 重放为 401。使用隔离数据库。
 - `server/tests/e2e/test_self_host_deployment.py`：实际 Compose 渲染后无数据库/应用公开端口，local 无遗留 80/443，必填环境/可选透传、卷及安全选项保留；不分发已退役的沙箱 profile。
-- `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：旧 ACR/HTTP/回滚约束、镜像 infra 不回退，自托管文件单独变化会选择 backend 回归；脚本另跑 `scripts/test_deploy_reven.sh`。
+- `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：ACR/HTTPS/3001 兼容与回滚约束、镜像 infra 同步、同源 SPA/独立 assets/只读静态卷；生产与自托管配置单独变化都选择 backend 回归。脚本另跑 `scripts/test_deploy_reven.sh`，真实网关由 full smoke 验证。
 - 修改 ignore 规则时用无敏感内容的嵌套假配置/密钥/运行数据验证真实 BuildKit 上下文，再检查最终镜像；仅文本模式检查不足以证明未打包秘密。#127 本地已执行八类假文件排除探针，不能据此省略将来的规则变更验证。
 - 独立容器验收：记录真实 Linux AMD64、镜像 ID、源码提交和宿主安全策略；空卷启动、可信 TLS、Secure Cookie、CSRF、UID/可写卷、素材采纳、持久化与恢复均需运行证据。
 - 首次流程验收：真实 RSS 调度发现候选、人工采纳及重复采纳幂等、本地 saved 素材持久化。独立容器烟测可直接写入确定性候选验证采纳 API，但不替代真实源抓取与调度证据。
@@ -126,4 +126,54 @@ ports:
 # 正确：本机 override 明确替换列表。
 ports: !override
   - "127.0.0.1:8080:8080"
+```
+
+## 8. 维护者统一 VPS 发布与旧版补丁
+
+### 1. 范围与触发
+
+维护者前端/API 发布与版本回滚时遵守。统一入口不等于授权发布 main 所有业务迁移。
+
+### 2. 签名
+
+正式 origin 为 https://dev.wangyiyang.cc；配置优先 REVEN_PUBLIC_BASE_URL，兼容 PUBLIC_BASE_URL。
+受限部署脚本仍接受 DEPLOY_OPERATION=deploy|rollback 和完整 ACR REVEN_IMAGE digest。
+
+### 3. 契约
+
+生产 Caddy 同源服务 SPA/assets 与 API，/agent/*404；Caddy 静态卷 ro。VPS 验收完成后须
+核验 Vercel 不再持续独立 Git 发布。项目未连接 Git 时记录该状态，无需改平台；不能把
+未连接状态或 web/vercel.json 等同于平台开关关闭。未来连接 Git 时须核对 Root Directory
+与实际配置路径，确保禁用声明生效。历史部署与额外 Origin 白名单保留过渡回退，白名单能力本身不删除。
+2026-10-06 补丁基于 v0.7.1，schema 保持0024，不带#207业务源码/0025/0026。主线修复走PR，
+补丁从发布基线回移经过审阅的部署变化；两条分支都需真实质量检查。
+
+### 4. 验证与错误矩阵
+
+| 条件 | 行为 |
+| --- | --- |
+| 旧 Vercel Cookie 访问 VPS | 需要重新登录；不迁移跨域 Cookie |
+| 补丁业务/迁移/lock 与 v0.7.1 有差异 | 禁止按“仅部署补丁”发布 |
+| 发布前线上 schema 已推进到0025/0026 | 停止0024补丁上线，重新评估，不降级schema |
+| 回退v0.7.1原digest | 恢复API+Vercel入口，VPS根页面404；不承诺VPS前端仍在 |
+
+### 5. 正常、默认与错误场景
+
+正常：新补丁 tag/digest 与代码证据关联，上线前后核对0024、页面、资源和同源登录。
+默认：保留旧 Vercel 回退入口与3001过渡端口。错误：把 main 的业务迁移夹带进统一部署，
+或把镜像回退当作数据库字段值的恢复。
+
+### 6. 必须覆盖的测试
+
+实际补丁 full CI、与基线业务/迁移/lock 空差异、线上前端/API/登录和revision证据；
+隔离认证fixture不能接生产库。标准自托管流程与安全限制继续独立验证。
+
+### 7. 错误与正确写法
+
+```sh
+# 错误：把包含未批准业务迁移的 main 当作部署补丁来源。
+git tag v0.7.2 main
+
+# 正确：指向从已核实发布基线制作、经过检查的部署补丁提交。
+git tag v0.7.2 <verified-deployment-patch-commit>
 ```
