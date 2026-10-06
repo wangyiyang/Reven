@@ -156,6 +156,21 @@ def test_deployment_changes_select_backend_regressions_without_enabling_containe
         "infra/docker/Dockerfile.dockerignore",
         "scripts/self_host_smoke.py",
         "scripts/self_host_http_smoke.py",
+        "scripts/licenses/collect-js.mjs",
+        "scripts/licenses/test_collectors.py",
     ):
         assert any(fnmatchcase(changed_path, pattern) for pattern in filters["backend"]), changed_path
     assert workflow["jobs"]["container"]["if"] == "inputs.full"
+
+
+def test_backend_ci_runs_license_collection_regressions_as_a_required_step() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["backend"]["steps"]
+    commands = [step.get("run", "") for step in steps]
+    collector = commands.index("uv run pytest scripts/licenses/test_collectors.py")
+
+    assert commands.index("uv sync --frozen --all-packages") < collector
+    assert collector < next(index for index, command in enumerate(commands) if "pytest server/tests" in command)
+    assert steps[collector].get("continue-on-error", False) is False

@@ -90,6 +90,9 @@ class Deployment:
         assert config["Memory"] == 2 * 1024**3 and config["PidsLimit"] == 128
         assert not any("unconfined" in option for option in config["SecurityOpt"])
         assert config["SecurityOpt"] == ["no-new-privileges:true"]
+        self.assert_licenses()
+
+    def assert_licenses(self) -> None:
         self.compose(
             "exec",
             "-T",
@@ -98,12 +101,28 @@ class Deployment:
             "-c",
             "\n".join(
                 [
+                    "import hashlib, json, re",
                     "from pathlib import Path",
                     "root = Path('/opt/reven-licenses')",
                     "assert (root / 'LICENSE').read_text()",
                     "assert (root / 'THIRD_PARTY_NOTICES.md').read_text()",
                     "for name in ('javascript', 'python', 'system'):",
                     "    assert any(path.is_file() and path.stat().st_size for path in (root / name).rglob('*')), name",
+                    "inventories = []",
+                    "for directory in (root / 'javascript', Path('/app/web-dist/licenses/javascript')):",
+                    "    assert not any(directory.rglob('package.json')), directory",
+                    "    raw = (directory / 'inventory.json').read_bytes()",
+                    "    inventories.append(raw)",
+                    "    inventory = json.loads(raw)",
+                    "    assert inventory['packages']",
+                    "    assert re.fullmatch('[0-9a-f]{64}', inventory['lockfile']['sha256'])",
+                    "    for package in inventory['packages']:",
+                    "        assert {'name', 'version', 'license', 'source', 'evidence'} <= package.keys()",
+                    "        assert re.fullmatch('[0-9a-f]{64}', package['manifest_sha256'])",
+                    "        for evidence in package['evidence']:",
+                    "            text = (directory / evidence['path']).read_bytes()",
+                    "            assert hashlib.sha256(text).hexdigest() == evidence['sha256']",
+                    "assert inventories[0] == inventories[1]",
                     "assert not Path('/opt/reven-release/infra/self-host/.env').exists()",
                 ]
             ),
