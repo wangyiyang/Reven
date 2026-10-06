@@ -551,3 +551,41 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 19: 前后端统一 VPS 发布 v0.7.2
+<!-- trellis-session: v=2 fp=2fd8301ccfead390 -->
+
+**Date**: 2026-10-06
+**Task**: 前后端统一 VPS 发布 v0.7.2
+**Branch**: `codex/unify-vps-deploy-record`
+
+### Summary
+
+主线修复经 PR #211 合并，v0.7.2 独立补丁成功上线；数据库保持 0024，完成可信 HTTPS、真实登录、只读业务页面和其它服务保护验收。
+
+### Main Changes
+
+- 恢复 Caddy SPA/assets 与只读静态卷，修复许可 manifest 包装，保留 Supabase/COS/dsh 和 Vercel 回退。
+- 发布 run 37408786222 全部 7 个任务成功，运行镜像 digest=sha256:19f246c897f4b08952daeebe714ee3e96e74066bba42dc0b894873746cd69bba。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dd2429c` | fix(deploy): 恢复前后端统一发布到 VPS (#211) |
+| `81fce80` | fix(deploy): 区分许可证据与运行模块清单 |
+| `bd38059` | docs(deploy): 记录 v0.7.2 生产验收 |
+
+### Testing
+
+- [OK] 两条分支各 41 项聚焦回归通过；原生 AMD64 full CI 37407930825、37407941917 及 tag 完整发布门禁通过。
+- [OK] 可信 HTTPS 页面/资源/安全头、Secure/HttpOnly/SameSite Cookie、CRM/人才库/RSS 列表刷新与只读 API、注销均通过；DB 0024 与其它 VPS 服务未变化。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 开发工具 tinypool 漏洞升级另行处理；本次未升级依赖、未执行生产回滚，CRM/人才库无现有记录，未制造详情测试数据。
