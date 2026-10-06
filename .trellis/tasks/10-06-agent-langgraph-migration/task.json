@@ -15,8 +15,8 @@
   "branch": "codex/agent-langgraph-migration",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "5c1b89d508bcab0112246a360aa84208742ba988",
+  "pr_url": "https://github.com/wangyiyang/Reven/pull/219",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -26,6 +26,11 @@
     "implementation_approved": "true",
     "planning_ready": "true",
     "planned_branch": "codex/agent-langgraph-migration",
-    "approval_message": "开始实施"
+    "approval_message": "开始实施",
+    "remote_delivery_approved": "true",
+    "remote_delivery_approval_message": "请进行处理，然后push到GitHub发起PR。",
+    "full_ci_url": "https://github.com/wangyiyang/Reven/actions/runs/37431192893",
+    "full_ci_head_sha": "5c1b89d508bcab0112246a360aa84208742ba988",
+    "full_ci_conclusion": "success"
   }
 }

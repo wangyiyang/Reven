@@ -69,3 +69,17 @@ health checks 为 db/agent/checkpointer/background_runner。db 故障返回 503�
 - 服务 REST wait=1000 秒时，Feishu 确认与恢复显式传自身 0.01 秒测试预算，返回原 run ID，没有先撞外层桥超时。
 
 正式 owner 命令为明确 TEST_DATABASE_URL/DATABASE_URL 下 `.venv/bin/python -m pytest`：test_persistence、全部 migrations、API chat/management/native_flow/model_gate/integrations_agent_llm_models、全部 feishu_bot 和 security/test_auth。完整源码与后端覆盖率由独立 checker 再做总验收，以上集合存在与其他阶段重叠，不相加冒充全仓测试总数。
+
+
+## GitHub Linux AMD64 全量 CI 与交付（2026-10-06）
+
+用户明确授权“请进行处理，然后push到GitHub发起PR。”后，推送 `codex/agent-langgraph-migration` 的三个工作提交 d1d2514、b1fc2ab、5c1b89d，创建并附加 [PR #219](https://github.com/wangyiyang/Reven/pull/219)。未合并、未触发 Release and Deploy、未部署生产。
+
+[完整 CI run 37431192893](https://github.com/wangyiyang/Reven/actions/runs/37431192893) 实际验证提交 `5c1b89d508bcab0112246a360aa84208742ba988`，workflow_dispatch `full=true`；changes、backend、migration、frontend、container 五项全部 success。
+
+- 后端 Linux Python 3.12.13：Ruff/格式通过，Mypy 164 源文件通过，许可采集回归 6 passed；全量 **1134 passed，40 warnings，389.64 秒**，覆盖率 **90.46%**（80% 门槛）。本机曾因 SOCKS 环境失败的 URL 测试及新增空白 REST 输入回归均包含在这次真实完整运行中。
+- 空库升级至 0028、原生 checkpoint 初始化与 migration 集合 **14 passed**。前端 **30 files / 247 passed**，类型检查与构建成功。
+- 原生 Linux AMD64 镜像构建成功；非 root UID、只读 rootfs、Agent import、HTTP/可信 CA HTTPS/生产 Caddy 路由与静态卷验证通过。隔离 self-host 实际跑原生工具循环，完整 down/up 重建后读回原 thread 历史；日志明确出现 `Native Agent persisted history verified`，RSS 材料、活动卷与许可也通过。
+- 迁移失败保留旧静态发布、发布 infra 内嵌同步/恢复、Compose/Caddy 验证通过；SBOM 生成/上传成功。Trivy 原门禁 `--ignore-unfixed --severity CRITICAL --exit-code 1` 通过，其扫描范围内 Debian/Python 可修复严重漏洞为 0；不扩展表述为所有级别漏洞均不存在。
+
+后续改动仅补充本任务交付证据、归档和日志，不修改该已验证提交的产品代码、测试、锁文件或部署配置。真实上游模型仍未验证；没有以 mock 或成功 CI 替代该项。日志保存于本机 `/Users/wangyiyang/.tmp/reven-agent-ci-{backend,migration,frontend,container}.log`，GitHub 链接为可共享证据。
