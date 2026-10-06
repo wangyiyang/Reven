@@ -1,4 +1,4 @@
-# 公共站点逻辑（HTTPS 主站与过渡期 :3001 共用），通过 snippet 复用避免两处漂移
+# 公共站点逻辑（HTTPS 主站），通过 snippet 复用
 #
 # 前后端统一部署：同一镜像发布 API 与 web，应用原子切换静态 current，
 # Caddy 只读共享静态卷；Vercel 旧部署保留为故障回退入口。
@@ -37,11 +37,6 @@
 }
 
 # HTTPS 主站（2026-10-01 全站 TLS 化，Caddy 自动签发证书；签发依赖公网可达 80/443）
-dev.wangyiyang.cc {
-	import site_common
-}
-
-# 过渡期保留的 HTTP 入口（TLS 验证通过、PUBLIC_BASE_URL 切换后可下线）
-http://dev.wangyiyang.cc:3001 {
+reven.wangyiyang.cc {
 	import site_common
 }

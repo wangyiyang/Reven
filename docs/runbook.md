@@ -1,7 +1,7 @@
 # Reven 维护者现有生产部署手册
 
 本文件对应维护者前后端统一部署到 VPS 的配置：正式入口为
-`https://dev.wangyiyang.cc`，Caddy 服务前端静态文件并反代 `/api/*`，前后端使用同一
+`https://reven.wangyiyang.cc`，Caddy 服务前端静态文件并反代 `/api/*`，前后端使用同一
 ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安装独立环境；不要照搬
 维护者域名、账号或私有镜像地址。PostgreSQL 继续使用 Supabase，素材继续使用 COS。
 
@@ -12,7 +12,7 @@ ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安�
 [Vercel 清理记录](vercel-cleanup-20261006.md)，历史配置见
 [Vercel 部署记录](vercel-deploy.md)。发布前后的实际状态仍须按第 9 节核验。
 
-Reven 以 Docker Compose 部署在 `dev.wangyiyang.cc`，时区统一使用
+Reven 以 Docker Compose 部署在 `reven.wangyiyang.cc`，时区统一使用
 `Asia/Shanghai`。Compose 只运行 Reven 与 Caddy；PostgreSQL 使用
 Supabase，宿主机现有 3000 端口服务不属于 Reven。
 
@@ -80,13 +80,12 @@ REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
 有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
 Caddy 在 443 提供正式 HTTPS 入口，通过 80 完成证书签发与 HTTP 跳转；域名 A/AAAA
-记录须指向服务器，公网 80/443 必须可达。3001 保留为 HTTP 过渡入口，日常登录和写操作
-使用 HTTPS 主站。Caddy 不接收认证变量，只负责反向代理与静态资源。
+记录须指向服务器，公网 80/443 必须可达。Caddy 不接收认证变量，只负责反向代理与静态资源。
 
 服务器配置的 `REVEN_PUBLIC_BASE_URL`（优先）或兼容别名 `PUBLIC_BASE_URL` 应为
-`https://dev.wangyiyang.cc`。HTTPS origin 决定会话 Cookie 的 Secure 属性与写请求同源校验，
+`https://reven.wangyiyang.cc`。HTTPS origin 决定会话 Cookie 的 Secure 属性与写请求同源校验，
 不会因 Caddy 到 API 的内部 HTTP 而降级。旧 Vercel 域的 Cookie 不会转移到 VPS 域，
-切换后需重新登录。保留 HTTP 过渡入口期间不新增 HSTS。
+切换后需重新登录。HSTS 仍未启用，待单独评估（单向承诺）。
 
 ## 4. 当前运行边界
 
@@ -159,7 +158,7 @@ Docker 会提示该文件内的凭据未加密；这是无桌面凭据助手的 
 使用既有免密 SSH 用户登录，并在独立目录操作：
 
 ```bash
-ssh kk@dev.wangyiyang.cc
+ssh kk@reven.wangyiyang.cc
 mkdir -p /opt/reven
 cd /opt/reven
 ```
@@ -182,7 +181,7 @@ workflow 使用 GitHub `production` Environment 和全局并发锁，避免并�
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
 入口配置变化前须核对端口未被其它服务占用、DNS 指向及防火墙/安全组的 80/443
-可达性，并确认应用的有效 public origin 为 `https://dev.wangyiyang.cc`。当前统一部署补丁
+可达性，并确认应用的有效 public origin 为 `https://reven.wangyiyang.cc`。当前统一部署补丁
 沿用已有 HTTPS/3001 端口，不新增端口或改其它服务；只恢复同源前端路由与只读静态卷。
 `.env` 变化须重建应用容器才能生效；若 origin 与实际浏览器入口不一致，登录/写请求会
 被 CSRF 拒绝。Reven 不健康时 Caddy 的 `depends_on` 不能当作入口已启动的证据。
@@ -255,13 +254,13 @@ Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听
 使用可信 TLS 验证正式入口，不用 `curl -k`：
 
 ```bash
-curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/
-curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/login
-curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/rss/candidates
-curl --fail --silent --show-error https://dev.wangyiyang.cc/api/health
-curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/api/auth/me
-curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/assets/__reven_missing__.js
-curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/agent/mcp
+curl --fail --silent --show-error -D - -o /dev/null https://reven.wangyiyang.cc/
+curl --fail --silent --show-error -D - -o /dev/null https://reven.wangyiyang.cc/login
+curl --fail --silent --show-error -D - -o /dev/null https://reven.wangyiyang.cc/rss/candidates
+curl --fail --silent --show-error https://reven.wangyiyang.cc/api/health
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://reven.wangyiyang.cc/api/auth/me
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://reven.wangyiyang.cc/assets/__reven_missing__.js
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://reven.wangyiyang.cc/agent/mcp
 ```
 
 页面应返回 200 HTML 与 `Cache-Control: no-cache`；health 应为 200 JSON，数据库、dsh
@@ -324,14 +323,14 @@ RSS_MODEL_REVIEW_ENABLED=true
 ```bash
 curl --fail -c /tmp/reven-cookie.jar \
   -H 'Content-Type: application/json' \
-  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'Origin: https://reven.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
   -d '{"password": "<ADMIN_PASSWORD>"}' \
-  -X POST https://dev.wangyiyang.cc/api/auth/login
+  -X POST https://reven.wangyiyang.cc/api/auth/login
 curl --fail -b /tmp/reven-cookie.jar \
-  -H 'Origin: https://dev.wangyiyang.cc' \
+  -H 'Origin: https://reven.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
-  -X POST https://dev.wangyiyang.cc/api/rss/embeddings/rebuild
+  -X POST https://reven.wangyiyang.cc/api/rss/embeddings/rebuild
 rm -f /tmp/reven-cookie.jar
 ```
 

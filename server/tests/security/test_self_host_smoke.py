@@ -118,8 +118,8 @@ def test_production_stage_keeps_real_routes_and_isolates_compose(
     assert deployment.files[-2:] == [ROOT / "infra/compose/docker-compose.yml", tmp_path / "production-tls.yml"]
     source = (ROOT / "infra/caddy/Caddyfile").read_text()
     temporary = (tmp_path / "Caddyfile").read_text()
-    assert source.split("\ndev.wangyiyang.cc {")[0] == temporary.split("\nhttps://localhost:8443 {")[0]
-    assert "http://localhost:8080 {" in temporary and "\ttls internal\n" in temporary
+    assert source.split("\nreven.wangyiyang.cc {")[0] == temporary.split("\nhttps://localhost:8443 {")[0]
+    assert "\ttls internal\n" in temporary
     override = (tmp_path / "production-tls.yml").read_text()
     assert "env_file: !override []" in override and "ports: !override" in override
     assert (tmp_path / "production-tls.yml").stat().st_mode & 0o777 == 0o600

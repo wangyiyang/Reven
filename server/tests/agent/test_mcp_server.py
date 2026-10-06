@@ -55,7 +55,7 @@ def mcp_client() -> Iterator[TestClient]:
     app = create_app(
         start_background_tasks=False,
         session_factory=async_sessionmaker(engine, expire_on_commit=False),
-        public_base_url="http://dev.wangyiyang.cc:3001",
+        public_base_url="https://reven.wangyiyang.cc",
         settings=settings,
     )
     with TestClient(app, base_url="http://testserver") as client:
