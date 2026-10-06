@@ -1,8 +1,16 @@
 # Reven 维护者现有生产部署手册
 
-本文件保留维护者现有 ACR、外部 PostgreSQL 与 HTTP 3001 部署契约。新用户请从
-[自托管指南](self-hosting.md) 安装标准 PostgreSQL 与 HTTPS 入口；不要照搬本文件中的
-维护者域名、账号或私有镜像地址。本次开源准备不迁移现有生产环境。
+本文件对应维护者前后端统一部署到 VPS 的配置：正式入口为
+`https://dev.wangyiyang.cc`，Caddy 服务前端静态文件并反代 `/api/*`，前后端使用同一
+ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安装独立环境；不要照搬
+维护者域名、账号或私有镜像地址。PostgreSQL 继续使用 Supabase，素材继续使用 COS。
+
+2026-10-06 的 [v0.7.2](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2) 已发布并通过生产验收，以 v0.7.1 为基线，保留数据库
+`0024_rss_resilience`，不包含 main 中的 0025/0026 与 CRM/人才库业务变更。
+旧 Vercel 部署与其 CSRF Origin 白名单保留作故障回退。当前项目未连接 Git，没有持续
+Git 自动发布，平台自动部署开关仍启用；本次无需改平台。上线后已再次核对无 Git 连接，
+后续接入仍须核对平台状态，不能仅凭 web/vercel.json 宣称平台开关已关闭。历史配置见
+[Vercel 部署记录](vercel-deploy.md)。发布前后的实际状态仍须按第 9 节核验。
 
 Reven 以 Docker Compose 部署在 `dev.wangyiyang.cc`，时区统一使用
 `Asia/Shanghai`。Compose 只运行 Reven 与 Caddy；PostgreSQL 使用
@@ -71,14 +79,14 @@ REVEN_ADMIN_PASSWORD=<ADMIN_PASSWORD>
 
 未配置该变量时服务拒绝启动（fail-closed）。登录后签发 HttpOnly 会话 Cookie，
 有效期 7 天并随活跃自动续期；同一 IP 连续 5 次密码错误锁定 15 分钟。
-Caddy 仅通过 3001 端口提供 HTTP，不监听 443，也不申请 TLS 证书；域名 A/AAAA
-记录必须指向服务器，公网 3001 端口必须可达。Caddy 容器不接收任何认证变量，
-只负责反向代理与静态资源。
+Caddy 在 443 提供正式 HTTPS 入口，通过 80 完成证书签发与 HTTP 跳转；域名 A/AAAA
+记录须指向服务器，公网 80/443 必须可达。3001 保留为 HTTP 过渡入口，日常登录和写操作
+使用 HTTPS 主站。Caddy 不接收认证变量，只负责反向代理与静态资源。
 
-HTTP 不会加密管理员密码、会话 Cookie 或业务数据，只能在可信网络或已有安全隧道的
-环境中使用；服务直接暴露到公网时，链路上的第三方可能窃听或篡改这些内容。
-旧版本已经下发过 HSTS；浏览器若仍缓存该策略，会继续把 HTTP 强制升级为 HTTPS。
-HTTP 响应无法清除已缓存的 HSTS，切换后需要在受影响客户端手动清除该域名的 HSTS 记录。
+服务器配置的 `REVEN_PUBLIC_BASE_URL`（优先）或兼容别名 `PUBLIC_BASE_URL` 应为
+`https://dev.wangyiyang.cc`。HTTPS origin 决定会话 Cookie 的 Secure 属性与写请求同源校验，
+不会因 Caddy 到 API 的内部 HTTP 而降级。旧 Vercel 域的 Cookie 不会转移到 VPS 域，
+切换后需重新登录。保留 HTTP 过渡入口期间不新增 HSTS。
 
 ## 4. 当前运行边界
 
@@ -173,12 +181,19 @@ workflow 使用 GitHub `production` Environment 和全局并发锁，避免并�
 成功部署会记录当前与上一健康镜像，并发送一条飞书通知。若 Caddyfile 内容发生变化，
 脚本会在 Reven 健康检查通过后对正在运行的 Caddy 执行 reload；内容未变时不会 reload。
 
-发布若涉及入口端口或协议变化，触发部署前必须先在服务器完成两项前置动作：
-`ss -lntp | grep ':3001 '` 确认入口端口未被其他进程占用，并确认防火墙/安全组已放行
-3001；同时先把 `.env` 的 `PUBLIC_BASE_URL` 同步为新入口地址（当前为
-`http://dev.wangyiyang.cc:3001`）。若 `.env` 与新镜像的配置约束不一致，新容器会拒绝
-启动，Reven 不健康时 Caddy 因 `depends_on` 不会启动，站点整体不可用（2026-08-31
-事故）。入口无变化的日常部署无需改动 `.env`。
+入口配置变化前须核对端口未被其它服务占用、DNS 指向及防火墙/安全组的 80/443
+可达性，并确认应用的有效 public origin 为 `https://dev.wangyiyang.cc`。当前统一部署补丁
+沿用已有 HTTPS/3001 端口，不新增端口或改其它服务；只恢复同源前端路由与只读静态卷。
+`.env` 变化须重建应用容器才能生效；若 origin 与实际浏览器入口不一致，登录/写请求会
+被 CSRF 拒绝。Reven 不健康时 Caddy 的 `depends_on` 不能当作入口已启动的证据。
+
+本次 v0.7.2 从 v0.7.1 制作，仅带部署、验证、许可材料包装与必要发布缓存修复。
+tag 指向独立补丁 81fce80，实际镜像 digest 为
+`sha256:19f246c897f4b08952daeebe714ee3e96e74066bba42dc0b894873746cd69bba`，
+不指向包含 0025/0026 的 main。发布前已核对业务源码、迁移和锁文件与 v0.7.1 无差异，
+原生 Linux AMD64 full CI 与正式发布门禁均成功，上线前后数据库均为 0024。
+主线配置修复已通过 [PR #211](https://github.com/wangyiyang/Reven/pull/211) 合并 main；
+该 PR 合并不等于 main 的业务变更已上线。
 
 通过 Actions 的 `workflow_dispatch` 可选择：
 
@@ -235,30 +250,37 @@ ss -lntp | grep ':3000 '
 Reven Compose 不声明 3000 端口。若既有服务的容器、进程或监听地址发生变化，
 立即停止 Reven 部署并调查，不要覆盖或重启该服务。
 
-## 9. 验证 HTTP、认证与健康状态
+## 9. 验证 HTTPS、前端、认证与健康状态
 
-依次验证 HTTP 静态入口、未认证业务请求、公开健康检查，并确认服务未监听 HTTPS、
-80 端口也不再提供服务：
+使用可信 TLS 验证正式入口，不用 `curl -k`：
 
 ```bash
-curl -I http://dev.wangyiyang.cc:3001
-curl -i http://dev.wangyiyang.cc:3001/api/rss/candidates
-curl --fail http://dev.wangyiyang.cc:3001/api/health
-! curl --fail --connect-timeout 3 https://dev.wangyiyang.cc
-! curl --fail --connect-timeout 3 http://dev.wangyiyang.cc
+curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/
+curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/login
+curl --fail --silent --show-error -D - -o /dev/null https://dev.wangyiyang.cc/rss/candidates
+curl --fail --silent --show-error https://dev.wangyiyang.cc/api/health
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/api/auth/me
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/assets/__reven_missing__.js
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://dev.wangyiyang.cc/agent/mcp
 ```
 
-预期依次为 HTTP 入口可访问、`401`、`{"service":"reven","status":"ok"}`，以及
-HTTPS 与 80 端口连接失败。随后用浏览器打开 `http://dev.wangyiyang.cc:3001`，确认
-跳转到登录页，并用 `.env` 中的
-`REVEN_ADMIN_PASSWORD` 登录成功。最后检查容器状态与脱敏日志：
+页面应返回 200 HTML 与 `Cache-Control: no-cache`；health 应为 200 JSON，数据库、dsh
+与后台 runner 均健康；匿名 me 为 401，缺失 assets 与内部 MCP 均为 404。API 请求不能
+被 SPA 吞成 HTML。读取当次 index 引用的真实 JS/CSS，确认均可访问、MIME 正确，并具备
+`public, max-age=31536000, immutable` 缓存头与既有安全响应头。
+
+浏览器打开主站，确认跳转登录页，使用已配置管理员密码登录，读取 CRM、人才库和 RSS
+页面并刷新深链接。密码、会话 Cookie 不进入日志或验收报告，不在生产创建测试业务数据。
+核对当前容器 digest、HTTP index 与本镜像 web 产物一致，以及共享静态卷的 Caddy 挂载
+为只读。本次补丁上线前后数据库 revision 均应为 `0024_rss_resilience`。
 
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 docker compose --env-file .env -f infra/compose/docker-compose.yml logs --tail=200 reven caddy
 ```
 
-日志中不得出现数据库密码、主密钥、Agent API Key 或飞书 Secret。
+日志中不得出现数据库密码、主密钥、Agent API Key 或飞书 Secret。仅 health=200 或
+Compose 启动成功不能替代前端、真实登录与数据库版本验收。
 
 ## 10. 按镜像 digest 回滚
 
@@ -272,10 +294,13 @@ DEPLOY_OPERATION=rollback /opt/reven/scripts/deploy_reven.sh
 不得直接回滚到该迁移之前的镜像；需要恢复旧功能时先恢复对应数据库备份。
 同一新数据模型内的镜像回滚后重复第 9 步验证。
 
-回滚到入口迁移（3001）之前的镜像时，Caddy 按该镜像配套 infra 重新监听 80，而
-`.env` 的 `PUBLIC_BASE_URL` 仍带 3001：服务可用，但飞书通知链接的端口与入口不一致。
-这是可接受的降级态；恢复后应尽快重新部署 3001 版本，或临时把 `PUBLIC_BASE_URL`
-改回 `http://dev.wangyiyang.cc` 并重建 Reven 容器。
+本次补丁的回退基线为原 v0.7.1 镜像：恢复它会同步该镜像的纯 API Caddy 配置，VPS
+首页再次返回 404，页面访问改回旧 Vercel 域。为此保留旧部署与 Origin 白名单；不要把
+“恢复原镜像”描述为“回滚后仍有 VPS 前端”。该补丁没有 schema 变化，不执行数据库降级。
+若发布前发现数据库已由其它上线推进到 0025/0026，停止本补丁上线并重新评估；旧 0024
+应用不能当作更高 schema 的直接回滚方案。
+
+历史仅 HTTP 的镜像与当前 HTTPS origin/Cookie 契约不同，不在此次回退范围。
 
 ## 11. RSS 内容发现与素材保存
 
@@ -298,14 +323,14 @@ RSS_MODEL_REVIEW_ENABLED=true
 ```bash
 curl --fail -c /tmp/reven-cookie.jar \
   -H 'Content-Type: application/json' \
-  -H 'Origin: http://dev.wangyiyang.cc:3001' \
+  -H 'Origin: https://dev.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
   -d '{"password": "<ADMIN_PASSWORD>"}' \
-  -X POST http://dev.wangyiyang.cc:3001/api/auth/login
+  -X POST https://dev.wangyiyang.cc/api/auth/login
 curl --fail -b /tmp/reven-cookie.jar \
-  -H 'Origin: http://dev.wangyiyang.cc:3001' \
+  -H 'Origin: https://dev.wangyiyang.cc' \
   -H 'X-Reven-CSRF: 1' \
-  -X POST http://dev.wangyiyang.cc:3001/api/rss/embeddings/rebuild
+  -X POST https://dev.wangyiyang.cc/api/rss/embeddings/rebuild
 rm -f /tmp/reven-cookie.jar
 ```
 

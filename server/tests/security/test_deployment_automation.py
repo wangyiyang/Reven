@@ -140,7 +140,7 @@ def test_self_host_smoke_uses_default_host_security_without_retired_runtime() ->
     assert steps[smoke_index].get("continue-on-error", False) is False
 
 
-def test_self_host_changes_select_backend_regressions_without_enabling_container() -> None:
+def test_deployment_changes_select_backend_regressions_without_enabling_container() -> None:
     from fnmatch import fnmatchcase
 
     import yaml
@@ -149,11 +149,28 @@ def test_self_host_changes_select_backend_regressions_without_enabling_container
     filter_step = next(step for step in workflow["jobs"]["changes"]["steps"] if step.get("id") == "filter")
     filters = yaml.safe_load(filter_step["with"]["filters"])
     for changed_path in (
+        "infra/caddy/Caddyfile",
+        "infra/compose/docker-compose.yml",
         "infra/self-host/docker-compose.yml",
         "infra/self-host/Caddyfile",
         "infra/docker/Dockerfile.dockerignore",
         "scripts/self_host_smoke.py",
         "scripts/self_host_http_smoke.py",
+        "scripts/licenses/collect-js.mjs",
+        "scripts/licenses/test_collectors.py",
     ):
         assert any(fnmatchcase(changed_path, pattern) for pattern in filters["backend"]), changed_path
     assert workflow["jobs"]["container"]["if"] == "inputs.full"
+
+
+def test_backend_ci_runs_license_collection_regressions_as_a_required_step() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["backend"]["steps"]
+    commands = [step.get("run", "") for step in steps]
+    collector = commands.index("uv run pytest scripts/licenses/test_collectors.py")
+
+    assert commands.index("uv sync --frozen --all-packages") < collector
+    assert collector < next(index for index, command in enumerate(commands) if "pytest server/tests" in command)
+    assert steps[collector].get("continue-on-error", False) is False

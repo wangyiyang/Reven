@@ -45,7 +45,7 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 - 前端：React、TypeScript、Vite、shadcn/ui、Tailwind CSS，使用 pnpm。
 - 后端：Python、FastAPI、SQLAlchemy、Alembic，使用 uv。
 - 数据库：PostgreSQL；品牌图片通过腾讯云 COS 存储。
-- 部署：模块化单体、单个 Uvicorn worker、进程内 RSS 调度与嵌入式 dsh。
+- 部署：模块化单体、单个 Uvicorn worker、进程内 RSS 调度与嵌入式 dsh；维护者前后端统一由 VPS 的 Caddy 与同一应用镜像发布，见[运行手册](docs/runbook.md)。
 - 业务时间统一使用 Asia/Shanghai，数据库存储 UTC。
 - 密钥通过环境变量或加密集成配置管理。
 

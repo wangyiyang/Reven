@@ -1,8 +1,7 @@
 # 公共站点逻辑（HTTPS 主站与过渡期 :3001 共用），通过 snippet 复用避免两处漂移
 #
-# 部署形态（2026-10-05 起）：VPS 纯 API 反代，不再服务前端静态文件——
-# 前端唯一入口是 Vercel，非 /api 路径一律 404。镜像仍构建 web 产物供
-# 自托管形态（infra/self-host）使用，两者互不影响。
+# 前后端统一部署：同一镜像发布 API 与 web，应用原子切换静态 current，
+# Caddy 只读共享静态卷；Vercel 旧部署保留为故障回退入口。
 (site_common) {
 	# 全站安全响应头（#75）：Caddy 直出的响应（兜底 404 等）不经 uvicorn，与 API 统一在此设置；
 	# 用 ? 前缀（仅在缺失时写入，且延迟到响应写出时才执行）：API 响应已由
@@ -18,9 +17,22 @@
 		reverse_proxy reven:8000
 	}
 
-	# 兜底：前端静态文件只由 Vercel 服务，非 /api 路径一律 404
-	handle {
+	# 内部 MCP 端点不通过公开网关暴露，也不进入 SPA fallback。
+	handle /agent/* {
 		respond 404
+	}
+
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv/reven/current
+		file_server
+	}
+
+	handle {
+		header Cache-Control "no-cache"
+		root * /srv/reven/current
+		try_files {path} /index.html
+		file_server
 	}
 }
 

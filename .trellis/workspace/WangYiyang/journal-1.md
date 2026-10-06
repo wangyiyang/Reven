@@ -548,6 +548,16 @@ talents 域 18 个 MCP 工具（主档 CRUD + 三类子项 CRUD + import_profile
 - 校验层抽离：talents/inputs.py（8 模型+辅助）+ talents/errors.py，api/schemas 改重导出，agent 层对 reven.api 零 import
 - talent_import_profile 单事务（校验先行带序号文案/0-1-N 名匹配/单 commit），fastmcp list[pydantic] 嵌套参数 spike 可用
 - web 5 处枚举字面量同步；spec 三处（crm/talents 枚举行、agent-dsh 模块契约行）
+## Session 18: v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环）
+<!-- trellis-session: v=2 fp=bc2a12f16570e0a9 -->
+
+**Date**: 2026-10-06
+**Task**: v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环）
+**Branch**: `chore/journal-session-16`
+
+### Summary
+
+取消卡住的 v0.7.1 构建后定位根因：--cache-to 的 image-manifest=true 与 oci-mediatypes=false 互斥导致 buildcache 从未写入（PR #208 修复）；重打 tag 后 release 成功部署 v0.7.1，四项端到端验证全过（Vercel 登录链路 403→401、VPS 根路径 404 纯 API 生效、/api/health 200、Vercel 站 200）。但日志证实阿里云 ACR 拒绝 buildkit 缓存制品（unknown manifest class，75 分钟白传），遂 PR #209 切换 type=gha 缓存（对下次发版生效）。已在 issue #120 评论记录第一期完成状态。另清理 main 上因 squash 合并复活的 tasks/10-05-vps-api-only 重复目录。已写会话 handoff 文档至 $TMPDIR/reven-handoff-issue120.md。
 
 ### Git Commits
 
@@ -561,6 +571,42 @@ talents 域 18 个 MCP 工具（主档 CRUD + 三类子项 CRUD + import_profile
 ### Testing
 
 - [OK] server 910 测试 + 13 迁移 + ruff + mypy 全绿（覆盖率 94.67%）；web 247 测试 + lint + tsc 全绿；trellis-check R1-R5 独立复跑通过
+| `7807718` | fix(ci): 修复 release 构建缓存导出的互斥配置 |
+| `13fe57f` | fix(ci): buildx 缓存后端从 registry 切换为 GitHub Actions cache |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 19: 前后端统一 VPS 发布 v0.7.2
+<!-- trellis-session: v=2 fp=2fd8301ccfead390 -->
+
+**Date**: 2026-10-06
+**Task**: 前后端统一 VPS 发布 v0.7.2
+**Branch**: `codex/unify-vps-deploy-record`
+
+### Summary
+
+主线修复经 PR #211 合并，v0.7.2 独立补丁成功上线；数据库保持 0024，完成可信 HTTPS、真实登录、只读业务页面和其它服务保护验收。
+
+### Main Changes
+
+- 恢复 Caddy SPA/assets 与只读静态卷，修复许可 manifest 包装，保留 Supabase/COS/dsh 和 Vercel 回退。
+- 发布 run 37408786222 全部 7 个任务成功，运行镜像 digest=sha256:19f246c897f4b08952daeebe714ee3e96e74066bba42dc0b894873746cd69bba。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dd2429c` | fix(deploy): 恢复前后端统一发布到 VPS (#211) |
+| `81fce80` | fix(deploy): 区分许可证据与运行模块清单 |
+| `bd38059` | docs(deploy): 记录 v0.7.2 生产验收 |
+
+### Testing
+
+- [OK] 两条分支各 41 项聚焦回归通过；原生 AMD64 full CI 37407930825、37407941917 及 tag 完整发布门禁通过。
+- [OK] 可信 HTTPS 页面/资源/安全头、Secure/HttpOnly/SameSite Cookie、CRM/人才库/RSS 列表刷新与只读 API、注销均通过；DB 0024 与其它 VPS 服务未变化。
 
 ### Status
 
@@ -569,3 +615,4 @@ talents 域 18 个 MCP 工具（主档 CRUD + 三类子项 CRUD + import_profile
 ### Next Steps
 
 - P4：画像字段搜索扩展（crm _customer_search 与 talents q 覆盖 experience/education/tags/preferences）
+- 开发工具 tinypool 漏洞升级另行处理；本次未升级依赖、未执行生产回滚，CRM/人才库无现有记录，未制造详情测试数据。

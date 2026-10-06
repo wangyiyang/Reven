@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.7.2] - 2026-10-06
+
+本版已基于 v0.7.1 的独立补丁发布并通过生产验收，前后端入口统一为 https://dev.wangyiyang.cc；不包含 main 中后续 CRM/人才库功能。发布与验证证据见 [v0.7.2 版本记录](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2)。
+
+- 恢复 VPS 同源前端与 API：Caddy 服务 SPA、独立 assets 缓存，并只读共享现有静态卷。
+- 增加 Vercel Git 自动部署禁用声明；当前旧项目未连接 Git，保留历史部署作为回退入口。
+- 生产 Caddy/Compose 变化纳入 backend 回归；完整 CI 增加真实生产路由、资源、同源认证与只读挂载验收。
+- 补丁发布使用 GitHub Actions 构建缓存，沿用现有镜像、漏洞扫描、SBOM 与 digest 部署。
+- 修正 JS 许可目录的 manifest 包装，完整保留许可原文、真实版本与原 manifest 哈希，避免溯源材料被登记为已安装模块；开发工具漏洞升级另行处理。
+- 数据库仍为 0024，无新增或修改的数据库迁移；0025/0026 不随本次补丁发布。
+
 ## [v0.7.1] - 2026-10-05
 
 ### 本版变更（自 v0.7.0）
