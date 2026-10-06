@@ -13,6 +13,7 @@ exec 9>"${static_root}/.startup.lock"
 flock -x 9
 
 /app/.venv/bin/alembic -c /app/server/migrations/alembic.ini upgrade head
+/app/.venv/bin/python -m reven.agent.checkpoint
 
 staging_dir=$(mktemp -d "${static_root}/.release.XXXXXX")
 trap 'rm -rf "${staging_dir}"' EXIT HUP INT TERM
