@@ -12,6 +12,12 @@
 
 - CSRF Origin 校验新增白名单配置 `REVEN_CSRF_ALLOWED_ORIGINS`（逗号分隔、逐项归一化校验、默认空向后兼容）：前后端分域名部署（如前端在 Vercel）时浏览器写请求不再被 403 拒绝（#200）。
 
+**基础设施**
+
+- 生产镜像 runtime 基础镜像 digest 升级，并显式升级 `perl-base` 至 deb12u4，修复 3 个 CRITICAL CVE（CVE-2026-13221 / CVE-2026-42496 / CVE-2026-8376）。
+- VPS 部署形态改为纯 API：Caddy 不再服务前端静态文件，前端唯一入口 Vercel；自托管形态（infra/self-host）不变（#120）。
+- 修复 release 构建缓存导出无效配置（`image-manifest=true` 与 `oci-mediatypes=false` 互斥导致 buildcache 从未写入，历次构建全冷）；修复后后续 release 构建显著提速。
+
 **数据库迁移**
 
 - 无。

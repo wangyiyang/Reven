@@ -1,8 +1,12 @@
 # 公共站点逻辑（HTTPS 主站与过渡期 :3001 共用），通过 snippet 复用避免两处漂移
+#
+# 部署形态（2026-10-05 起）：VPS 纯 API 反代，不再服务前端静态文件——
+# 前端唯一入口是 Vercel，非 /api 路径一律 404。镜像仍构建 web 产物供
+# 自托管形态（infra/self-host）使用，两者互不影响。
 (site_common) {
-	# 全站安全响应头（#75）：Caddy 直出静态页不经 uvicorn，静态/API 统一在此设置；
+	# 全站安全响应头（#75）：Caddy 直出的响应（兜底 404 等）不经 uvicorn，与 API 统一在此设置；
 	# 用 ? 前缀（仅在缺失时写入，且延迟到响应写出时才执行）：API 响应已由
-	# SecurityHeadersMiddleware 设置的保留上游值，静态页由 Caddy 补上，两端都不会重复
+	# SecurityHeadersMiddleware 设置的保留上游值，Caddy 直出响应在此补上，两端都不会重复
 	header {
 		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 		?X-Content-Type-Options "nosniff"
@@ -14,18 +18,9 @@
 		reverse_proxy reven:8000
 	}
 
-	# 指纹资产长缓存；HTML/SPA 入口 no-cache——否则部署后浏览器继续跑旧 bundle
-	handle /assets/* {
-		header Cache-Control "public, max-age=31536000, immutable"
-		root * /srv/reven/current
-		file_server
-	}
-
+	# 兜底：前端静态文件只由 Vercel 服务，非 /api 路径一律 404
 	handle {
-		header Cache-Control "no-cache"
-		root * /srv/reven/current
-		try_files {path} /index.html
-		file_server
+		respond 404
 	}
 }
 

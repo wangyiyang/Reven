@@ -477,6 +477,16 @@ Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 p
 ### Summary
 
 删除 Customer.next_* 双写字段与 set_as_current，客户当前计划派生自最新跟进记录；migration 0025、server/web 全链路、crm-contract spec 同步；881+243 测试全绿
+## Session 15: VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版
+<!-- trellis-session: v=2 fp=8b23d1d342e06beb -->
+
+**Date**: 2026-10-05
+**Task**: VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版
+**Branch**: `chore/vps-api-only`
+
+### Summary
+
+v0.7.1 首次发布被 trivy 拦下（基础镜像 perl-base deb12u3 含 3 个 CRITICAL CVE）：升级 runtime digest 并显式 --only-upgrade perl-base（PR #204）。随后实现 VPS 纯 API 形态（PR #205）：Caddy 去掉静态服务只留 /api 反代 + 兜底 404，compose 摘 reven-static 卷，e2e 固化，caddy validate 通过；自托管与镜像 web 构建不变。重打 v0.7.1 tag 触发 release 重跑，待部署后验证 Vercel 登录链路与 VPS API-only 生效。
 
 ### Git Commits
 
@@ -511,6 +521,9 @@ Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画�
 | `0234b06` | feat(web): Talent 表单加联系方式与喜好，详情页新增画像区与履历/院校时间线 |
 | `e446e67` | docs(spec): talents-contract 更新——画像契约、最新记录到期语义、两种子表路由形状说明 |
 | `c446cf1` | docs(trellis): 10-05-talent-profile-expansion 任务规划产物 |
+| `1fe284a` | fix(docker): 升级 runtime 基础镜像并修复 perl-base CRITICAL CVE |
+| `4e62b63` | chore(infra): VPS 部署形态改为纯 API，前端唯一入口 Vercel |
+| `1cd1fd0` | chore(task): 10-05-vps-api-only 任务 PRD 与上下文 |
 
 ### Status
 
