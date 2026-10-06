@@ -5,11 +5,11 @@
 ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安装独立环境；不要照搬
 维护者域名、账号或私有镜像地址。PostgreSQL 继续使用 Supabase，素材继续使用 COS。
 
-2026-10-06 的统一部署补丁以已上线的 v0.7.1 为基线，保留数据库
+2026-10-06 的 [v0.7.2](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2) 已发布并通过生产验收，以 v0.7.1 为基线，保留数据库
 `0024_rss_resilience`，不包含 main 中的 0025/0026 与 CRM/人才库业务变更。
 旧 Vercel 部署与其 CSRF Origin 白名单保留作故障回退。当前项目未连接 Git，没有持续
-Git 自动发布，平台自动部署开关仍启用；本次无需改平台。VPS 验收后再核对 Git 连接，
-不能仅凭 web/vercel.json 宣称平台开关已关闭。历史配置见
+Git 自动发布，平台自动部署开关仍启用；本次无需改平台。上线后已再次核对无 Git 连接，
+后续接入仍须核对平台状态，不能仅凭 web/vercel.json 宣称平台开关已关闭。历史配置见
 [Vercel 部署记录](vercel-deploy.md)。发布前后的实际状态仍须按第 9 节核验。
 
 Reven 以 Docker Compose 部署在 `dev.wangyiyang.cc`，时区统一使用
@@ -187,10 +187,13 @@ workflow 使用 GitHub `production` Environment 和全局并发锁，避免并�
 `.env` 变化须重建应用容器才能生效；若 origin 与实际浏览器入口不一致，登录/写请求会
 被 CSRF 拒绝。Reven 不健康时 Caddy 的 `depends_on` 不能当作入口已启动的证据。
 
-本次补丁从 v0.7.1 制作，仅带部署、验证及必要发布缓存修复，计划使用未占用的新 patch
-Tag。tag 不得指向包含 0025/0026 的 main。发布前比较业务源码、迁移和锁文件与 v0.7.1
-无差异，核对线上数据库仍为 0024，再运行实际补丁分支的原生 Linux AMD64 full CI。
-主线配置修复仍通过 PR 合并 main；该 PR 合并不等于 main 的业务变更已上线。
+本次 v0.7.2 从 v0.7.1 制作，仅带部署、验证、许可材料包装与必要发布缓存修复。
+tag 指向独立补丁 81fce80，实际镜像 digest 为
+`sha256:19f246c897f4b08952daeebe714ee3e96e74066bba42dc0b894873746cd69bba`，
+不指向包含 0025/0026 的 main。发布前已核对业务源码、迁移和锁文件与 v0.7.1 无差异，
+原生 Linux AMD64 full CI 与正式发布门禁均成功，上线前后数据库均为 0024。
+主线配置修复已通过 [PR #211](https://github.com/wangyiyang/Reven/pull/211) 合并 main；
+该 PR 合并不等于 main 的业务变更已上线。
 
 通过 Actions 的 `workflow_dispatch` 可选择：
 

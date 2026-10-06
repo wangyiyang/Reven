@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased] · 统一 VPS 部署补丁
+## [v0.7.2] - 2026-10-06
 
-以下部署变化计划基于 v0.7.1 制作独立 patch，不包含 main 中后续 CRM/人才库功能；发布 tag 确定后再记录正式版本。
+本版已基于 v0.7.1 的独立补丁发布并通过生产验收，前后端入口统一为 https://dev.wangyiyang.cc；不包含 main 中后续 CRM/人才库功能。发布与验证证据见 [v0.7.2 版本记录](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2)。
 
 - 恢复 VPS 同源前端与 API：Caddy 服务 SPA、独立 assets 缓存，并只读共享现有静态卷。
 - 增加 Vercel Git 自动部署禁用声明；当前旧项目未连接 Git，保留历史部署作为回退入口。
