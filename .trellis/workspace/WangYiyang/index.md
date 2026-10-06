@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
+- **Total Sessions**: 19
 - **Last Active**: 2026-10-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~553 | Active |
+| `journal-1.md` | ~591 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-10-06 | 前后端统一 VPS 发布 v0.7.2 | `dd2429c`, `81fce80`, `bd38059` | `codex/unify-vps-deploy-record` |
 | 18 | 2026-10-06 | v0.7.1 发版攻坚与构建缓存根治（issue #120 第一期闭环） | `7807718`, `13fe57f` | `chore/journal-session-16` |
 | 17 | 2026-10-06 | Talent 画像扩展（#201 P2） | `4b95d9a`, `0234b06`, `e446e67`, `c446cf1` | `issue/gh-201-crm-talents-talent` |
 | 16 | 2026-10-05 | CRM 历史与计划派生化（#201 P1） | `14a3f9e`, `3f214b4`, `b8d8f67`, `4c00248` | `issue/gh-201-crm-talents-talent` |
