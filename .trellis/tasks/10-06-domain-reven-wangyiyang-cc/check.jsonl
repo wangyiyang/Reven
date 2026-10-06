@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "check 依据：契约中 origin / 安全头 / CSRF / smoke 断言需与新域名一致"}

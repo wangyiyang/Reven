@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from starlette.requests import Request
 
-ORIGIN = "http://dev.wangyiyang.cc:3001"
+ORIGIN = "https://reven.wangyiyang.cc"
 TEST_ADMIN_PASSWORD = "test-admin-password"
 
 
@@ -30,7 +30,10 @@ def _reset_throttle() -> Iterator[None]:
     reset_login_throttle()
 
 
-@pytest.fixture(params=[ORIGIN, "HTTPS://REVEN.EXAMPLE:443/"], ids=["http", "https"])
+@pytest.fixture(
+    params=[ORIGIN, "http://reven.example:8080", "HTTPS://REVEN.EXAMPLE:443/"],
+    ids=["https", "http", "https-normalized"],
+)
 def auth_client(request: pytest.FixtureRequest) -> Iterator[tuple[TestClient, async_sessionmaker]]:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:

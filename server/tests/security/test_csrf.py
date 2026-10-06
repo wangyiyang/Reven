@@ -11,7 +11,7 @@ from reven.security.csrf import CsrfOriginMiddleware
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "http://dev.wangyiyang.cc:3001"
+ORIGIN = "https://reven.wangyiyang.cc"
 TEST_ADMIN_PASSWORD = "test-admin-password"
 
 
@@ -39,7 +39,7 @@ def csrf_client() -> Iterator[TestClient]:
     async def csrf_probe() -> dict[str, bool]:
         return {"ok": True}
 
-    with TestClient(app, base_url="http://testserver") as client:
+    with TestClient(app, base_url="https://testserver") as client:
         login = client.post(
             "/api/auth/login",
             json={"password": TEST_ADMIN_PASSWORD},
@@ -74,8 +74,8 @@ def test_agent_mcp_endpoint_exempt_from_csrf_but_requires_bearer(csrf_client: Te
         {"X-Reven-CSRF": "1"},
         {"Origin": "https://evil.example", "X-Reven-CSRF": "1"},
         {"Origin": "null", "X-Reven-CSRF": "1"},
-        {"Origin": "http://dev.wangyiyang.cc.evil.example", "X-Reven-CSRF": "1"},
-        {"Origin": "https://dev.wangyiyang.cc", "X-Reven-CSRF": "1"},
+        {"Origin": "https://reven.wangyiyang.cc.evil.example", "X-Reven-CSRF": "1"},
+        {"Origin": "http://reven.wangyiyang.cc", "X-Reven-CSRF": "1"},
     ],
 )
 def test_unsafe_requests_fail_closed(csrf_client: TestClient, headers: dict[str, str]) -> None:

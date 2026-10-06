@@ -53,8 +53,8 @@ services:
       reven:
         condition: service_healthy
     ports:
-      - "3001:3001"
-      # 2026-10-01 全站 TLS 化：发布 80（ACME 签发/HTTP 跳转）与 443（HTTPS 主站）
+      # 2026-10-01 全站 TLS 化：发布 80（ACME 签发/HTTP 跳转）与 443（HTTPS 主站）；
+      # 3001 过渡端口随 #213 域名迁移下线
       - "80:80"
       - "443:443"
       - "443:443/udp"
@@ -69,8 +69,8 @@ services:
     cap_drop:
       - ALL
     # Caddy 官方镜像给 /usr/bin/caddy 打了 cap_net_bind_service=ep 的 filecap；
-    # bounding set 缺该 cap 时 execve 直接 EPERM，容器无法启动。即使入口是
-    # 非特权端口 3001，此 cap 也必须保留作为 exec 前提，删除会导致崩溃循环。
+    # bounding set 缺该 cap 时 execve 直接 EPERM，容器无法启动。绑定特权端口
+    # 80/443 同样需要此 cap 作为 exec 前提，删除会导致崩溃循环。
     cap_add:
       - NET_BIND_SERVICE
     security_opt:

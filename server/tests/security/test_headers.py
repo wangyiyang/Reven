@@ -11,7 +11,7 @@ from reven.config import Settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-ORIGIN = "http://dev.wangyiyang.cc:3001"
+ORIGIN = "https://reven.wangyiyang.cc"
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 
 

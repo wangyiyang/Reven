@@ -8,7 +8,7 @@
 两条部署路径共用应用镜像，入口独立：
 
 - `infra/self-host/`：使用者从源码构建，PostgreSQL 17 + Reven + Caddy，公网 HTTPS 或 loopback HTTP。
-- `infra/compose/`、`infra/caddy/`、`scripts/deploy_reven.sh`：维护者 ACR digest 部署，正式 HTTPS 入口同源服务前端与 API，HTTP 3001 仅保留过渡兼容。
+- `infra/compose/`、`infra/caddy/`、`scripts/deploy_reven.sh`：维护者 ACR digest 部署，正式 HTTPS 入口同源服务前端与 API（HTTP 3001 过渡入口随 #213 下线）。
 
 不能为了本地构建放宽生产镜像来源校验，也不能把开源准备当成迁移现网的授权。
 
@@ -99,7 +99,7 @@ dc up -d --wait
 - `server/tests/security/test_csrf.py`：同源成功、默认端口等价、不同协议/端口/无效输入/缺头为 403、转发头无法绕过；白名单内 Origin 放行、白名单外（含子域后缀仿冒）仍为 403。
 - `server/tests/security/test_auth.py`：HTTP/HTTPS Cookie 属性、内部代理 HTTP 的配置决定行为、注销及旧 Cookie 重放为 401。使用隔离数据库。
 - `server/tests/e2e/test_self_host_deployment.py`：实际 Compose 渲染后无数据库/应用公开端口，local 无遗留 80/443，必填环境/可选透传、卷及安全选项保留；不分发已退役的沙箱 profile。
-- `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：ACR/HTTPS/3001 兼容与回滚约束、镜像 infra 同步、同源 SPA/独立 assets/只读静态卷；生产与自托管配置单独变化都选择 backend 回归。脚本另跑 `scripts/test_deploy_reven.sh`，真实网关由 full smoke 验证。
+- `server/tests/security/test_deployment_automation.py` 与 `e2e/test_http_deployment.py`：ACR/HTTPS 与回滚约束、镜像 infra 同步、同源 SPA/独立 assets/只读静态卷；生产与自托管配置单独变化都选择 backend 回归。脚本另跑 `scripts/test_deploy_reven.sh`，真实网关由 full smoke 验证。
 - 修改 ignore 规则时用无敏感内容的嵌套假配置/密钥/运行数据验证真实 BuildKit 上下文，再检查最终镜像；仅文本模式检查不足以证明未打包秘密。#127 本地已执行八类假文件排除探针，不能据此省略将来的规则变更验证。
 - 独立容器验收：记录真实 Linux AMD64、镜像 ID、源码提交和宿主安全策略；空卷启动、可信 TLS、Secure Cookie、CSRF、UID/可写卷、素材采纳、持久化与恢复均需运行证据。
 - 首次流程验收：真实 RSS 调度发现候选、人工采纳及重复采纳幂等、本地 saved 素材持久化。独立容器烟测可直接写入确定性候选验证采纳 API，但不替代真实源抓取与调度证据。
@@ -136,7 +136,7 @@ ports: !override
 
 ### 2. 签名
 
-正式 origin 为 https://dev.wangyiyang.cc；配置优先 REVEN_PUBLIC_BASE_URL，兼容 PUBLIC_BASE_URL。
+正式 origin 为 https://reven.wangyiyang.cc；配置优先 REVEN_PUBLIC_BASE_URL，兼容 PUBLIC_BASE_URL。
 受限部署脚本仍接受 DEPLOY_OPERATION=deploy|rollback 和完整 ACR REVEN_IMAGE digest。
 
 ### 3. 契约
@@ -161,7 +161,7 @@ ports: !override
 ### 5. 正常、默认与错误场景
 
 正常：新补丁 tag/digest 与代码证据关联，上线前后核对0024、页面、资源和同源登录。
-默认：VPS 同源入口，保留3001过渡端口；旧 Vercel 已退役。错误：把 main 的业务迁移夹带进统一部署，
+默认：VPS 同源入口；旧 Vercel 已退役，3001 过渡端口随 #213 下线。错误：把 main 的业务迁移夹带进统一部署，
 或把镜像回退当作数据库字段值的恢复。
 
 ### 6. 必须覆盖的测试

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "自托管契约：写死正式 origin（需同步改）、PUBLIC_BASE_URL 配置优先级、Caddyfile 站点结构、self_host_smoke 替换逻辑、安全头与 CSRF Origin 校验语义"}
+{"file": ".trellis/spec/reven-server/backend/ci-release-contract.md", "reason": "部署链路契约：deploy_reven.sh 同步 infra/ 并 reload Caddy 的行为、Vercel 回退入口定位"}

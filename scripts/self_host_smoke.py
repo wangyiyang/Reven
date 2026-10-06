@@ -211,9 +211,8 @@ class Deployment:
 
     def assert_production(self) -> None:
         source = (ROOT / "infra/caddy/Caddyfile").read_text()
-        source = source.replace("\ndev.wangyiyang.cc {\n", "\nhttps://localhost:8443 {\n\ttls internal\n", 1)
-        source = source.replace("\nhttp://dev.wangyiyang.cc:3001 {\n", "\nhttp://localhost:8080 {\n", 1)
-        assert "dev.wangyiyang.cc" not in source and "tls internal" in source
+        source = source.replace("\nreven.wangyiyang.cc {\n", "\nhttps://localhost:8443 {\n\ttls internal\n", 1)
+        assert "reven.wangyiyang.cc" not in source and "tls internal" in source
         browser = self.https_browser(source, production=True)
         self.assert_static_mounts()
         index_digest = self.static_index_digest()

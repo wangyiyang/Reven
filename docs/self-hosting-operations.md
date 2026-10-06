@@ -125,4 +125,4 @@ dc up -d --no-build --wait
 - 在 UI 更改 Agent LLM 配置后需要 `dc restart reven`；RSS 及其他集成的日常配置按页面操作。
 - 更改域名时同步修改 origin、DNS 和 Caddy 入口，重新创建相关容器后验证 HTTPS 与登录。
 - 主密钥不是普通可替换密码。当前没有一键重加密流程，不要直接换值；先保留旧密钥并安排凭据迁移。
-- 维护者原有 ACR digest 校验、HTTP 3001 和部署回滚继续按 [原运行手册](runbook.md) 操作，本指南不会迁移现有生产环境。
+- 维护者原有 ACR digest 校验和部署回滚继续按 [原运行手册](runbook.md) 操作，本指南不会迁移现有生产环境。

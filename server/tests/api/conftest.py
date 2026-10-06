@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 TEST_ADMIN_PASSWORD = "test-admin-password"
-WRITE_HEADERS = {"Origin": "http://dev.wangyiyang.cc:3001", "X-Reven-CSRF": "1"}
+WRITE_HEADERS = {"Origin": "https://reven.wangyiyang.cc", "X-Reven-CSRF": "1"}
 
 
 def _settings(database_url: str) -> Settings:
@@ -92,10 +92,10 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
     app = create_app(
         start_background_tasks=False,
         session_factory=factory,
-        public_base_url="http://dev.wangyiyang.cc:3001",
+        public_base_url="https://reven.wangyiyang.cc",
         settings=_settings(database_url),
     )
-    with TestClient(app, base_url="http://testserver", headers=WRITE_HEADERS) as test_client:
+    with TestClient(app, base_url="https://testserver", headers=WRITE_HEADERS) as test_client:
         login = test_client.post("/api/auth/login", json={"password": TEST_ADMIN_PASSWORD})
         assert login.status_code == 200
         yield test_client, factory

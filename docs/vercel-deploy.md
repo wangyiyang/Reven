@@ -16,7 +16,7 @@
 
 | 顺序 | source | destination | 作用 |
 | --- | --- | --- | --- |
-| 1 | `/api/(.*)` | `https://dev.wangyiyang.cc/api/$1` | API 请求代理到现有 server，保留原始路径 |
+| 1 | `/api/(.*)` | `https://reven.wangyiyang.cc/api/$1` | API 请求代理到现有 server，保留原始路径 |
 | 2 | `/(.*)` | `/index.html` | SPA fallback，其余路径交给前端路由 |
 
 `/api` 规则必须排在 SPA fallback 之前，否则 API 请求会被回退到 `index.html`。Vercel 对命中真实静态文件（如构建产物中的 JS/CSS）的请求不做 rewrite，因此 SPA fallback 不影响静态资源加载。
@@ -42,10 +42,10 @@ Directory 与配置路径；如需故障处置中重新发布，还须复核其�
 
 ## 3. /api 代理目标
 
-当前代理目标固定写在 `web/vercel.json` 第一条 rewrite 的 `destination` 中，指向 **dev 环境**：
+当前代理目标固定写在 `web/vercel.json` 第一条 rewrite 的 `destination` 中，指向 **VPS 生产环境**：
 
 ```
-https://dev.wangyiyang.cc/api/$1
+https://reven.wangyiyang.cc/api/$1
 ```
 
 更换环境（如指向生产 server）时，修改 `web/vercel.json` 中该条规则的 `destination` 并重新部署即可。注意保留路径中的 `/api/$1`，保证 `/api/xxx` 被代理到 `<目标>/api/xxx`。
@@ -89,7 +89,7 @@ pnpm lint
 
 ## 7. 统一 VPS 发布与 Vercel 退役
 
-正式入口使用 https://dev.wangyiyang.cc。VPS 的 Caddy 同时服务 web 静态产物和 /api，
+正式入口使用 https://reven.wangyiyang.cc。VPS 的 Caddy 同时服务 web 静态产物和 /api，
 前后端来自同一应用镜像。Reven 旧 Vercel 项目已于 2026-10-06 删除，部署及两个别名
 均已撤除，服务器的旧 Origin 白名单为空；真实同源登录与只读 API 复验通过。
 

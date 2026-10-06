@@ -24,10 +24,10 @@
 
 | 项 | 值/方式 | 预期 |
 |---|---|---|
-| Web 入口 | `http://dev.wangyiyang.cc:3001` | 200，静态资源加载成功 |
+| Web 入口 | `https://reven.wangyiyang.cc` | 200，静态资源加载成功 |
 | 健康检查 | `GET /api/health` | `{"status":"ok"}` |
 | 登录页 | `GET /login` | 显示 Reven 登录页 |
-| 会话 Cookie | `reven_session` | `HttpOnly`；无 `Secure`；`SameSite=Lax` |
+| 会话 Cookie | `reven_session` | `HttpOnly`；有 `Secure`；`SameSite=Lax` |
 | 未授权保护 | 直接访问任意业务页/API | 页面跳 `/login?next=...`；API 返回 401 |
 | 系统状态 | `GET /api/system/status` | database / rss_discovery 两段结构 |
 | 出口 IP | `GET /api/system/egress-ip` | 可用时返回 `ip`；失败不得编造地址 |
