@@ -676,3 +676,28 @@ CRM 客户搜索补联系人职务/备注并修复通配符未转义缺陷；tal
 ### Next Steps
 
 - #201 四期全部落地，闭环收尾
+
+
+## Session 23: Agent 原生 LangGraph 与 PostgreSQL 迁移交付
+<!-- trellis-session: v=2 fp=0ec8ae522d44fd2a -->
+
+**Date**: 2026-10-06
+**Task**: Agent 原生 LangGraph 与 PostgreSQL 迁移交付
+**Branch**: `codex/agent-langgraph-migration`
+
+### Summary
+
+完成原生 LangChain create_agent/LangGraph、数据库配置与运行状态、37 个工具事务账本和持久删除确认，保留 REST/飞书入口。独立审查修复关闭、等待预算、输入错误和模型删除竞争；Linux AMD64 full CI run 37431192893 全部通过，后端 1134 项/90.46% 覆盖率、迁移 14 项、前端 247 项、只读容器重建历史和安全门禁通过。已授权推送并创建 PR #219（https://github.com/wangyiyang/Reven/pull/219），本任务已归档；真实上游模型未验证，未合并或部署生产。其他域名任务与 dogfood-output 保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d1d2514` | feat(agent): 原生 LangGraph 运行与数据库持久确认 |
+| `b1fc2ab` | build(agent): 接入原生检查点部署与容器验收 |
+| `5c1b89d` | docs(agent): 更新运行契约与迁移验收记录 |
+| `d1b876b` | docs(agent): 记录 Linux 全量验收与 PR 交付 |
+
+### Status
+
+[OK] **Completed**
