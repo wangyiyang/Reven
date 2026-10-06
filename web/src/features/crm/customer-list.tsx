@@ -76,7 +76,7 @@ function CustomerFiltersBar({ filters, onChange }: Pick<CustomerListProps, "filt
         <Input
           id="crm-customer-search"
           onChange={(event) => onChange({ ...filters, query: event.target.value })}
-          placeholder="客户名称、联系人或联系方式"
+          placeholder="客户名称、联系人、职务或联系方式"
           value={filters.query}
         />
       </div>

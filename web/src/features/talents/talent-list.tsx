@@ -90,7 +90,7 @@ function TalentFiltersBar({ filters, onChange, tagOptions }: { filters: TalentFi
         <Input
           id="talents-search"
           onChange={(event) => onChange({ ...filters, q: event.target.value })}
-          placeholder="姓名或机构"
+          placeholder="姓名、机构、能力、履历或院校"
           value={filters.q}
         />
       </div>
