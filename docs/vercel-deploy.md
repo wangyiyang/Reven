@@ -1,11 +1,10 @@
-# web 部署 Vercel（历史配置）
+# Vercel 退役与历史部署记录
 
-> 2026-10-06 部署决策：维护者前后端恢复统一 VPS 发布，当前配置与验收以
-> [运行手册](runbook.md)为准。`web/vercel.json` 声明 `git.deploymentEnabled: false`，
-> 作为未来 Root Directory 为 `web` 时的配置保护。当前项目未连接 Git，没有持续
-> Git 自动发布；这不等于平台自动部署开关已关闭。
-> 下文保留 v0.7.1 的混合部署记录，旧项目/部署及其 Origin
-> 白名单作为故障回退入口，不代表当前推荐入口；本次不做 serverless 迁移。
+> 2026-10-06：Reven 旧 Vercel 项目、部署与默认域名已删除，服务器的旧 Origin
+> 白名单已清空；正式入口为 VPS，旧 Vercel 页面回退已退役。
+> 结果见 [清理记录](vercel-cleanup-20261006.md)，当前运维以 [运行手册](runbook.md) 为准。
+> 下文保留清理前 v0.7.1 混合部署配置供历史对照，不作为当前部署或回滚步骤。
+> 仓库 web/vercel.json 中的禁用声明不代表平台上仍存在 Reven 项目。
 
 **历史形态：web 前端部署到 Vercel（纯静态托管），server 留在 VPS。** 前端所有 API 调用走相对路径 `/api`，通过 `web/vercel.json` 的 rewrite 将 `/api/*` 反向代理到现有 server，其余路径回退到 `index.html` 支持 SPA 路由。与本地开发时 `vite.config.ts` 中的 `server.proxy["/api"]` 同构，无 CORS 问题。
 
@@ -24,10 +23,10 @@
 
 ## 2. Vercel 项目配置
 
-以下保留历史的 web/Vite 配置方法，不代表当前项目设置。2026-10-06 的平台只读检查显示
+以下保留历史的 web/Vite 配置方法，不代表当前项目设置。2026-10-06 清理前的平台只读检查显示
 `reven-web` 的 Root Directory 为 `.`（API 的 rootDirectory=null）、Node.js 为 24.x，
-Git link=null，平台 createDeployments 仍为 enabled。当前没有持续 Git 自动发布，本次
-无需改平台设置，保留现有手动部署。`web/vercel.json` 的禁用声明仅在项目实际读取该
+Git link=null，平台 createDeployments 仍为 enabled。当时没有持续 Git 自动发布，统一
+VPS 发布阶段保留了手动部署；随后已按用户要求删除项目。`web/vercel.json` 的禁用声明仅在项目实际读取该
 文件时生效，不能用它宣称当前平台开关已关闭。将来重新连接 Git 时必须先核对 Root
 Directory 与配置路径；如需故障处置中重新发布，还须复核其与 API 版本的兼容性。
 
@@ -88,15 +87,17 @@ pnpm lint
 
 构建产物输出在 `web/dist/`，仅包含 HTML、JS、CSS 等静态文件，不依赖任何 Node 运行时。
 
-## 7. 统一 VPS 发布后的过渡
+## 7. 统一 VPS 发布与 Vercel 退役
 
-正式入口使用 `https://dev.wangyiyang.cc`。VPS 的 Caddy 同时服务 web 静态产物和 `/api`，
-前后端来自同一应用镜像。VPS 验收完成后，再核验 Vercel 仍未连接 Git、不持续独立发布。
+正式入口使用 https://dev.wangyiyang.cc。VPS 的 Caddy 同时服务 web 静态产物和 /api，
+前后端来自同一应用镜像。Reven 旧 Vercel 项目已于 2026-10-06 删除，部署及两个别名
+均已撤除，服务器的旧 Origin 白名单为空；真实同源登录与只读 API 复验通过。
 
-关闭自动部署使用官方 `git.deploymentEnabled: false` 配置，见
+仓库 web/vercel.json 仅保留历史配置及 git.deploymentEnabled=false 声明，当前站点
+不依赖其中的代理。未来若重新创建 Vercel 项目，需要重新确认项目范围、配置路径与
+Origin；不能把该文件当作现存部署的证据。禁用声明说明见
 [Vercel Git Configuration](https://vercel.com/docs/project-configuration/git-configuration#turning-off-all-automatic-deployments)。
-只有项目实际读取该配置时才会生效，不能用仓库文件代替平台核验。已有部署不会因此
-删除；彻底删除项目或移除旧 Origin 白名单不属于此次补丁。
 
-Vercel 域的 Cookie 不会转移到 VPS 域，首次使用 VPS 需要重新登录。若按原 v0.7.1 digest
-回退，VPS 恢复纯 API 配置，页面入口回到原 Vercel 域；恢复及验收按运行手册执行。
+Vercel Cookie 不会迁移到 VPS。原 v0.7.1 镜像回滚将恢复纯 API 路由，而旧 Vercel
+页面已删除，因此该镜像不能作为完整站点的恢复方案。恢复须选用保留 VPS 前端的兼容
+镜像并核验数据库版本；具体操作以运行手册为准。本次未实际执行回滚。
