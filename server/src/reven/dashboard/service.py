@@ -14,7 +14,6 @@ from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.config import Settings
-from reven.crm.models import Customer
 from reven.crm.repository import CrmRepository
 from reven.finance.models import FinanceEntry
 from reven.integrations.models import Integration
@@ -55,7 +54,7 @@ class CrmDueItemAggregate:
     customer_id: UUID
     name: str
     next_action: str | None
-    next_follow_up_on: date
+    next_due_on: date
     overdue_days: int
 
 
@@ -153,29 +152,24 @@ class DashboardService:
         return count or 0
 
     async def _crm_summary(self, today: date) -> CrmAggregate:
-        overdue_count = await self._count_follow_ups(today, overdue=True)
-        today_count = await self._count_follow_ups(today, overdue=False)
-        customers = await CrmRepository(self.session).list_due_follow_ups(today=today, limit=DUE_ITEMS_LIMIT)
+        repository = CrmRepository(self.session)
+        overdue_count, today_count = await repository.count_due_follow_ups(today=today)
+        plans = await repository.list_due_follow_ups(today=today, limit=DUE_ITEMS_LIMIT)
         return CrmAggregate(
             overdue_count=overdue_count,
             today_count=today_count,
             due_items=[
                 CrmDueItemAggregate(
-                    customer_id=customer.id,
-                    name=customer.name,
-                    next_action=customer.next_action,
-                    next_follow_up_on=due_on,
+                    customer_id=plan.customer.id,
+                    name=plan.customer.name,
+                    next_action=plan.next_action,
+                    next_due_on=due_on,
                     overdue_days=(today - due_on).days,
                 )
-                for customer in customers
-                if (due_on := customer.next_follow_up_on) is not None
+                for plan in plans
+                if (due_on := plan.next_due_on) is not None
             ],
         )
-
-    async def _count_follow_ups(self, today: date, *, overdue: bool) -> int:
-        condition = Customer.next_follow_up_on < today if overdue else Customer.next_follow_up_on == today
-        count = await self.session.scalar(select(func.count()).select_from(Customer).where(condition))
-        return count or 0
 
     async def _project_summary(self, today: date) -> ProjectAggregate:
         active_count = await self.session.scalar(

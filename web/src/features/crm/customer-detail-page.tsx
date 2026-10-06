@@ -100,7 +100,7 @@ function CustomerSummary({ customer }: { customer: Customer }) {
       ) : (
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div><p className="text-xs text-[var(--muted)]">下一步行动</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.next_action ?? "尚未安排"}</p></div>
-          <div><p className="text-xs text-[var(--muted)]">下次跟进</p><p className="mt-1 flex items-center gap-2 text-sm"><CalendarClock aria-hidden size={15} />{customer.next_follow_up_on ?? "无计划"}</p></div>
+          <div><p className="text-xs text-[var(--muted)]">下次跟进</p><p className="mt-1 flex items-center gap-2 text-sm"><CalendarClock aria-hidden size={15} />{customer.next_due_on ?? "无计划"}</p></div>
           {customer.notes ? <div className="md:col-span-2"><p className="text-xs text-[var(--muted)]">备注</p><p className="mt-1 whitespace-pre-wrap text-sm">{customer.notes}</p></div> : null}
         </CardContent>
       )}

@@ -467,6 +467,16 @@ Vercel preview 实机验证发现无法登录：CsrfOriginMiddleware 只放行 p
 [OK] **Completed**
 
 
+## Session 16: CRM 历史与计划派生化（#201 P1）
+<!-- trellis-session: v=2 fp=933f2fe32226f187 -->
+
+**Date**: 2026-10-05
+**Task**: CRM 历史与计划派生化（#201 P1）
+**Branch**: `issue/gh-201-crm-talents-talent`
+
+### Summary
+
+删除 Customer.next_* 双写字段与 set_as_current，客户当前计划派生自最新跟进记录；migration 0025、server/web 全链路、crm-contract spec 同步；881+243 测试全绿
 ## Session 15: VPS 纯 API 化 + perl-base CVE 修复 + v0.7.1 发版
 <!-- trellis-session: v=2 fp=8b23d1d342e06beb -->
 
@@ -482,6 +492,35 @@ v0.7.1 首次发布被 trivy 拦下（基础镜像 perl-base deb12u3 含 3 个 C
 
 | Hash | Message |
 |------|---------|
+| `14a3f9e` | feat(server): CRM 跟进计划派生化——删除客户双写计划字段与 set_as_current |
+| `3f214b4` | feat(web): CRM 客户表单移除计划字段，跟进计划改派生展示并加首条跟进引导 |
+| `b8d8f67` | docs(spec): crm-contract 更新为派生计划契约 |
+| `4c00248` | docs(trellis): 10-05-crm-plan-derive 任务规划产物 |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 17: Talent 画像扩展（#201 P2）
+<!-- trellis-session: v=2 fp=3ff5d467cb7bf496 -->
+
+**Date**: 2026-10-06
+**Task**: Talent 画像扩展（#201 P2）
+**Branch**: `issue/gh-201-crm-talents-talent`
+
+### Summary
+
+Talent 加联系方式/preferences/履历/院校子表与嵌套 CRUD，web 画像区与月精度时间线，到期语义对齐最新记录；885+247 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b95d9a` | feat(server): Talent 画像扩展——联系方式/喜好/履历/院校子表与嵌套端点，到期语义对齐最新记录 |
+| `0234b06` | feat(web): Talent 表单加联系方式与喜好，详情页新增画像区与履历/院校时间线 |
+| `e446e67` | docs(spec): talents-contract 更新——画像契约、最新记录到期语义、两种子表路由形状说明 |
+| `c446cf1` | docs(trellis): 10-05-talent-profile-expansion 任务规划产物 |
 | `1fe284a` | fix(docker): 升级 runtime 基础镜像并修复 perl-base CRITICAL CVE |
 | `4e62b63` | chore(infra): VPS 部署形态改为纯 API，前端唯一入口 Vercel |
 | `1cd1fd0` | chore(task): 10-05-vps-api-only 任务 PRD 与上下文 |

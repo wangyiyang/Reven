@@ -16,7 +16,7 @@ from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource  # 
 from reven.security.models import AuthSession  # noqa: F401
 from reven.sops.models import Sop  # noqa: F401
 from reven.system.models import SystemState  # noqa: F401
-from reven.talents.models import Talent, TalentInteraction  # noqa: F401
+from reven.talents.models import Talent, TalentEducation, TalentExperience, TalentInteraction  # noqa: F401
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 

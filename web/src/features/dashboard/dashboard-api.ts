@@ -23,7 +23,7 @@ export type DashboardCrmDueItem = {
   customer_id: string
   name: string
   next_action: string | null
-  next_follow_up_on: string
+  next_due_on: string
   overdue_days: number
 }
 

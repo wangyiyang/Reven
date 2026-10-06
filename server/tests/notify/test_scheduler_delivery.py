@@ -8,7 +8,7 @@ import httpx
 import pytest
 from reven.config import Settings
 from reven.crm.follow_up_reminder import CrmFollowUpReminder
-from reven.crm.models import Customer
+from reven.crm.models import Customer, FollowUp
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.models import Integration
 from reven.notify.notifier import FeishuProactiveNotifier
@@ -42,7 +42,19 @@ async def _configured_clients(session: AsyncSession, transport: httpx.MockTransp
 @pytest.mark.anyio
 async def test_crm_reminder_text_fallback_contains_title_customer_action_and_due(db_session: AsyncSession) -> None:
     today = date(2026, 10, 1)
-    db_session.add(Customer(name="待跟进客户", next_action="确认报价", next_follow_up_on=today))
+    customer = Customer(name="待跟进客户")
+    db_session.add(customer)
+    await db_session.flush()
+    db_session.add(
+        FollowUp(
+            customer_id=customer.id,
+            kind="电话",
+            occurred_on=today,
+            summary="回访沟通",
+            next_action="确认报价",
+            next_due_on=today,
+        )
+    )
     await db_session.commit()
     captured = []
 

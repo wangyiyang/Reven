@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "核对实现是否符合新契约并同步 spec 更新"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "服务端质量门"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "web 质量门"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "响应派生字段只读性与 payload 类型核对"}
+{"file": ".trellis/tasks/10-05-crm-plan-derive/research/touchpoints.md", "reason": "按触点清单核对无遗漏、无双写残留"}

@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "核对实现是否符合契约并标记待更新的条款"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "服务端质量门"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "web 质量门"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "日期序列化（YYYY-MM 补 01）与 payload 类型核对"}
+{"file": ".trellis/tasks/10-05-talent-profile-expansion/research/touchpoints.md", "reason": "按触点清单核对无遗漏，越界改动（CRM 域）为零"}

@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from reven.crm.models import Customer
+from reven.crm.models import Customer, FollowUp
 from reven.finance.models import FinanceEntry
 from reven.integrations.models import Integration
 from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
@@ -125,12 +125,42 @@ def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, F
                     rss_item(run_.id, "ignored", "i1"),
                 ]
             )
+            customers = [
+                Customer(name="逾期客户"),
+                Customer(name="今日客户"),
+                Customer(name="未来客户"),
+                Customer(name="无计划客户"),
+            ]
+            session.add_all(customers)
+            await session.flush()
+            overdue_customer, today_customer, future_customer, _no_plan = customers
+            # 客户计划派生自最新跟进记录：种子数据按「建客户 → 建跟进」两步写入
             session.add_all(
                 [
-                    Customer(name="逾期客户", next_action="电话回访", next_follow_up_on=today - timedelta(days=4)),
-                    Customer(name="今日客户", next_action="发报价", next_follow_up_on=today),
-                    Customer(name="未来客户", next_action="约演示", next_follow_up_on=today + timedelta(days=3)),
-                    Customer(name="无计划客户"),
+                    FollowUp(
+                        customer_id=overdue_customer.id,
+                        kind="电话",
+                        occurred_on=today,
+                        summary="回访",
+                        next_action="电话回访",
+                        next_due_on=today - timedelta(days=4),
+                    ),
+                    FollowUp(
+                        customer_id=today_customer.id,
+                        kind="电话",
+                        occurred_on=today,
+                        summary="回访",
+                        next_action="发报价",
+                        next_due_on=today,
+                    ),
+                    FollowUp(
+                        customer_id=future_customer.id,
+                        kind="电话",
+                        occurred_on=today,
+                        summary="回访",
+                        next_action="约演示",
+                        next_due_on=today + timedelta(days=3),
+                    ),
                 ]
             )
             session.add_all(
@@ -170,7 +200,7 @@ def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, F
     ]
     overdue_item = body["crm"]["due_items"][0]
     assert overdue_item["next_action"] == "电话回访"
-    assert overdue_item["next_follow_up_on"] == str(today - timedelta(days=4))
+    assert overdue_item["next_due_on"] == str(today - timedelta(days=4))
     assert overdue_item["customer_id"]
     assert body["projects"]["active_count"] == 3
     assert [(item["name"], item["overdue"]) for item in body["projects"]["items"]] == [
@@ -223,20 +253,26 @@ def test_dashboard_finance_overdue_counts_only_unsettled_receivables(workbench: 
 
 
 def test_dashboard_crm_due_items_top5_most_overdue_first(workbench: tuple[TestClient, Factory]) -> None:
-    """Top 5 复用 list_due_follow_ups：next_follow_up_on <= 今日，最逾期在前。"""
+    """Top 5 复用 list_due_follow_ups：派生 next_due_on <= 今日，最逾期在前。"""
     client, factory = workbench
     today = today_shanghai()
 
     async def seed() -> None:
         async with factory.begin() as session:
-            for index in range(7):
-                session.add(
-                    Customer(
-                        name=f"客户{index}",
-                        next_action="跟进",
-                        next_follow_up_on=today - timedelta(days=index),
-                    )
+            customers = [Customer(name=f"客户{index}") for index in range(7)]
+            session.add_all(customers)
+            await session.flush()
+            session.add_all(
+                FollowUp(
+                    customer_id=customer.id,
+                    kind="电话",
+                    occurred_on=today,
+                    summary="回访",
+                    next_action="跟进",
+                    next_due_on=today - timedelta(days=index),
                 )
+                for index, customer in enumerate(customers)
+            )
 
     run(seed())
 

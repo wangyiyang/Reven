@@ -12,8 +12,10 @@ export type Customer = {
   status: CustomerStatus
   source: string | null
   notes: string | null
+  /** 只读派生值：来自该客户最新一条跟进记录，无跟进时为 null */
   next_action: string | null
-  next_follow_up_on: string | null
+  /** 只读派生值：来自该客户最新一条跟进记录，无跟进时为 null */
+  next_due_on: string | null
   created_at: string
   updated_at: string
 }
@@ -23,8 +25,6 @@ export type CustomerInput = {
   status: CustomerStatus
   source: string | null
   notes: string | null
-  next_action: string | null
-  next_follow_up_on: string | null
 }
 
 export type CustomerFilters = {
@@ -66,7 +66,7 @@ export type FollowUp = {
   occurred_on: string
   summary: string
   next_action: string | null
-  next_follow_up_on: string | null
+  next_due_on: string | null
   created_at: string
   updated_at: string
 }
@@ -77,6 +77,5 @@ export type FollowUpInput = {
   occurred_on: string
   summary: string
   next_action: string | null
-  next_follow_up_on: string | null
-  set_as_current?: boolean
+  next_due_on: string | null
 }

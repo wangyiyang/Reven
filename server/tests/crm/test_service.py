@@ -112,60 +112,60 @@ async def test_nested_mutations_enforce_scope_before_changes(
 
 
 @pytest.mark.anyio
-async def test_customer_partial_updates_merge_plan_and_preserve_explicit_clear(
-    service: CrmService, db_session: AsyncSession, commits: list[None], today: date
+async def test_customer_partial_updates_preserve_explicit_clear(
+    service: CrmService, db_session: AsyncSession, commits: list[None]
 ) -> None:
-    customer = await service.create_customer(
-        CustomerCreate(name=" 示例科技 ", source=" 介绍 ", notes="备注", next_action="回访", next_follow_up_on=today)
-    )
-    await service.update_customer(customer.id, CustomerUpdate(next_follow_up_on=today + timedelta(days=1)))
+    customer = await service.create_customer(CustomerCreate(name=" 示例科技 ", source=" 介绍 ", notes="备注"))
     assert customer.name == "示例科技" and customer.source == "介绍" and customer.notes == "备注"
-    assert customer.next_action == "回访" and customer.next_follow_up_on == today + timedelta(days=1)
-    commits.clear()
+    plan = await CrmRepository(db_session).get_customer_plan(customer.id)
+    assert plan is not None and plan.next_action is None and plan.next_due_on is None
 
-    with pytest.raises(InvalidActionPairError):
-        await service.update_customer(customer.id, CustomerUpdate(next_action=" "))
-    assert commits == []
-    await db_session.refresh(customer)
-    assert customer.next_action == "回访" and customer.next_follow_up_on == today + timedelta(days=1)
-
-    await service.update_customer(customer.id, CustomerUpdate(next_action="", next_follow_up_on=None, notes=None))
-    assert customer.next_action is None and customer.next_follow_up_on is None and customer.notes is None
-    assert customer.source == "介绍"
-    await service.update_customer(customer.id, CustomerUpdate(source=" "))
-    assert customer.source is None
+    await service.update_customer(customer.id, CustomerUpdate(notes=None))
+    assert customer.notes is None and customer.source == "介绍"
+    await service.update_customer(customer.id, CustomerUpdate(source=" ", name="新名称"))
+    assert customer.source is None and customer.name == "新名称"
+    await service.update_customer(customer.id, CustomerUpdate(status="跟进中"))
+    assert customer.status == "跟进中"
+    assert commits != []
 
 
 @pytest.mark.anyio
-async def test_history_plan_update_merges_without_changing_current_plan(
+async def test_follow_up_plan_update_merges_and_moves_derived_plan(
     service: CrmService, db_session: AsyncSession, commits: list[None], today: date
 ) -> None:
-    customer = await service.create_customer(CustomerCreate(name="示例科技", next_action="客户当前行动"))
+    customer = await service.create_customer(CustomerCreate(name="示例科技"))
     _, history = await service.create_follow_up(
         customer.id,
-        FollowUpCreate(kind="电话", occurred_on=today, summary="回访", next_action="历史约定", next_follow_up_on=today),
+        FollowUpCreate(kind="电话", occurred_on=today, summary="回访", next_action="历史约定", next_due_on=today),
     )
-    await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_follow_up_on=today + timedelta(days=1)))
-    assert history.next_action == "历史约定" and history.next_follow_up_on == today + timedelta(days=1)
+
+    async def derived_plan() -> tuple[str | None, date | None]:
+        plan = await CrmRepository(db_session).get_customer_plan(customer.id)
+        assert plan is not None
+        return plan.next_action, plan.next_due_on
+
+    await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_due_on=today + timedelta(days=1)))
+    assert history.next_action == "历史约定" and history.next_due_on == today + timedelta(days=1)
+    # 派生计划随最新跟进即时变化，无任何客户表写入
+    assert await derived_plan() == ("历史约定", today + timedelta(days=1))
     commits.clear()
 
     with pytest.raises(InvalidActionPairError):
         await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_action=None))
     assert commits == []
     await db_session.refresh(history)
-    assert history.next_action == "历史约定" and history.next_follow_up_on == today + timedelta(days=1)
+    assert history.next_action == "历史约定" and history.next_due_on == today + timedelta(days=1)
 
-    await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_action="", next_follow_up_on=None))
-    assert history.next_action is None and history.next_follow_up_on is None
-    await db_session.refresh(customer)
-    assert customer.next_action == "客户当前行动" and customer.next_follow_up_on is None
+    await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_action="", next_due_on=None))
+    assert history.next_action is None and history.next_due_on is None
+    assert await derived_plan() == (None, None)
 
 
 @pytest.mark.anyio
-async def test_current_plan_and_history_commit_once_and_failed_contact_leaves_no_partial_write(
+async def test_follow_up_create_commits_once_and_failed_contact_leaves_no_partial_write(
     service: CrmService, db_session: AsyncSession, commits: list[None], today: date
 ) -> None:
-    customer = await service.create_customer(CustomerCreate(name="示例科技", next_action="原行动"))
+    customer = await service.create_customer(CustomerCreate(name="示例科技"))
     other = await service.create_customer(CustomerCreate(name="另一客户"))
     _, other_contact = await service.create_contact(other.id, ContactCreate(name="其他联系人"))
     payload = FollowUpCreate(
@@ -173,8 +173,7 @@ async def test_current_plan_and_history_commit_once_and_failed_contact_leaves_no
         occurred_on=today,
         summary="访谈",
         next_action="发送方案",
-        next_follow_up_on=today,
-        set_as_current=True,
+        next_due_on=today,
     )
     commits.clear()
     invalid = payload.model_copy(update={"contact_id": other_contact.id})
@@ -182,21 +181,20 @@ async def test_current_plan_and_history_commit_once_and_failed_contact_leaves_no
         await service.create_follow_up(customer.id, invalid)
     assert commits == []
     assert await CrmRepository(db_session).list_follow_ups(customer.id) == []
-    await db_session.refresh(customer)
-    assert customer.next_action == "原行动" and customer.next_follow_up_on is None
+    plan = await CrmRepository(db_session).get_customer_plan(customer.id)
+    assert plan is not None and plan.next_action is None and plan.next_due_on is None
 
     commits.clear()
     result_customer, history = await service.create_follow_up(customer.id, payload)
     assert len(commits) == 1
     assert result_customer.id == customer.id
-    await db_session.refresh(customer)
-    assert customer.next_action == "发送方案" and customer.next_follow_up_on == today
-    assert payload.set_as_current and payload.next_action == "发送方案"
+    plan = await CrmRepository(db_session).get_customer_plan(customer.id)
+    assert plan is not None and plan.next_action == "发送方案" and plan.next_due_on == today
 
     await service.update_follow_up(customer.id, history.id, FollowUpUpdate(next_action="历史补充"))
     await service.delete_follow_up(customer.id, history.id)
-    await db_session.refresh(customer)
-    assert customer.next_action == "发送方案" and customer.next_follow_up_on == today
+    plan = await CrmRepository(db_session).get_customer_plan(customer.id)
+    assert plan is not None and plan.next_action is None and plan.next_due_on is None
 
 
 @pytest.mark.anyio

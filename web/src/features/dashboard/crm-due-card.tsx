@@ -52,7 +52,7 @@ function DueItemRow({ item }: { item: DashboardCrmDueItem }) {
         <span className="min-w-0 truncate text-sm">{item.name}</span>
         <span className={cn("shrink-0 text-xs", overdue ? "font-semibold text-[var(--danger)]" : "text-[var(--muted)]")}>
           {overdue ? `逾期 ${item.overdue_days} 天 · ` : ""}
-          {item.next_follow_up_on}
+          {item.next_due_on}
         </span>
       </Link>
     </li>

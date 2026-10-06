@@ -1,13 +1,45 @@
 """Persistence queries for CRM customers, contacts, and follow-ups."""
 
+from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import ScalarSelect, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from reven.crm.models import Contact, Customer, FollowUp
 from reven.scheduling import utc_now
+
+
+@dataclass(frozen=True)
+class CustomerPlan:
+    """客户与其派生当前计划：最新一条跟进记录（occurred_on/created_at/id 倒序）的下一步行动与到期日。"""
+
+    customer: Customer
+    next_action: str | None
+    next_due_on: date | None
+
+
+def _latest_action_subquery() -> ScalarSelect[str | None]:
+    return (
+        select(FollowUp.next_action)
+        .where(FollowUp.customer_id == Customer.id)
+        .order_by(FollowUp.occurred_on.desc(), FollowUp.created_at.desc(), FollowUp.id.desc())
+        .limit(1)
+        .correlate(Customer)
+        .scalar_subquery()
+    )
+
+
+def _latest_due_subquery() -> ScalarSelect[date | None]:
+    return (
+        select(FollowUp.next_due_on)
+        .where(FollowUp.customer_id == Customer.id)
+        .order_by(FollowUp.occurred_on.desc(), FollowUp.created_at.desc(), FollowUp.id.desc())
+        .limit(1)
+        .correlate(Customer)
+        .scalar_subquery()
+    )
 
 
 class CrmRepository:
@@ -21,31 +53,35 @@ class CrmRepository:
         due: str | None,
         query: str | None,
         today: date,
-    ) -> list[Customer]:
-        statement = select(Customer)
+    ) -> list[CustomerPlan]:
+        latest_action = _latest_action_subquery()
+        latest_due = _latest_due_subquery()
+        statement = select(Customer, latest_action, latest_due)
         if status:
             statement = statement.where(Customer.status == status)
         statement = self._filter_due(statement, due, today)
         if query:
             statement = statement.where(self._customer_search(query))
         statement = statement.order_by(
-            Customer.next_follow_up_on.is_(None),
-            Customer.next_follow_up_on,
+            latest_due.is_(None),
+            latest_due,
             Customer.updated_at.desc(),
             func.lower(Customer.name),
         )
-        return list((await self.session.scalars(statement)).all())
+        rows = (await self.session.execute(statement)).all()
+        return [CustomerPlan(customer=row[0], next_action=row[1], next_due_on=row[2]) for row in rows]
 
     @staticmethod
     def _filter_due(statement, due: str | None, today: date):  # type: ignore[no-untyped-def]
+        latest_due = _latest_due_subquery()
         if due == "overdue":
-            return statement.where(Customer.next_follow_up_on < today)
+            return statement.where(latest_due < today)
         if due == "today":
-            return statement.where(Customer.next_follow_up_on == today)
+            return statement.where(latest_due == today)
         if due == "upcoming":
-            return statement.where(Customer.next_follow_up_on > today)
+            return statement.where(latest_due > today)
         if due == "none":
-            return statement.where(Customer.next_follow_up_on.is_(None))
+            return statement.where(latest_due.is_(None))
         return statement
 
     @staticmethod
@@ -69,15 +105,41 @@ class CrmRepository:
             contact_match,
         )
 
-    async def list_due_follow_ups(self, *, today: date, limit: int) -> list[Customer]:
-        """到期/逾期未跟进客户：next_follow_up_on <= 今天，按到期日升序（最逾期在前）。"""
+    async def get_customer_plan(self, customer_id: UUID) -> CustomerPlan | None:
+        """单个客户 + 派生当前计划；客户不存在返回 None。"""
+        statement = select(Customer, _latest_action_subquery(), _latest_due_subquery()).where(
+            Customer.id == customer_id
+        )
+        row = (await self.session.execute(statement)).one_or_none()
+        if row is None:
+            return None
+        return CustomerPlan(customer=row[0], next_action=row[1], next_due_on=row[2])
+
+    async def list_due_follow_ups(self, *, today: date, limit: int) -> list[CustomerPlan]:
+        """到期/逾期未跟进客户：派生 next_due_on <= 今天，按到期日升序（最逾期在前）。"""
+        latest_action = _latest_action_subquery()
+        latest_due = _latest_due_subquery()
         statement = (
-            select(Customer)
-            .where(Customer.next_follow_up_on.is_not(None), Customer.next_follow_up_on <= today)
-            .order_by(Customer.next_follow_up_on, func.lower(Customer.name))
+            select(Customer, latest_action, latest_due)
+            .where(latest_due.is_not(None), latest_due <= today)
+            .order_by(latest_due, func.lower(Customer.name))
             .limit(limit)
         )
-        return list((await self.session.scalars(statement)).all())
+        rows = (await self.session.execute(statement)).all()
+        return [CustomerPlan(customer=row[0], next_action=row[1], next_due_on=row[2]) for row in rows]
+
+    async def count_due_follow_ups(self, *, today: date) -> tuple[int, int]:
+        """派生到期日 < / == 今天的客户数（overdue_count, today_count），与 list_due_follow_ups 同源。"""
+        latest_due = _latest_due_subquery()
+        row = (
+            await self.session.execute(
+                select(
+                    func.count().filter(latest_due < today),
+                    func.count().filter(latest_due == today),
+                ).select_from(Customer)
+            )
+        ).one()
+        return int(row[0]), int(row[1])
 
     async def get_customer(self, customer_id: UUID) -> Customer | None:
         return await self.session.get(Customer, customer_id)

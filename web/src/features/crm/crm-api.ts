@@ -54,7 +54,7 @@ export function createFollowUp(customerId: string, input: FollowUpInput): Promis
 export function updateFollowUp(customerId: string, followUpId: string, input: FollowUpInput): Promise<FollowUp> {
   return apiRequest<FollowUp>(
     `/crm/customers/${customerId}/follow-ups/${followUpId}`,
-    jsonRequest("PUT", historicalFollowUpInput(input)),
+    jsonRequest("PUT", input),
   )
 }
 
@@ -64,17 +64,6 @@ export function deleteFollowUp(customerId: string, followUpId: string): Promise<
 
 function jsonRequest(method: "POST" | "PUT", body: object): RequestInit {
   return { method, body: JSON.stringify(body) }
-}
-
-function historicalFollowUpInput(input: FollowUpInput): Omit<FollowUpInput, "set_as_current"> {
-  return {
-    contact_id: input.contact_id,
-    kind: input.kind,
-    occurred_on: input.occurred_on,
-    summary: input.summary,
-    next_action: input.next_action,
-    next_follow_up_on: input.next_follow_up_on,
-  }
 }
 
 export function emptyToNull(value: string): string | null {

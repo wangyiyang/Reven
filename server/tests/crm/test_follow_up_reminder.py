@@ -11,7 +11,20 @@ TODAY = date(2026, 9, 30)
 
 
 async def add_customer(session: AsyncSession, name: str, *, action: str | None, due: date | None) -> None:
-    await CrmRepository(session).add_customer({"name": name, "next_action": action, "next_follow_up_on": due})
+    """计划派生化后，客户的到期日来自最新跟进记录：fixture 固定两步（建客户 → 建跟进）。"""
+    repository = CrmRepository(session)
+    customer = await repository.add_customer({"name": name})
+    if action is not None or due is not None:
+        await repository.add_follow_up(
+            customer.id,
+            {
+                "kind": "电话",
+                "occurred_on": TODAY,
+                "summary": "回访沟通",
+                "next_action": action,
+                "next_due_on": due,
+            },
+        )
     await session.commit()
 
 
@@ -38,7 +51,25 @@ async def test_render_lists_due_customers_with_overdue_days(db_session: AsyncSes
 
 
 @pytest.mark.anyio
-async def test_render_returns_none_when_nothing_due(db_session: AsyncSession) -> None:
+async def test_render_uses_latest_follow_up_plan_only(db_session: AsyncSession) -> None:
+    """旧跟进上的计划不冒泡：最新跟进无到期日即视为无排期；最新跟进的未来日期也不到期。"""
+    repository = CrmRepository(db_session)
+    refreshed = await repository.add_customer({"name": "已刷新客户"})
+    await repository.add_follow_up(
+        refreshed.id,
+        {
+            "kind": "电话",
+            "occurred_on": TODAY - timedelta(days=5),
+            "summary": "旧跟进",
+            "next_action": "旧约定",
+            "next_due_on": TODAY - timedelta(days=5),
+        },
+    )
+    await repository.add_follow_up(
+        refreshed.id,
+        {"kind": "微信", "occurred_on": TODAY, "summary": "最新跟进", "next_action": None, "next_due_on": None},
+    )
+    await db_session.commit()
     await add_customer(db_session, "未来客户", action="下周约见", due=TODAY + timedelta(days=1))
 
     assert await CrmFollowUpReminder().render(db_session, TODAY) is None

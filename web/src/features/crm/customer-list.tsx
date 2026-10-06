@@ -40,7 +40,7 @@ export function CustomerList(props: CustomerListProps) {
             body: (
               <>
                 <p className="mt-2 text-sm text-[var(--muted)]">{customer.next_action ?? "尚未安排下一步"}</p>
-                <FollowUpState dueOn={customer.next_follow_up_on} />
+                <FollowUpState dueOn={customer.next_due_on} />
               </>
             ),
           })}
@@ -57,7 +57,7 @@ export function CustomerList(props: CustomerListProps) {
               className: "max-w-72",
               cell: (customer) => <span className="line-clamp-2">{customer.next_action ?? "—"}</span>,
             },
-            { header: "跟进日期", cell: (customer) => <FollowUpState dueOn={customer.next_follow_up_on} /> },
+            { header: "跟进日期", cell: (customer) => <FollowUpState dueOn={customer.next_due_on} /> },
           ]}
           emptyText="暂无匹配客户。"
           items={props.customers}
