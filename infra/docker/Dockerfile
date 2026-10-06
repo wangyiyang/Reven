@@ -28,9 +28,8 @@ RUN apt-get update \
     && apt-get install -y --only-upgrade perl-base \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-# /data/dsh is the writable DSH_HOME for the embedded dsh agent (profiles, session logs).
 RUN useradd --create-home --uid 10001 reven \
-    && mkdir -p /app /data/dsh /srv/reven \
+    && mkdir -p /app /data /srv/reven \
     && chown -R reven:reven /app /data /srv/reven
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
@@ -56,7 +55,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/server/src" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DSH_HOME=/data/dsh
+    LANGGRAPH_STRICT_MSGPACK=true
 USER reven
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

@@ -7,7 +7,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from reven.agent.service import SessionModelState
+from reven.agent.service_types import SessionModelState
 
 COMMAND_PREFIX = "/model"
 
@@ -73,25 +73,17 @@ def _render_model_list(state: SessionModelState, *, mark_current: bool) -> str:
             marks += "（默认）"
         if mark_current and state.is_override and ref == state.current_ref:
             marks += "（当前会话）"
-        if ref == state.pending_default_ref:
-            marks += "（重启后默认）"
         lines.append(f"{index}. {ref}{marks}")
     lines.append("切换：/model use provider/model")
-    return _with_pending_default("\n".join(lines), state)
+    return "\n".join(lines)
 
 
 def render_current(state: SessionModelState) -> str:
     """当前会话模型：override 标注「会话指定」，否则标注「默认」；无配置返回提示。"""
     if state.current_ref is None:
-        return _with_pending_default(NO_MODELS_TEXT, state)
+        return NO_MODELS_TEXT
     suffix = "（会话指定）" if state.is_override else "（默认）"
-    return _with_pending_default(f"当前会话模型：{state.current_ref}{suffix}", state)
-
-
-def _with_pending_default(text: str, state: SessionModelState) -> str:
-    if state.pending_default_ref is None:
-        return text
-    return f"{text}\n已保存默认模型：{state.pending_default_ref}，重启后生效。"
+    return f"当前会话模型：{state.current_ref}{suffix}"
 
 
 def render_use_switched(ref: str) -> str:

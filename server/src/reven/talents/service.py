@@ -66,9 +66,10 @@ class TalentImportResult:
 
 
 class TalentsService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, commit: bool = True) -> None:
         self.session = session
         self.repository = TalentsRepository(session)
+        self._commit_mutations = commit
 
     async def create_talent(self, values: dict[str, object]) -> Talent:
         talent = await self.repository.add_talent(values)
@@ -86,7 +87,7 @@ class TalentsService:
 
     async def delete_talent(self, talent: Talent) -> None:
         await self.session.delete(talent)
-        await self.session.commit()
+        await self._finish_mutation()
 
     async def create_interaction(self, talent: Talent, values: dict[str, object]) -> TalentInteraction:
         interaction = await self.repository.add_interaction(talent.id, values)
@@ -108,7 +109,7 @@ class TalentsService:
         if talent is not None:
             talent.updated_at = utc_now()
         await self.session.delete(interaction)
-        await self.session.commit()
+        await self._finish_mutation()
 
     # 履历/院校修订不等于接洽活跃：写操作均不 bump talent.updated_at（与 CRM 一致）。
 
@@ -129,7 +130,7 @@ class TalentsService:
 
     async def delete_experience(self, experience: TalentExperience) -> None:
         await self.session.delete(experience)
-        await self.session.commit()
+        await self._finish_mutation()
 
     async def create_education(self, talent: Talent, values: dict[str, object]) -> TalentEducation:
         education = await self.repository.add_education(talent.id, values)
@@ -148,7 +149,7 @@ class TalentsService:
 
     async def delete_education(self, education: TalentEducation) -> None:
         await self.session.delete(education)
-        await self.session.commit()
+        await self._finish_mutation()
 
     async def import_profile(self, values: dict[str, object]) -> TalentImportResult:
         """粘贴简介批量落库：全部校验先行（零写入）→ 连续 flush → 单次 commit（任一失败全回滚）。
@@ -176,8 +177,7 @@ class TalentsService:
             await self.repository.add_experience(talent.id, experience.model_dump())
         for education in payload.educations:
             await self.repository.add_education(talent.id, education.model_dump())
-        await self.session.commit()
-        await self.session.refresh(talent)
+        await self._commit_and_refresh(talent)
         return TalentImportResult(
             talent=talent,
             created=created,
@@ -186,8 +186,14 @@ class TalentsService:
         )
 
     async def _commit_and_refresh(self, model: TalentModel) -> None:
-        await self.session.commit()
+        await self._finish_mutation()
         await self.session.refresh(model)
+
+    async def _finish_mutation(self) -> None:
+        if self._commit_mutations:
+            await self.session.commit()
+        else:
+            await self.session.flush()
 
 
 def _validate_profile_import(values: dict[str, object]) -> TalentProfileImport:

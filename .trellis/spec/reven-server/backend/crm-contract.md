@@ -28,7 +28,9 @@ API prefix: `/api/crm`.
 
 ### 共享写操作入口
 
-`CrmService(session)` 拥有 repository、实体查找、客户范围、业务规则与提交。
+`CrmService(session, *, commit=True)` 拥有 repository、实体查找、客户范围、业务规则与提交。
+网页保持默认提交；Agent 使用 `commit=False` 参与调用者事务，仅 flush/refresh。领域变更与
+Agent 操作结果必须一次 commit，禁止在领域内部提交后另写账本或覆盖 Session.commit。
 写入调用方只传 `UUID` 和 `reven.crm.inputs` 中的已校验输入：
 
 ```python

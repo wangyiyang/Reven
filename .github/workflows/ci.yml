@@ -53,6 +53,7 @@ jobs:
               - 'infra/self-host/**'
               - 'infra/docker/Dockerfile.dockerignore'
               - 'scripts/self_host*.py'
+              - 'scripts/native_agent_smoke.py'
               - 'scripts/licenses/**'
               - 'pyproject.toml'
               - 'uv.lock'
@@ -107,6 +108,7 @@ jobs:
       - run: uv run ruff format --check server
       - run: uv run mypy server/src
       - run: uv run alembic -c server/migrations/alembic.ini upgrade head
+      - run: uv run python -m reven.agent.checkpoint
       - run: uv run pytest scripts/licenses/test_collectors.py
       - run: uv run pytest server/tests --cov=reven --cov-report=term-missing --cov-fail-under=80
 
@@ -210,7 +212,7 @@ jobs:
       - name: Verify non-root runtime and embedded agent
         run: |
           test "$(docker run --rm reven:test id -u)" = "10001"
-          docker run --rm reven:test dsh --version
+          docker run --rm --read-only --tmpfs /tmp:size=256m reven:test python -c 'from reven.agent.graph import build_agent_graph; from reven.agent.checkpoint import AgentCheckpoints; from reven.agent.providers import build_chat_model'
       - name: Verify migration failure preserves current static release
         run: |
           docker volume create reven-ci-static

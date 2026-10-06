@@ -19,7 +19,7 @@ Reven 是面向超级个体的个人经营工作台，聚合需要判断和处�
 - 飞书：应用机器人每日汇总通知（含待审核统计与候选工作台入口）；Webhook 群机器人已退役。
 - 品牌：品牌档案、素材上传、版本及已有渠道模板配置管理。
 - 经营：CRM、项目、财务、SOP、人才管理。
-- Agent：基于 DeepSeek Harness 的运营工具入口。
+- Agent：基于 LangChain/LangGraph 的运营工具入口，配置、会话、执行结果与删除确认保存在 PostgreSQL。
 
 稿件写作与发布流程暂未确定，当前版本已移除稿件管理、正文同步、发布预览、
 博客自动发布、微信公众号草稿创建以及 Notion 集成。品牌模板仅保存配置，
@@ -45,7 +45,7 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 - 前端：React、TypeScript、Vite、shadcn/ui、Tailwind CSS，使用 pnpm。
 - 后端：Python、FastAPI、SQLAlchemy、Alembic，使用 uv。
 - 数据库：PostgreSQL；品牌图片通过腾讯云 COS 存储。
-- 部署：模块化单体、单个 Uvicorn worker、进程内 RSS 调度与嵌入式 dsh；维护者前后端统一由 VPS 的 Caddy 与同一应用镜像发布，见[运行手册](docs/runbook.md)。
+- 部署：模块化单体、单个 Uvicorn worker、进程内 RSS 调度与 LangChain/LangGraph Agent；配置、会话、执行记录与检查点保存在 PostgreSQL。维护者前后端统一由 VPS 的 Caddy 与同一应用镜像发布，见[运行手册](docs/runbook.md)和 [Agent 架构](docs/agent-architecture.md)。
 - 业务时间统一使用 Asia/Shanghai，数据库存储 UTC。
 - 密钥通过环境变量或加密集成配置管理。
 

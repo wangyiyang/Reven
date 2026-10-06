@@ -5,7 +5,6 @@ from typing import Annotated
 
 from fastmcp.exceptions import ToolError
 from pydantic import Field
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.talents_tool_support import (
     ConfirmTalentNameParam,
@@ -21,6 +20,7 @@ from reven.agent.talents_tool_support import (
     _today,
     _validate,
 )
+from reven.agent.tool_binding import ToolSessionBinding
 from reven.agent.tools_talents_educations import _education_line
 from reven.agent.tools_talents_experiences import _experience_line
 from reven.agent.tools_talents_interactions import _interaction_line
@@ -36,10 +36,7 @@ from reven.talents.repository import TalentPlan, TalentsRepository
 from reven.talents.service import TalentsService
 
 
-class TalentsTalentTools:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
+class TalentsTalentTools(ToolSessionBinding):
     async def list_talents(
         self,
         query: Annotated[
@@ -58,7 +55,7 @@ class TalentsTalentTools:
         拿到 id 后可调用 talent_get 看完整画像，或 talent_update / talent_delete 做变更。
         """
         today = _today()
-        async with self._session_factory() as session:
+        async with self._session() as session:
             plans = await TalentsRepository(session).list_talent_plans(
                 status=status,
                 due=due,
@@ -74,7 +71,7 @@ class TalentsTalentTools:
 
     async def get_talent(self, talent_id: TalentIdParam) -> str:
         """查看人才详情：基本信息与画像（标签/喜好/联系方式/费率）+ 当前跟进计划 + 全部互动记录 + 履历 + 院校经历。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             repository = TalentsRepository(session)
             plan = await repository.get_talent_plan(talent_id)
             if plan is None:
@@ -151,8 +148,9 @@ class TalentsTalentTools:
         }
         payload = _validate(TalentCreate, {key: value for key, value in fields.items() if value is not None})
         with _mutation_errors():
-            async with self._session_factory() as session:
-                talent = await TalentsService(session).create_talent(payload.model_dump())
+            async with self._session() as session:
+                talent = await TalentsService(session, commit=self._commits).create_talent(payload.model_dump())
+                self._record_entity(talent)
         plan = TalentPlan(talent=talent, next_action=None, next_due_on=None)
         return f"已创建人才：{_talent_line(plan)}。可用 talent_interaction_create 记录第一次接洽并定下当前计划。"
 
@@ -217,12 +215,15 @@ class TalentsTalentTools:
             values["rate_unit"] = None
         payload = _validate(TalentUpdate, values)
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 talent = await repository.get_talent(talent_id)
                 if talent is None:
                     raise _talent_not_found(talent_id)
-                updated = await TalentsService(session).update_talent(talent, payload.model_dump(exclude_unset=True))
+                updated = await TalentsService(session, commit=self._commits).update_talent(
+                    talent, payload.model_dump(exclude_unset=True)
+                )
+                self._record_entity(updated)
                 plan = await repository.get_talent_plan(updated.id)
         if plan is None:  # pragma: no cover - 刚更新的人才必然存在
             raise _talent_not_found(talent_id)
@@ -234,13 +235,14 @@ class TalentsTalentTools:
         调用前必须与用户确认删除意图，并把人才名称逐字填入 confirm_talent_name。
         """
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 await _confirm_talent_name(session, talent_id, confirm_talent_name)
                 talent = await TalentsRepository(session).get_talent(talent_id)
                 if talent is None:  # pragma: no cover - confirm 已确认存在
                     raise _talent_not_found(talent_id)
                 name = talent.name
-                await TalentsService(session).delete_talent(talent)
+                await TalentsService(session, commit=self._commits).delete_talent(talent)
+                self._record_entity(talent)
         return f"已删除人才「{name}」（id={talent_id}），其名下互动记录、履历与院校经历已一并删除。"
 
     async def import_profile(
@@ -298,8 +300,12 @@ class TalentsTalentTools:
         values["experiences"] = [item.model_dump() for item in experiences or []]
         values["educations"] = [item.model_dump() for item in educations or []]
         with _mutation_errors():
-            async with self._session_factory() as session:
-                result = await TalentsService(session).import_profile(values)
+            async with self._session() as session:
+                result = await TalentsService(session, commit=self._commits).import_profile(values)
+                self._record_entity(result.talent)
+                self.receipt.update(
+                    experiences=result.experiences, educations=result.educations, created=result.created
+                )
         talent = result.talent
         chunks = []
         if result.experiences:

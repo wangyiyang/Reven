@@ -4,7 +4,6 @@ from datetime import date
 from typing import Annotated
 
 from pydantic import Field
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.talents_tool_support import (
     ConfirmTalentNameParam,
@@ -19,19 +18,17 @@ from reven.agent.talents_tool_support import (
     _talent_not_found,
     _validate,
 )
+from reven.agent.tool_binding import ToolSessionBinding
 from reven.talents.inputs import TalentInteractionCreate, TalentInteractionUpdate
 from reven.talents.models import TalentInteraction
 from reven.talents.repository import TalentPlan, TalentsRepository
 from reven.talents.service import TalentsService
 
 
-class TalentsInteractionTools:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
+class TalentsInteractionTools(ToolSessionBinding):
     async def list_interactions(self, talent_id: TalentIdParam) -> str:
         """列出指定人才的全部互动（跟进）记录，按互动日期倒序。"""
-        async with self._session_factory() as session:
+        async with self._session() as session:
             repository = TalentsRepository(session)
             talent = await repository.get_talent(talent_id)
             if talent is None:
@@ -67,12 +64,15 @@ class TalentsInteractionTools:
             },
         )
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 talent = await repository.get_talent(talent_id)
                 if talent is None:
                     raise _talent_not_found(talent_id)
-                interaction = await TalentsService(session).create_interaction(talent, payload.model_dump())
+                interaction = await TalentsService(session, commit=self._commits).create_interaction(
+                    talent, payload.model_dump()
+                )
+                self._record_entity(interaction)
                 plan = await repository.get_talent_plan(talent_id)
         occurred = interaction.occurred_on.isoformat()
         text = f"已为人才「{talent.name}」记录 {occurred} 的{interaction.channel}互动（id={interaction.id}）。"
@@ -103,14 +103,15 @@ class TalentsInteractionTools:
         )
         payload = _validate(TalentInteractionUpdate, values)
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 repository = TalentsRepository(session)
                 interaction = await repository.get_interaction(interaction_id)
                 if interaction is None or interaction.talent_id != talent_id:
                     raise _interaction_not_found(interaction_id)
-                updated = await TalentsService(session).update_interaction(
+                updated = await TalentsService(session, commit=self._commits).update_interaction(
                     interaction, payload.model_dump(exclude_unset=True)
                 )
+                self._record_entity(updated)
         return f"已更新跟进记录：{_interaction_line(0, updated).removeprefix('0. ')}"
 
     async def delete_interaction(
@@ -124,14 +125,15 @@ class TalentsInteractionTools:
         调用前必须与用户确认删除意图，并把所属人才名称逐字填入 confirm_talent_name。
         """
         with _mutation_errors():
-            async with self._session_factory() as session:
+            async with self._session() as session:
                 await _confirm_talent_name(session, talent_id, confirm_talent_name)
                 repository = TalentsRepository(session)
                 interaction = await repository.get_interaction(interaction_id)
                 if interaction is None or interaction.talent_id != talent_id:
                     raise _interaction_not_found(interaction_id)
                 label = f"{interaction.occurred_on.isoformat()} 的{interaction.channel}互动"
-                await TalentsService(session).delete_interaction(interaction)
+                await TalentsService(session, commit=self._commits).delete_interaction(interaction)
+                self._record_entity(interaction)
         return f"已删除{label}（id={interaction_id}）。"
 
 

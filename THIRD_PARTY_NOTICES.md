@@ -32,7 +32,7 @@ JS 清单来自当前 workspace 的已安装依赖树，包含开发依赖，但
 | Python 及安装包 | `/opt/reven-licenses/python/inventory.json`，原始 dist-info / 组件许可文件，以及 `python-runtime/LICENSE.txt`；Python 运行环境保留各包原文件 |
 | Debian 系统包 | `/opt/reven-licenses/system/inventory.json` 记录实际安装版本与 source package/version，复制对应 copyright；原文件仍在 `/usr/share/doc/`，通用许可证仍在 `/usr/share/common-licenses/` |
 
-Node 仅用于 Web 构建，最终镜像不复制其独立可执行文件。DeepSeek Python runtime 内嵌的 Node 和原生组件仍属于实际分发物，须按其自身版本核对。
+Node 仅用于 Web 构建，最终镜像不复制其独立可执行文件。Agent 迁移后不再分发 DeepSeek Harness runtime；新增 LangChain/LangGraph 的 MIT 原文及 psycopg/psycopg-pool 的 LGPL-3.0-only 原文由安装包许可采集保留。psycopg-binary 携带的 libpq 等原生组件仍需按实际 Linux wheel 核对。
 包清单中的 `UNKNOWN`、缺失许可证原文或 `review` 字段必须人工处理，不能自动改写为 MIT。
 版权原文与许可证目录应随单独复制的 JS、字体或镜像继续分发。
 直接执行 `pnpm build` 仅生成开发构建；对外分发其产物前也需按下方命令生成、随包提供声明。
@@ -55,7 +55,7 @@ node scripts/licenses/collect-js.mjs . /tmp/reven-licenses/javascript
 
 ## 公开发布前仍需核验
 
-- 当前 Linux AMD64 最终镜像的全部许可原文、特殊条款及组件兼容性，特别是 `deepseek-harness-runtime-bin` 内嵌的运行时/原生组件。
+- 当前 Linux AMD64 最终镜像的全部许可原文、特殊条款及组件兼容性，包括新增 psycopg-binary 的原生组件。
 - GPL/LGPL/AGPL 等要求的对应源码、可重新链接材料或其他适用交付方式；系统 copyright 文件和上游 URL 本身不等于履行了所有源码义务。
 - Trellis 上游 `COPYRIGHT` 的 v3-or-later 与 CLI manifest 的 `AGPL-3.0-only` 表述差异，以及模板生成差异。
 - 缺失或含糊的元数据和许可证文件、未安装的平台可选包；任何新增平台必须重新核验。

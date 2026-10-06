@@ -2,10 +2,11 @@
 
 import asyncio
 import base64
+import os
 from typing import cast
 
 import pytest
-from agent_service_support import DEFAULT_REF, EXTRA_REF, ServiceRig
+from agent_service_support import EXTRA_REF, ServiceRig
 from fastapi import Request
 from fastapi.testclient import TestClient
 from reven.agent.service import AgentService
@@ -16,6 +17,7 @@ from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import FeishuChatDispatcher
 from reven.provider_clients import FeishuReplier, ProviderClients
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 DUMMY_DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:1/reven"
@@ -129,32 +131,47 @@ def test_lifespan_skips_supervisor_when_settings_unavailable(monkeypatch: pytest
         assert isinstance(client.app.state.agent_service, AgentService)
 
 
-def test_each_app_lifespan_has_independent_model_choices(tmp_path, monkeypatch) -> None:
-    rig = ServiceRig(tmp_path, monkeypatch)
+@pytest.mark.anyio
+async def test_app_recreation_restores_database_model_choice(db_session, monkeypatch) -> None:
+    database_url = os.environ["TEST_DATABASE_URL"]
+    engines = [create_async_engine(database_url, poolclass=NullPool) for _ in range(2)]
+    factories = [async_sessionmaker(engine, expire_on_commit=False) for engine in engines]
+    rigs = [ServiceRig(factory) for factory in factories]
+    settings = Settings(
+        database_url=database_url,
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="test-admin-password",
+        _env_file=None,
+    )
     monkeypatch.setattr("reven.app.FeishuBotSupervisor", FakeSupervisor)
 
     def clients_for_app(factory, settings):
+        rig = rigs[factories.index(factory)]
         return ProviderClients(cast(IntegrationCredentials, rig.credentials), settings)
 
-    async def runtime_for_app(credentials, settings, mcp):
-        _, runtime = await rig.build()
+    async def runtime_for_app(credentials, settings, factory, embedding_refresher):
+        rig = rigs[factories.index(factory)]
+        service, runtime = await rig.build()
+        await service.close()
         return runtime
 
     monkeypatch.setattr("reven.app._build_provider_clients", clients_for_app)
     monkeypatch.setattr("reven.app._build_agent_runtime", runtime_for_app)
-    _, factory = _factory()
-    first_app = create_app(start_background_tasks=False, session_factory=factory, settings=rig.settings)
-    second_app = create_app(start_background_tasks=False, session_factory=factory, settings=rig.settings)
-    with TestClient(first_app) as first, TestClient(second_app) as second:
-        first_service, second_service = first.app.state.agent_service, second.app.state.agent_service
-        assert first_service is not second_service
+    first_app = create_app(start_background_tasks=False, session_factory=factories[0], settings=settings)
+    second_app = create_app(start_background_tasks=False, session_factory=factories[1], settings=settings)
+    with TestClient(first_app) as first:
+        first_service = first.app.state.agent_service
         first.portal.call(first_service.use_model, "sid", EXTRA_REF)
         assert first.portal.call(first_service.model_state, "sid").current_ref == EXTRA_REF
-        second_state = second.portal.call(second_service.model_state, "sid")
-        assert second_state.current_ref == DEFAULT_REF and not second_state.is_override
         assert first.app.state.feishu_bot_supervisor.chat_dispatcher._agent is first_service
+    with TestClient(second_app) as second:
+        second_service = second.app.state.agent_service
+        assert first_service is not second_service
+        second_state = second.portal.call(second_service.model_state, "sid")
+        assert second_state.current_ref == EXTRA_REF and second_state.is_override
         assert second.app.state.feishu_bot_supervisor.chat_dispatcher._agent is second_service
-    assert all(instance.closed for instance in rig.instances)
+    for engine in engines:
+        await engine.dispose()
 
 
 def test_agent_dependency_requires_initialized_service() -> None:

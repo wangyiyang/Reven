@@ -35,14 +35,11 @@ services:
       REVEN_MASTER_KEY: ${REVEN_MASTER_KEY:?Generate REVEN_MASTER_KEY before starting}
       REVEN_ADMIN_PASSWORD: ${REVEN_ADMIN_PASSWORD:?Generate REVEN_ADMIN_PASSWORD before starting}
       REVEN_PUBLIC_BASE_URL: ${REVEN_PUBLIC_BASE_URL:?Set REVEN_PUBLIC_BASE_URL to your HTTPS origin}
-      DSH_HOME: /data/dsh
-      # HOME must point to a writable volume: with read_only rootfs, the dsh runtime
-      # cannot create its plugin cache (~/.cache/pkg), and Agent degrades at startup.
-      HOME: /data/dsh
       # Unset optional keys are omitted, preserving application defaults and explicit degradation.
       SILICONFLOW_API_KEY:
       SILICONFLOW_CHAT_MODEL:
       RSS_MODEL_REVIEW_ENABLED:
+      AGENT_RUN_TIMEOUT_SECONDS:
       COS_BUCKET:
       COS_REGION:
       COS_SECRET_ID:
@@ -51,7 +48,6 @@ services:
       COS_ASSET_PREFIX:
     volumes:
       - reven-data:/data
-      - dsh-data:/data/dsh
       - reven-static:/srv/reven
     read_only: true
     mem_limit: 2g
@@ -108,7 +104,6 @@ services:
 volumes:
   postgres-data:
   reven-data:
-  dsh-data:
   reven-static:
   caddy-data:
   caddy-config:

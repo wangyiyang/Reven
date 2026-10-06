@@ -5,6 +5,13 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
+from reven.agent.models import (  # noqa: F401
+    AgentApproval,
+    AgentConfigRevision,
+    AgentOperation,
+    AgentRun,
+    AgentSession,
+)
 from reven.brand.models import BrandAsset, BrandVersion, ChannelTemplateVersion  # noqa: F401
 from reven.crm.models import Contact, Customer, FollowUp  # noqa: F401
 from reven.db import Base

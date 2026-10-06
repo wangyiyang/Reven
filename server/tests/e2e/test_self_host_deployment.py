@@ -17,7 +17,7 @@ SELF_HOST = ROOT / "infra/self-host"
 @pytest.fixture
 def compose_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in os.environ:
-        if name.startswith(("REVEN_", "POSTGRES_", "COS_", "SILICONFLOW_", "RSS_", "COMPOSE_")):
+        if name.startswith(("REVEN_", "POSTGRES_", "COS_", "SILICONFLOW_", "RSS_", "COMPOSE_", "AGENT_")):
             monkeypatch.delenv(name)
     env = tmp_path / ".env"
     env.write_text(
@@ -104,11 +104,12 @@ def test_sensitive_configuration_is_required_and_volumes_remain_persistent() -> 
     assert set(compose["volumes"]) == {
         "postgres-data",
         "reven-data",
-        "dsh-data",
         "reven-static",
         "caddy-data",
         "caddy-config",
     }
+    assert "DSH_HOME" not in env and "HOME" not in env
+    assert not any(volume.endswith(":/data/dsh") for volume in compose["services"]["reven"]["volumes"])
 
 
 def test_retired_publishing_host_profiles_are_not_distributed() -> None:

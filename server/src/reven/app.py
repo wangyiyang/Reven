@@ -20,6 +20,7 @@ from reven.agent.mcp_server import (
 )
 from reven.agent.runtime import ModelConfigResolver
 from reven.agent.service import AgentService
+from reven.agent.tool_registry import ToolRegistry
 from reven.api.routes.agent import router as agent_router
 from reven.api.routes.auth import router as auth_router
 from reven.api.routes.brand import router as brand_router
@@ -94,7 +95,7 @@ def _mount_agent_mcp(
     settings: Settings | None,
     embedding_refresher: KeywordEmbeddingRefresher | None,
 ) -> tuple[AgentMcpContext | None, StarletteWithLifespan | None]:
-    """有数据库时装配进程内 MCP 端点（dsh 工具回调入口）；无库时不挂载，dsh 也不带工具 patch。"""
+    """有数据库时保留机器只读 MCP 端点。"""
     if factory is None:
         return None, None
     context = resolve_agent_mcp_context(settings)
@@ -106,21 +107,22 @@ def _mount_agent_mcp(
 async def _build_agent_runtime(
     credentials: IntegrationCredentials | None,
     settings: Settings | None,
-    mcp: AgentMcpContext | None,
+    factory: async_sessionmaker[AsyncSession] | None,
+    embedding_refresher: KeywordEmbeddingRefresher | None,
 ) -> AgentRuntime:
-    if settings is None:
+    if factory is None or settings is None:
         return AgentRuntime(None)
     config = await resolve_agent_config(credentials, settings)
-    # 有凭证 seam 时接入模型注册表解析器，支持 /model 指令的会话级模型切换（#163）；
-    # 无库/降级形态为 None：override 请求会被 AgentModelUnavailableError 明确拒绝
     resolver: ModelConfigResolver | None = None
     if credentials is not None:
         resolver = partial(resolve_agent_model_config, credentials, settings)
     return AgentRuntime(
         config,
-        mcp=mcp,
+        database_url=settings.database_url.get_secret_value(),
+        registry=ToolRegistry(factory, embedding_refresher=embedding_refresher),
+        config_resolver=partial(resolve_agent_config, credentials, settings),
         model_resolver=resolver,
-        run_timeout_seconds=settings.agent_run_timeout_seconds,  # #177：单轮超时阈值走配置
+        run_timeout_seconds=settings.agent_run_timeout_seconds,
     )
 
 
@@ -185,6 +187,7 @@ def _build_feishu_bot_supervisor(
 
 async def _cleanup_resources(
     *,
+    agent_service: AgentService,
     agent_runtime: AgentRuntime,
     feishu_bot_supervisor: FeishuBotSupervisor | None,
     active_runner: RunnerProtocol | None,
@@ -200,6 +203,7 @@ async def _cleanup_resources(
             cleanup_error = exc
             logger.error("飞书机器人 supervisor 清理失败（error_type=%s）", type(exc).__name__)
     try:
+        await agent_service.close()
         await agent_runtime.close()
     except BaseException as exc:
         cleanup_error = exc
@@ -224,6 +228,25 @@ async def _cleanup_resources(
             logger.error("数据库 Engine 清理失败（error_type=%s）", type(exc).__name__)
             cleanup_error = cleanup_error or exc
     return cleanup_error
+
+
+async def _assemble_agent(
+    current_app: FastAPI,
+    clients: ProviderClients | None,
+    settings: Settings | None,
+    factory: async_sessionmaker[AsyncSession] | None,
+    refresher: KeywordEmbeddingRefresher | None,
+) -> tuple[AgentRuntime, AgentService]:
+    credentials = clients.credentials if clients else None
+    runtime = await _build_agent_runtime(credentials, settings, factory, refresher)
+    service = AgentService(
+        runtime,
+        credentials,
+        session_factory=factory,
+        wait_timeout_seconds=settings.agent_wait_timeout_seconds if settings else 120,
+    )
+    current_app.state.agent_runtime, current_app.state.agent_service = runtime, service
+    return runtime, service
 
 
 @asynccontextmanager
@@ -252,17 +275,13 @@ async def _lifespan(
         current_app.state.session_factory = factory
         refresher = KeywordEmbeddingRefresher(factory, clients)
         current_app.state.rss_embedding_refresher = refresher
-    mcp_context, mcp_app = _mount_agent_mcp(current_app, factory, settings, refresher)
-    agent_runtime = await _build_agent_runtime(
-        clients.credentials if clients is not None else None, settings, mcp_context
-    )
-    current_app.state.agent_runtime = agent_runtime
-    agent_service = AgentService(agent_runtime, clients.credentials if clients is not None else None)
-    current_app.state.agent_service = agent_service
+    _, mcp_app = _mount_agent_mcp(current_app, factory, settings, refresher)
+    agent_runtime, agent_service = await _assemble_agent(current_app, clients, settings, factory, refresher)
     feishu_bot_supervisor = _build_feishu_bot_supervisor(current_app, factory, clients, agent_service)
     async with _run_app_resources(
         current_app=current_app,
         agent_runtime=agent_runtime,
+        agent_service=agent_service,
         feishu_bot_supervisor=feishu_bot_supervisor,
         mcp_app=mcp_app,
         factory=factory,
@@ -280,6 +299,7 @@ async def _run_app_resources(
     *,
     current_app: FastAPI,
     agent_runtime: AgentRuntime,
+    agent_service: AgentService,
     feishu_bot_supervisor: FeishuBotSupervisor | None,
     mcp_app: StarletteWithLifespan | None,
     factory: async_sessionmaker[AsyncSession] | None,
@@ -300,7 +320,7 @@ async def _run_app_resources(
         if start_background_tasks and active_runner is not None:
             await active_runner.start()
         current_app.state.background_runner = active_runner  # 供 /api/health 内省（#177）
-        await agent_runtime.start()
+        await agent_service.start()
         if feishu_bot_supervisor is not None:
             await feishu_bot_supervisor.start()
         yield
@@ -309,6 +329,7 @@ async def _run_app_resources(
         raise
     finally:
         cleanup_error = await _cleanup_resources(
+            agent_service=agent_service,
             agent_runtime=agent_runtime,
             feishu_bot_supervisor=feishu_bot_supervisor,
             active_runner=active_runner,

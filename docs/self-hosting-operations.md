@@ -8,9 +8,10 @@
 
 | 数据 | 位置 | 恢复要求 |
 | --- | --- | --- |
-| 业务记录、RSS 状态、加密集成凭据、会话 | `postgres-data` | 使用 PostgreSQL 17 的 `pg_dump` / `pg_restore` |
+| 业务记录、RSS 状态、加密集成凭据、Agent 配置/会话/运行/审批及检查点 | `postgres-data` | 使用 PostgreSQL 17 的 `pg_dump` / `pg_restore`，包含 `reven_agent_checkpoints` schema |
 | 主密钥、管理员密码、数据库密码和环境配置 | `infra/self-host/.env` | 单独加密保存；必须包含备份时的原主密钥 |
-| 应用与 Agent 运行数据 | `reven-data`、`dsh-data` | 停止应用后归档，恢复时保留 UID/GID |
+| 应用文件 | `reven-data` | 停止应用后归档，恢复时保留 UID/GID |
+| 升级前 DSH 历史（如存在） | 原 project 的 `dsh-data` | 升级前单独归档旧卷，保留原镜像及 Compose；新版不挂载或删除它 |
 | 前端静态版本 | `reven-static` | 随备份保存；后续成功启动会按镜像更新 |
 | TLS 私钥、证书与 Caddy 状态 | `caddy-data`、`caddy-config` | 停止 Caddy 后归档，按秘密资料保存 |
 | 可追溯运行版本 | 源码提交、本地镜像 ID、Compose 文件 | 恢复兼容的代码和基础设施，不使用任意最新版本 |
@@ -48,7 +49,7 @@ dc up -d --wait
 printf '备份目录：%s\n' "$backup_dir"
 ```
 
-临时归档容器使用 root 仅为读写卷时保留文件属主；应用本身仍以非 root 运行。两个嵌套挂载 `/data`、`/data/dsh` 都通过 `--volumes-from` 备份。
+临时归档容器使用 root 仅为读写卷时保留文件属主；应用本身仍以非 root 运行。当前应用文件通过 `--volumes-from` 备份。从 DSH 升级前仍须用旧容器执行以上归档，它包含原 `/data/dsh` 嵌套挂载；升级后旧卷不再挂载，不能用新版容器的文件归档代替旧历史备份。
 
 将整套备份加密后转移到主机之外，并在密码管理器中独立保存主密钥。上述格式检查只证明归档可读，须在隔离环境实际恢复才能确认备份有效。
 
@@ -87,6 +88,10 @@ dc up -d --no-build --wait
 
 ## 升级与应用回滚
 
+**从 DSH 升级为 LangGraph 时：** 新增 Agent 业务表与独立 `reven_agent_checkpoints` schema，entrypoint 在切换静态资源前执行 Alembic 与检查点初始化。运行账户需要创建该 schema/表的权限；权限不足会停止镜像启动。Agent 不再需要可写 Workspace、`DSH_HOME` 或修改 `HOME`。
+
+保留旧镜像、旧 Compose、环境配置及 `dsh-data` 归档。新版 Compose 不声明或挂载旧卷，也不删除它；新 Agent 开始新的对话历史，现有业务数据和加密模型配置延续，不自动导入 DSH 会话。回滚使用旧镜像和旧 Compose 重新挂载旧卷，保留新增表与新版业务记录，不执行破坏性 downgrade 或删卷。新版对话不能自动转回 DSH 历史。恢复或回滚前须核对待确认/中断运行及已提交操作，避免从头重复写入。
+
 **从迁移 0020 或更早版本升级时：** 0021 会删除稿件、发布任务、Notion 相关字段和旧集成等退役数据，不迁移历史内容且不可降级。必须先保存并验证升级前的数据库、文件卷与原主密钥；恢复旧版本必须整体恢复兼容备份，不能仅回滚镜像。
 
 自托管更新采用源码构建，不使用维护者的 `scripts/deploy_reven.sh`。先阅读目标版本的迁移说明，确认上一版本能读取升级后的数据库，再安排升级。
@@ -122,7 +127,7 @@ dc up -d --no-build --wait
 ## 配置变更
 
 - 修改 `.env` 后使用 `dc up -d --force-recreate --wait reven` 使环境变量生效；仅 `restart` 不会重读容器环境。
-- 在 UI 更改 Agent LLM 配置后需要 `dc restart reven`；RSS 及其他集成的日常配置按页面操作。
+- 在 UI 更改 Agent LLM 默认模型后，从下一轮新运行生效；当前运行和待恢复运行保持原配置快照。Prompt 与工具启用关系由受保护的 Agent 配置 API 管理。RSS 及其他集成的日常配置按页面操作。
 - 更改域名时同步修改 origin、DNS 和 Caddy 入口，重新创建相关容器后验证 HTTPS 与登录。
 - 主密钥不是普通可替换密码。当前没有一键重加密流程，不要直接换值；先保留旧密钥并安排凭据迁移。
 - 维护者原有 ACR digest 校验和部署回滚继续按 [原运行手册](runbook.md) 操作，本指南不会迁移现有生产环境。

@@ -16,7 +16,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 |-------|-------------|--------|
 | [CI 与发版镜像构建契约](./ci-release-contract.md) | 日常 CI 跳过容器构建、发版 full 调用与回归验证 | Active |
 | [HTTPS 与开源 Alpha 自托管契约](./open-source-self-host-contract.md) | Origin/CSRF/Cookie、独立 Compose、持久化与真实验收边界 | Active |
-| [Agent (dsh) 集成契约](./agent-dsh-contract.md) | dsh 嵌入式子进程、MCP 工具通道、配置/部署/测试约定 | Active |
+| [Agent 原生运行契约](./agent-runtime-contract.md) | LangChain/LangGraph、数据库配置/运行、事务账本、可信确认与恢复 | Active |
 | [RSS 素材采纳契约](./rss-materials-contract.md) | 本地采纳、并发与飞书审核、RSS 基础设施 | Active |
 | [集成 Provider 契约](./integration-provider-contract.md) | 配置、API、凭证与退役迁移的跨层一致性 | Active |
 | [飞书应用机器人契约](./feishu-app-notification-contract.md) | 应用机器人通知、测试发送、RSS 审核、部署通知与机器人对话（私聊/群@） | Active |

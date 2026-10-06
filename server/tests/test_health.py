@@ -4,7 +4,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from reven.agent.config import AgentConfig
+from reven.agent.checkpoint import AgentCheckpoints, postgres_conninfo
 from reven.app import create_app
 from reven.background import BackgroundRunner
 from reven.config import Settings
@@ -25,6 +25,18 @@ def _settings(database_url: str = DUMMY_DATABASE_URL, **overrides: object) -> Se
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def reject_dummy_checkpointer_without_pool_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = AgentCheckpoints.open
+
+    async def open_pool(pool: AgentCheckpoints) -> None:
+        if pool._conninfo == postgres_conninfo(DUMMY_DATABASE_URL):
+            raise OSError("dummy checkpoint unavailable")
+        await original(pool)
+
+    monkeypatch.setattr(AgentCheckpoints, "open", open_pool)
 
 
 class FakeRunner:
@@ -50,7 +62,8 @@ def test_health_db_unreachable_returns_503() -> None:
         "status": "fail",
         "checks": {
             "db": {"status": "fail"},
-            "dsh": {"status": "disabled"},  # 未配置 agent_api_key
+            "agent": {"status": "disabled"},  # 未配置 agent_api_key
+            "checkpointer": {"status": "degraded"},
             "background_runner": {"status": "disabled"},  # start_background_tasks=False
         },
     }
@@ -64,7 +77,7 @@ def _real_database_url() -> str:
 
 
 def test_health_all_ok_returns_structured_details() -> None:
-    """全链路健康：200 + status ok + 三项检查明细（dsh/runner 未启用为 disabled，不拖累整体）。"""
+    """全链路健康：200 + status ok + 原生检查明细（agent/runner 未启用为 disabled，不拖累整体）。"""
     database_url = _real_database_url()
     engine = create_async_engine(database_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -78,21 +91,23 @@ def test_health_all_ok_returns_structured_details() -> None:
         "status": "ok",
         "checks": {
             "db": {"status": "ok"},
-            "dsh": {"status": "disabled"},
+            "agent": {"status": "disabled"},
+            "checkpointer": {"status": "ok"},
             "background_runner": {"status": "disabled"},
         },
     }
     asyncio.run(engine.dispose())
 
 
-def test_health_dsh_start_failed_shows_degraded_but_stays_200(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """dsh 启动失败：字段显式 degraded、保持 200（不触发重启风暴），供监控抓（#177 验收）。"""
+def test_health_checkpointer_start_failed_shows_degraded_but_stays_200(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """检查点启动失败：字段显式 degraded、保持 200（不触发重启风暴），供监控抓（#177 验收）。"""
     database_url = _real_database_url()
 
-    def _fail_launch(config: AgentConfig, mcp: object) -> None:
-        raise OSError("dsh binary missing")
+    async def _fail_open(pool: AgentCheckpoints) -> None:
+        del pool
+        raise OSError("checkpoint unavailable")
 
-    monkeypatch.setattr("reven.agent.runtime._launch", _fail_launch)
+    monkeypatch.setattr(AgentCheckpoints, "open", _fail_open)
     engine = create_async_engine(database_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = _settings(database_url, agent_api_key="test-agent-key")
@@ -103,7 +118,8 @@ def test_health_dsh_start_failed_shows_degraded_but_stays_200(monkeypatch) -> No
     body = response.json()
     assert body["status"] == "degraded"
     assert body["checks"]["db"] == {"status": "ok"}
-    assert body["checks"]["dsh"] == {"status": "degraded"}
+    assert body["checks"]["agent"] == {"status": "degraded"}
+    assert body["checks"]["checkpointer"] == {"status": "degraded"}
     asyncio.run(engine.dispose())
 
 

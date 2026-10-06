@@ -10,10 +10,12 @@ import asyncio
 import base64
 import logging
 import time
+from uuid import UUID
 
 import pytest
+from reven.agent.context import AgentActor
 from reven.agent.errors import AgentError, AgentNotConfiguredError, AgentRuntimeError
-from reven.agent.service import AgentTurn
+from reven.agent.service_types import AgentTurn
 from reven.config import Settings
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.feishu_bot.chat_dispatcher import (
@@ -24,12 +26,14 @@ from reven.integrations.feishu_bot.chat_dispatcher import (
     FeishuChatDispatcher,
 )
 from reven.integrations.feishu_bot.config import FeishuBotConfig
+from reven.integrations.feishu_bot.run_commands import render_run_error
 from reven.integrations.models import Integration
 from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"m" * 32).decode()
 WHITELISTED_CONFIG = FeishuBotConfig(app_id="cli_test", app_secret="s3cret", whitelist_open_ids=("ou_boss",))
+RUN_ID = UUID("5f69874c-b6c4-4a67-acf1-d2ea7c28e232")
 
 
 def _factory(session: AsyncSession) -> async_sessionmaker[AsyncSession]:
@@ -83,17 +87,27 @@ class _StubAgentService:
 
     def __init__(self, *, answer: str = "答案", error: Exception | None = None, delay: float = 0.0) -> None:
         self.calls: list[tuple[str, str | None]] = []
+        self.contexts: list[tuple[AgentActor, str | None, float | None]] = []
         self._answer = answer
         self._error = error
         self._delay = delay
 
-    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn:
+    async def chat(
+        self,
+        message: str,
+        session_id: str | None = None,
+        *,
+        actor: AgentActor,
+        request_key: str | None = None,
+        wait_timeout_seconds: float | None = None,
+    ) -> AgentTurn:
         self.calls.append((message, session_id))
+        self.contexts.append((actor, request_key, wait_timeout_seconds))
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._error is not None:
             raise self._error
-        return AgentTurn("sid", self._answer, None, False)
+        return AgentTurn("sid", self._answer, None, False, RUN_ID)
 
 
 class ReplyRecorder:
@@ -294,8 +308,9 @@ async def test_precheck_timeout_is_fully_silent() -> None:
 
 
 @pytest.mark.anyio
-async def test_agent_timeout_falls_back() -> None:
-    agent = _StubAgentService(delay=0.3)
+async def test_service_wait_budget_returns_run_state_before_bridge_timeout() -> None:
+    answer = f"运行仍在进行，请查询：状态 {RUN_ID}。"
+    agent = _StubAgentService(answer=answer, delay=0.06)
     recorder = ReplyRecorder()
     dispatcher = _dispatcher(_StubCredentials(WHITELISTED_CONFIG), agent, reply=recorder, timeout_seconds=0.05)
     dispatcher.bind_loop(asyncio.get_running_loop())
@@ -303,8 +318,9 @@ async def test_agent_timeout_falls_back() -> None:
     await _submit(dispatcher)
     await _wait_replies(recorder, 2)
 
-    assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", FALLBACK_TEXT)]
-    await asyncio.sleep(0.4)  # 宽限慢 Agent 协程收尾，避免泄漏到后续用例
+    assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", answer)]
+    assert agent.contexts == [(AgentActor("feishu:ou_boss", "feishu"), "om_1", 0.05)]
+    assert "重试" not in recorder.calls[-1][1]
 
 
 @pytest.mark.anyio
@@ -326,7 +342,8 @@ async def test_agent_error_falls_back_and_log_is_sanitized(error: Exception, cap
         await _submit(dispatcher)
         await _wait_replies(recorder, 2)
 
-    assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", FALLBACK_TEXT)]
+    expected = render_run_error(error) if isinstance(error, AgentError) else FALLBACK_TEXT
+    assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", expected)]
     assert type(error).__name__ in caplog.text
     if isinstance(error, AgentError):
         assert error.code in caplog.text  # 稳定错误码进日志（PRD：完整错误进服务端日志）
@@ -360,6 +377,23 @@ async def test_answer_reply_failure_is_swallowed() -> None:
 
     assert recorder.calls == [("om_1", THINKING_TEXT), ("om_1", "答案")]
     assert agent.calls == [("你好", "feishu:oc_1:ou_boss")]
+
+
+@pytest.mark.anyio
+async def test_whitelist_revocation_before_result_prevents_visible_reply() -> None:
+    agent, recorder = _StubAgentService(delay=0.1), ReplyRecorder()
+    credentials = _StubCredentials(WHITELISTED_CONFIG)
+    dispatcher = _dispatcher(credentials, agent, reply=recorder)
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    await _submit(dispatcher)
+    for _ in range(100):
+        if agent.calls:
+            break
+        await asyncio.sleep(0.005)
+    assert agent.calls
+    credentials._config = None
+    await asyncio.sleep(0.2)
+    assert recorder.calls == [("om_1", THINKING_TEXT)]
 
 
 # --- 真实 credentials seam：db 配置接线与白名单现读 ---

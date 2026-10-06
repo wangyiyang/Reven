@@ -161,10 +161,10 @@ async def test_siliconflow_client_partial_batch_degradation() -> None:
 
 @pytest.mark.anyio
 async def test_siliconflow_client_base_url_validation() -> None:
-    async with httpx.AsyncClient(base_url="http://api.siliconflow.cn") as http:
+    async with httpx.AsyncClient(base_url="http://api.siliconflow.cn", trust_env=False) as http:
         with pytest.raises(ValueError, match="HTTPS"):
             SiliconFlowEmbeddingClient("test-key", http=http)
-    async with httpx.AsyncClient(base_url="http://localhost:8080") as http:
+    async with httpx.AsyncClient(base_url="http://localhost:8080", trust_env=False) as http:
         client = SiliconFlowEmbeddingClient("test-key", http=http)
     assert client.model == BGE_M3_MODEL
     assert client.dimension == BGE_M3_DIMENSION

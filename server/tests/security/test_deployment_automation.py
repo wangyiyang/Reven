@@ -98,7 +98,9 @@ def test_container_ci_verifies_embedded_infra_and_fake_docker_deployments() -> N
     assert 'diff -ru infra "$exported_infra"' in container
     assert "sh scripts/test_deploy_reven.sh" in container
     assert "Verify non-root runtime and embedded agent" in container
-    assert "dsh --version" in container
+    assert "from reven.agent.graph import build_agent_graph" in container
+    assert "--read-only --tmpfs /tmp:size=256m" in container
+    assert "dsh --version" not in container
     assert "renderer/dist" not in dockerfile
     assert "ruby-full" not in dockerfile
     assert "bubblewrap" not in dockerfile
@@ -156,6 +158,7 @@ def test_deployment_changes_select_backend_regressions_without_enabling_containe
         "infra/docker/Dockerfile.dockerignore",
         "scripts/self_host_smoke.py",
         "scripts/self_host_http_smoke.py",
+        "scripts/native_agent_smoke.py",
         "scripts/licenses/collect-js.mjs",
         "scripts/licenses/test_collectors.py",
     ):

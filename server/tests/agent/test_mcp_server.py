@@ -11,7 +11,9 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 from reven.agent.mcp_server import AGENT_MCP_ENDPOINT_PATH, create_agent_mcp_app
+from reven.agent.tools_rss import RssKeywordTools
 from reven.app import create_app
 from reven.config import Settings
 from sqlalchemy import text
@@ -113,8 +115,12 @@ def _free_port() -> int:
 @pytest.mark.anyio
 async def test_fastmcp_client_calls_tools_over_http_with_bearer_token(
     mcp_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """对 token 可经 fastmcp Client 完成真实 HTTP 回路的工具调用（对齐 dsh-mcp-client 通路）。"""
+    """Bearer 允许真实 HTTP 读取，不能绕过可信运行入口直接写入。"""
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    await RssKeywordTools(mcp_session_factory).create_keyword(term="AI Agent", kind="positive")
     mcp_app = create_agent_mcp_app(mcp_session_factory, TEST_MCP_TOKEN)
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=port, log_level="error"))
@@ -126,8 +132,8 @@ async def test_fastmcp_client_calls_tools_over_http_with_bearer_token(
     assert server.started
     try:
         async with Client(f"http://127.0.0.1:{port}/mcp", auth=TEST_MCP_TOKEN) as client:
-            created = await client.call_tool("rss_keyword_create", {"term": "AI Agent", "kind": "positive"})
-            assert created.data["kind"] == "positive"
+            with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+                await client.call_tool("rss_keyword_create", {"term": "无上下文写入", "kind": "positive"})
             listed = await client.call_tool("rss_keyword_list", {})
             assert [item["term"] for item in listed.data] == ["AI Agent"]
     finally:

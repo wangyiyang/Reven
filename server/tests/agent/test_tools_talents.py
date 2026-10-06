@@ -555,6 +555,13 @@ async def test_import_profile_rate_pair_validation(session_factory: async_sessio
 
 @pytest.mark.anyio
 async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    binding = TalentsTalentTools(session_factory)
+    await binding.create_talent(name="协议人才", status="接洽中", tags=["开发"])  # type: ignore[arg-type]
+    await binding.import_profile(
+        name="协议导入人才",
+        tags=["设计"],
+        experiences=[TalentExperienceCreate(company="远山设计", title="视觉设计师", start_on="2023-03-01")],  # type: ignore[arg-type]
+    )
     mcp = create_agent_mcp_server(session_factory, token="test-token")
 
     async with Client(mcp) as client:
@@ -583,25 +590,10 @@ async def test_tools_are_callable_over_mcp_protocol(session_factory: async_sessi
         item_schema = import_tool.input_schema["properties"]["experiences"]["anyOf"][0]["items"]
         assert {"company", "title", "start_on"} <= set(item_schema["properties"])
 
-        created = await client.call_tool(
-            "talent_create",
-            {"name": "协议人才", "status": "接洽中", "tags": ["开发"]},
-        )
-        block = created.content[0]
-        assert isinstance(block, TextContent)
-        assert "已创建人才" in block.text and "协议人才" in block.text
-
-        imported = await client.call_tool(
-            "talent_import_profile",
-            {
-                "name": "协议导入人才",
-                "tags": ["设计"],
-                "experiences": [{"company": "远山设计", "title": "视觉设计师", "start_on": "2023-03-01"}],
-            },
-        )
-        import_block = imported.content[0]
-        assert isinstance(import_block, TextContent)
-        assert "画像已创建" in import_block.text and "履历 1 条" in import_block.text
+        with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+            await client.call_tool("talent_create", {"name": "禁止直接写入"})
+        with pytest.raises(ToolError, match="MCP_WRITE_CONTEXT_REQUIRED"):
+            await client.call_tool("talent_import_profile", {"name": "禁止直接导入"})
 
         listed = await client.call_tool("talent_list", {"query": "协议"})
         list_block = listed.content[0]

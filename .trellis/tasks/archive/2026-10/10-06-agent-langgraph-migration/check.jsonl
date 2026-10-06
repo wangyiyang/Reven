@@ -1,0 +1,14 @@
+{"file":".trellis/spec/reven-server/backend/index.md","reason":"后端规范入口"}
+{"file":".trellis/spec/reven-server/backend/agent-dsh-contract.md","reason":"现有业务/API兼容；DSH专属机制由本任务设计替代"}
+{"file":".trellis/spec/reven-server/backend/integration-provider-contract.md","reason":"模型配置与加密凭据读取边界"}
+{"file":".trellis/spec/reven-server/backend/feishu-app-notification-contract.md","reason":"非阻塞入站、白名单、引用回复与模型指令"}
+{"file":".trellis/spec/reven-server/backend/crm-contract.md","reason":"CRM领域事务、派生计划与子资源归属"}
+{"file":".trellis/spec/reven-server/backend/talents-contract.md","reason":"人才画像与互动领域兼容"}
+{"file":".trellis/spec/reven-server/backend/database-guidelines.md","reason":"Alembic迁移与测试隔离"}
+{"file":".trellis/spec/reven-server/backend/quality-guidelines.md","reason":"Settings组合根与禁止模块导入副作用"}
+{"file":".trellis/spec/reven-server/backend/open-source-self-host-contract.md","reason":"只读容器、自托管与旧卷保存"}
+{"file":".trellis/spec/reven-server/backend/ci-release-contract.md","reason":"CI与full镜像验证约定"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"认证、运行状态与工具事务跨层契约"}
+{"file":".trellis/tasks/10-06-agent-langgraph-migration/research/runtime-integration.md","reason":"现有码证据与最低必要兼容变化"}
+{"file":".trellis/tasks/10-06-agent-langgraph-migration/research/langgraph-runtime-contract.md","reason":"锁定框架API、模型协议与恢复语义"}
+{"file": ".trellis/spec/reven-server/backend/agent-runtime-contract.md", "reason": "本次迁移最终运行与恢复契约"}

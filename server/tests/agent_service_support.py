@@ -1,99 +1,118 @@
-"""真实 AgentService/runtime 组合测试的凭证与同步 harness 替身。"""
+"""真实 PostgreSQL AgentService 组合的确定性异步模型替身。"""
 
-import threading
-from functools import partial
-from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
+import asyncio
+from collections.abc import Sequence
+from typing import Any, cast
 
-import pytest
-from deepseek_harness.errors import HarnessError, JsonRpcError
-from reven.agent.config import AgentConfig, resolve_agent_model_config
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import Field
+from reven.agent.checkpoint import initialize_checkpoint_schema
+from reven.agent.config import AgentConfig
 from reven.agent.runtime import AgentRuntime
 from reven.agent.service import AgentService
-from reven.config import Settings
+from reven.agent.tool_registry import ToolRegistry
 from reven.integrations.credentials import AgentModelEntry, IntegrationCredentials
 from reven.integrations.feishu_bot.config import FeishuBotConfig
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-DEFAULT_ENTRY = AgentModelEntry("sk-default", "deepseek-official", "deepseek-v4-flash", None, True)
-EXTRA_ENTRY = AgentModelEntry("sk-extra", "openai", "gpt-5", None, False)
-DEFAULT_REF = DEFAULT_ENTRY.ref
-EXTRA_REF = EXTRA_ENTRY.ref
+DEFAULT_ENTRY = AgentModelEntry("test-default", "deepseek-official", "deepseek-v4-flash", None, True)
+EXTRA_ENTRY = AgentModelEntry("test-extra", "openai", "gpt-5", None, False)
+DEFAULT_REF, EXTRA_REF = DEFAULT_ENTRY.ref, EXTRA_ENTRY.ref
 
 
 class MutableCredentials:
     def __init__(self) -> None:
         self.entries: tuple[AgentModelEntry, ...] | None = (DEFAULT_ENTRY, EXTRA_ENTRY)
+        self.whitelist = ("ou_boss", "ou_other")
 
     async def agent_llm_models(self) -> tuple[AgentModelEntry, ...] | None:
         return self.entries
 
     async def feishu_bot(self) -> FeishuBotConfig:
-        return FeishuBotConfig("cli_test", "test-secret", ("ou_boss", "ou_other"))
+        return FeishuBotConfig("test-app", "test-secret", self.whitelist)
+
+    async def config(self, ref: str | None = None) -> AgentConfig | None:
+        entry = next(
+            (entry for entry in self.entries or () if entry.ref == ref or (ref is None and entry.is_default)), None
+        )
+        return AgentConfig(entry.provider, entry.model, entry.base_url, entry.api_key) if entry else None
 
 
-class FakeHarness:
-    def __init__(self, rig: "ServiceRig", **kwargs: object) -> None:
-        self.ref = f"{kwargs['provider']}/{kwargs['model']}"
-        self.calls: list[tuple[str, str]] = []
-        self.closed = False
-        self.rig = rig
-        rig.instances.append(self)
+class RigModel(BaseChatModel):
+    rig: Any = Field(exclude=True)
+    ref: str
 
-    def start(self) -> None:
-        error = self.rig.start_errors.get(self.ref)
-        if error is not None:
-            raise error
+    @property
+    def _llm_type(self) -> str:
+        return "reven-deterministic-test"
 
-    def close(self) -> None:
-        self.closed = True
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> "RigModel":
+        del tools, kwargs
+        return self
 
-    def run(self, message: str, *, session_id: str) -> object:
-        self.calls.append((message, session_id))
-        if session_id in self.rig.conflict_ids:
-            raise JsonRpcError(-32602, f'session "{session_id}" already exists')
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        raise AssertionError("运行时必须使用异步模型")
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        del stop, run_manager, kwargs
+        self.rig.calls.append((self.ref, messages))
         if self.ref == self.rig.block_ref:
             self.rig.started.set()
-            if not self.rig.release.wait(timeout=5):
-                raise AssertionError("等待测试释放 harness 超时")
-        error = self.rig.run_errors.get(self.ref)
-        if error is not None:
+            await self.rig.release.wait()
+        if error := self.rig.errors.get(self.ref):
             raise error
-        return SimpleNamespace(session_id=session_id, final_response=f"回复@{self.ref}")
+        message = messages[-1]
+        calls = self.rig.tool_calls.get(message.content, []) if isinstance(message, HumanMessage) else []
+        answer = AIMessage(content="" if calls else f"回复@{self.ref}", tool_calls=calls)
+        return ChatResult(generations=[ChatGeneration(message=answer)])
 
 
 class ServiceRig:
-    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self.factory = factory
         self.credentials = MutableCredentials()
-        self.instances: list[FakeHarness] = []
-        self.conflict_ids: set[str] = set()
-        self.start_errors: dict[str, Exception] = {}
-        self.run_errors: dict[str, HarnessError] = {}
+        self.calls: list[tuple[str, list[BaseMessage]]] = []
+        self.tool_calls: dict[str, list[dict[str, Any]]] = {}
+        self.errors: dict[str, Exception] = {}
         self.block_ref: str | None = None
-        self.started, self.release = threading.Event(), threading.Event()
-        self.settings = Settings(
-            database_url="postgresql+asyncpg://test@127.0.0.1/test",
-            reven_master_key="dGVzdA==",
-            reven_admin_password="test-admin-password",
-            dsh_home=tmp_path / "dsh",
-            agent_api_key=None,
-            _env_file=None,
-        )
-        monkeypatch.setattr("reven.agent.runtime.DeepSeekHarness", partial(FakeHarness, self))
+        self.started, self.release = asyncio.Event(), asyncio.Event()
+        self.services: list[tuple[AgentService, AgentRuntime]] = []
 
-    async def build(self, default: AgentModelEntry | None = DEFAULT_ENTRY) -> tuple[AgentService, AgentRuntime]:
-        config = None
-        if default is not None:
-            config = AgentConfig(
-                default.provider,
-                default.model,
-                default.base_url,
-                default.api_key,
-                self.settings.dsh_home,
-                self.settings.dsh_home,
-            )
-        credentials = cast(IntegrationCredentials, self.credentials)
-        resolver = partial(resolve_agent_model_config, credentials, self.settings)
-        runtime = AgentRuntime(config, model_resolver=resolver)
-        await runtime.start()
-        return AgentService(runtime, credentials), runtime
+    async def build(self, *, run_timeout_seconds: float = 180) -> tuple[AgentService, AgentRuntime]:
+        engine = self.factory.kw["bind"]
+        url = engine.url.render_as_string(hide_password=False)
+        await initialize_checkpoint_schema(url)
+        config = await self.credentials.config()
+        runtime = AgentRuntime(
+            config,
+            database_url=url,
+            registry=ToolRegistry(self.factory),
+            config_resolver=self.credentials.config,
+            model_resolver=self.credentials.config,
+            model_factory=lambda config: RigModel(rig=self, ref=f"{config.provider}/{config.model}"),
+            run_timeout_seconds=run_timeout_seconds,
+        )
+        service = AgentService(runtime, cast(IntegrationCredentials, self.credentials), session_factory=self.factory)
+        await service.start()
+        self.services.append((service, runtime))
+        return service, runtime
+
+    async def close(self) -> None:
+        for service, runtime in self.services:
+            await service.close()
+            await runtime.close()
