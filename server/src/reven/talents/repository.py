@@ -3,20 +3,26 @@
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import ScalarSelect, Select, func, or_, select
+from sqlalchemy import ScalarSelect, Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from reven.talents.models import Talent, TalentInteraction
+from reven.talents.models import Talent, TalentEducation, TalentExperience, TalentInteraction
 
 
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _earliest_due_subquery() -> ScalarSelect[date | None]:
+def _latest_due_subquery() -> ScalarSelect[date | None]:
     return (
-        select(func.min(TalentInteraction.next_due_on))
+        select(TalentInteraction.next_due_on)
         .where(TalentInteraction.talent_id == Talent.id)
+        .order_by(
+            TalentInteraction.occurred_on.desc(),
+            TalentInteraction.created_at.desc(),
+            TalentInteraction.id.desc(),
+        )
+        .limit(1)
         .correlate(Talent)
         .scalar_subquery()
     )
@@ -56,14 +62,14 @@ class TalentsRepository:
     def _filter_due(statement: Select[tuple[Talent]], due: str | None, today: date) -> Select[tuple[Talent]]:
         if due is None:
             return statement
-        earliest_due = _earliest_due_subquery()
+        latest_due = _latest_due_subquery()
         if due == "overdue":
-            return statement.where(earliest_due < today)
+            return statement.where(latest_due < today)
         if due == "today":
-            return statement.where(earliest_due == today)
+            return statement.where(latest_due == today)
         if due == "upcoming":
-            return statement.where(earliest_due > today)
-        return statement.where(earliest_due.is_(None))
+            return statement.where(latest_due > today)
+        return statement.where(latest_due.is_(None))
 
     async def get_talent(self, talent_id: UUID) -> Talent | None:
         return await self.session.get(Talent, talent_id)
@@ -96,3 +102,55 @@ class TalentsRepository:
         self.session.add(interaction)
         await self.session.flush()
         return interaction
+
+    async def list_experiences(self, talent_id: UUID) -> list[TalentExperience]:
+        statement = (
+            select(TalentExperience)
+            .where(TalentExperience.talent_id == talent_id)
+            .order_by(
+                TalentExperience.end_on.is_(None).desc(),
+                TalentExperience.start_on.desc(),
+                TalentExperience.created_at.desc(),
+            )
+        )
+        return list((await self.session.scalars(statement)).all())
+
+    async def get_experience(self, talent_id: UUID, experience_id: UUID) -> TalentExperience | None:
+        statement = select(TalentExperience).where(
+            TalentExperience.id == experience_id,
+            TalentExperience.talent_id == talent_id,
+        )
+        result = await self.session.scalars(statement)
+        return result.one_or_none()
+
+    async def add_experience(self, talent_id: UUID, values: dict[str, object]) -> TalentExperience:
+        experience = TalentExperience(talent_id=talent_id, **values)
+        self.session.add(experience)
+        await self.session.flush()
+        return experience
+
+    async def list_educations(self, talent_id: UUID) -> list[TalentEducation]:
+        statement = (
+            select(TalentEducation)
+            .where(TalentEducation.talent_id == talent_id)
+            .order_by(
+                TalentEducation.end_on.is_(None).desc(),
+                TalentEducation.start_on.desc(),
+                TalentEducation.created_at.desc(),
+            )
+        )
+        return list((await self.session.scalars(statement)).all())
+
+    async def get_education(self, talent_id: UUID, education_id: UUID) -> TalentEducation | None:
+        statement = select(TalentEducation).where(
+            TalentEducation.id == education_id,
+            TalentEducation.talent_id == talent_id,
+        )
+        result = await self.session.scalars(statement)
+        return result.one_or_none()
+
+    async def add_education(self, talent_id: UUID, values: dict[str, object]) -> TalentEducation:
+        education = TalentEducation(talent_id=talent_id, **values)
+        self.session.add(education)
+        await self.session.flush()
+        return education

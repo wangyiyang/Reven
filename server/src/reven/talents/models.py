@@ -40,6 +40,10 @@ class Talent(Base):
     name: Mapped[str] = mapped_column(Text)
     organization: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    wechat: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    preferences: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     capability: Mapped[str | None] = mapped_column(Text, nullable=True)
     engagement_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
     availability: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -67,3 +71,33 @@ class TalentInteraction(Base):
     next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TalentExperience(Base):
+    __tablename__ = "talent_experiences"
+    __table_args__ = (Index("ix_talent_experiences_talent_id_start_on", "talent_id", "start_on"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    talent_id: Mapped[UUID] = mapped_column(ForeignKey("talents.id", ondelete="CASCADE"))
+    company: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_on: Mapped[date] = mapped_column(Date)
+    end_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class TalentEducation(Base):
+    __tablename__ = "talent_educations"
+    __table_args__ = (Index("ix_talent_educations_talent_id_start_on", "talent_id", "start_on"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    talent_id: Mapped[UUID] = mapped_column(ForeignKey("talents.id", ondelete="CASCADE"))
+    school: Mapped[str] = mapped_column(Text)
+    degree: Mapped[str | None] = mapped_column(Text, nullable=True)
+    major: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_on: Mapped[date] = mapped_column(Date)
+    end_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
