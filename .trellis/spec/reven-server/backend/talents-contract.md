@@ -62,7 +62,13 @@ the Asia/Shanghai calendar date. 最新一条无日期时旧日期不再冒泡�
 CRM contract, "today" must come from `reven.scheduling.SHANGHAI` in both
 route and test code; `date.today()` follows the runner's local timezone and
 flakes in CI when UTC and Shanghai straddle midnight. `q` matches
-name/organization with ilike (`\`, `%`, `_` escaped). `tag` is an exact
+name/organization/notes/capability/phone/email/wechat with ilike, plus
+tags/preferences via `cast(String).ilike` (JSONB 整体文本匹配，非元素级), plus
+experiences company/title/description and educations school/degree/major
+through `EXISTS` subqueries (never JOIN — one talent is never duplicated). All
+ilike uses escape `\`, `%`, `_` (`reven.db.escape_like`). Deliberately NOT
+searched: engagement_terms/availability (命中面控制), rate/rating (数值无语义).
+`tag` is an exact
 single-tag match against the JSONB array; tags are free-form strings with no
 backend normalization — consistency is a frontend autocomplete concern only.
 
