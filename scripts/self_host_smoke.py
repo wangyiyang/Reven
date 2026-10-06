@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from self_host_http_smoke import Browser
 
@@ -47,7 +48,8 @@ class Deployment:
             f"POSTGRES_PASSWORD={secrets.token_hex(32)}\n"
             f"REVEN_MASTER_KEY={base64.b64encode(secrets.token_bytes(32)).decode()}\n"
             f"REVEN_ADMIN_PASSWORD={self.password}\n"
-            "REVEN_PUBLIC_BASE_URL=https://localhost:8443\n",
+            "REVEN_PUBLIC_BASE_URL=https://localhost:8443\n"
+            f"REVEN_IMAGE=registry.cn-hangzhou.aliyuncs.com/reven-smoke/reven@sha256:{'0' * 64}\n",
             encoding="utf-8",
         )
         environment.chmod(0o600)
@@ -88,6 +90,9 @@ class Deployment:
         assert config["Memory"] == 2 * 1024**3 and config["PidsLimit"] == 128
         assert not any("unconfined" in option for option in config["SecurityOpt"])
         assert config["SecurityOpt"] == ["no-new-privileges:true"]
+        self.assert_licenses()
+
+    def assert_licenses(self) -> None:
         self.compose(
             "exec",
             "-T",
@@ -96,12 +101,28 @@ class Deployment:
             "-c",
             "\n".join(
                 [
+                    "import hashlib, json, re",
                     "from pathlib import Path",
                     "root = Path('/opt/reven-licenses')",
                     "assert (root / 'LICENSE').read_text()",
                     "assert (root / 'THIRD_PARTY_NOTICES.md').read_text()",
                     "for name in ('javascript', 'python', 'system'):",
                     "    assert any(path.is_file() and path.stat().st_size for path in (root / name).rglob('*')), name",
+                    "inventories = []",
+                    "for directory in (root / 'javascript', Path('/app/web-dist/licenses/javascript')):",
+                    "    assert not any(directory.rglob('package.json')), directory",
+                    "    raw = (directory / 'inventory.json').read_bytes()",
+                    "    inventories.append(raw)",
+                    "    inventory = json.loads(raw)",
+                    "    assert inventory['packages']",
+                    "    assert re.fullmatch('[0-9a-f]{64}', inventory['lockfile']['sha256'])",
+                    "    for package in inventory['packages']:",
+                    "        assert {'name', 'version', 'license', 'source', 'evidence'} <= package.keys()",
+                    "        assert re.fullmatch('[0-9a-f]{64}', package['manifest_sha256'])",
+                    "        for evidence in package['evidence']:",
+                    "            text = (directory / evidence['path']).read_bytes()",
+                    "            assert hashlib.sha256(text).hexdigest() == evidence['sha256']",
+                    "assert inventories[0] == inventories[1]",
                     "assert not Path('/opt/reven-release/infra/self-host/.env').exists()",
                 ]
             ),
@@ -183,20 +204,71 @@ class Deployment:
         browser.logout(token)
 
     def assert_https(self) -> None:
+        source = (ROOT / "infra/self-host/Caddyfile").read_text().replace("{\n", "{\n\ttls internal\n", 1)
+        browser = self.https_browser(source)
+        token = browser.login(self.password)
+        browser.logout(token)
+
+    def assert_production(self) -> None:
+        source = (ROOT / "infra/caddy/Caddyfile").read_text()
+        source = source.replace("\ndev.wangyiyang.cc {\n", "\nhttps://localhost:8443 {\n\ttls internal\n", 1)
+        source = source.replace("\nhttp://dev.wangyiyang.cc:3001 {\n", "\nhttp://localhost:8080 {\n", 1)
+        assert "dev.wangyiyang.cc" not in source and "tls internal" in source
+        browser = self.https_browser(source, production=True)
+        self.assert_static_mounts()
+        index_digest = self.static_index_digest()
+        browser.assert_production_routes(index_digest)
+        token = browser.login(self.password)
+        body, headers = browser.request("/api/__reven_smoke_missing__", expected=404)
+        assert headers.get_content_type() == "application/json" and isinstance(json.loads(body), dict)
+        browser.logout(token)
+
+    def assert_static_mounts(self) -> None:
+        mounts = []
+        for service in ("reven", "caddy"):
+            container = self.compose("ps", "-q", service, capture=True)
+            configuration = json.loads(
+                run("docker", "inspect", "--format", "{{json .Mounts}}", container, capture=True)
+            )
+            mounts.append(next(mount for mount in configuration if mount["Destination"] == "/srv/reven"))
+        application, caddy = mounts
+        assert application["Type"] == caddy["Type"] == "volume"
+        assert application["Name"] == caddy["Name"] and application["Source"] == caddy["Source"]
+        assert application["RW"] is True and caddy["RW"] is False
+
+    def static_index_digest(self) -> str:
+        return self.compose(
+            "exec",
+            "-T",
+            "reven",
+            "python",
+            "-c",
+            "\n".join(
+                [
+                    "import hashlib",
+                    "from pathlib import Path",
+                    "image = Path('/app/web-dist')",
+                    "current = Path('/srv/reven/current')",
+                    "release = (image / '.release').read_text().strip()",
+                    "assert (current / '.release').read_text().strip() == release",
+                    "assert current.resolve().name == release",
+                    "assert (current / 'index.html').read_bytes() == (image / 'index.html').read_bytes()",
+                    "print(hashlib.sha256((image / 'index.html').read_bytes()).hexdigest())",
+                ]
+            ),
+            capture=True,
+        )
+
+    def https_browser(self, source: str, *, production: bool = False) -> Browser:
+        isolated = (
+            json.loads(self.compose("config", "--format", "json", capture=True))["services"] if production else None
+        )
         self.compose("down", "--timeout", "30")
         caddyfile = self.temporary / "Caddyfile"
-        caddyfile.write_text(
-            (ROOT / "infra/self-host/Caddyfile").read_text().replace("{\n", "{\n\ttls internal\n", 1),
-            encoding="utf-8",
-        )
-        override = self.temporary / "tls.yml"
-        override.write_text(
-            "services:\n  reven:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
-            "  caddy:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
-            "    ports: !override\n      - '127.0.0.1:8443:8443'\n"
-            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n",
-            encoding="utf-8",
-        )
+        caddyfile.write_text(source, encoding="utf-8")
+        override = self.write_tls_override(caddyfile, isolated)
+        if production:
+            self.files = [ROOT / "infra/compose/docker-compose.yml"]
         self.files.append(override)
         self.up()
         self.compose(
@@ -210,9 +282,34 @@ class Deployment:
         )
         ca_file = self.temporary / "root.crt"
         self.compose("cp", "caddy:/data/caddy/pki/authorities/local/root.crt", str(ca_file))
-        browser = Browser("https://localhost:8443", ca_file=ca_file)
-        token = browser.login(self.password)
-        browser.logout(token)
+        return Browser("https://localhost:8443", ca_file=ca_file)
+
+    def write_tls_override(self, caddyfile: Path, isolated: dict[str, dict[str, Any]] | None) -> Path:
+        override = self.temporary / ("production-tls.yml" if isolated else "tls.yml")
+        postgres = ""
+        reven = "    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
+        if isolated:
+            postgres = f"  postgres: {json.dumps(isolated['postgres'])}\n"
+            environment = {**isolated["reven"]["environment"], "REVEN_PUBLIC_BASE_URL": "https://localhost:8443"}
+            reven = (
+                "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
+                "    env_file: !override []\n"
+                f"    environment: {json.dumps(environment)}\n"
+                f"    depends_on: {json.dumps(isolated['reven']['depends_on'])}\n"
+            )
+        override.write_text(
+            "services:\n"
+            + postgres
+            + "  reven:\n"
+            + reven
+            + "  caddy:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
+            "    ports: !override\n      - '127.0.0.1:8443:8443'\n"
+            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n"
+            + ("volumes:\n  postgres-data:\n" if isolated else ""),
+            encoding="utf-8",
+        )
+        override.chmod(0o600)
+        return override
 
 
 def exercise(deployment: Deployment) -> None:
@@ -223,6 +320,10 @@ def exercise(deployment: Deployment) -> None:
         print("Self-host HTTP, authentication, saved RSS materials, volumes and licenses passed.", flush=True)
         deployment.assert_https()
         print("Self-host HTTPS passed with an explicitly trusted test CA and Secure session cookies.", flush=True)
+        deployment.assert_production()
+        print(
+            "Production Caddy routes, image assets, read-only shared volume and same-origin HTTPS passed.", flush=True
+        )
     finally:
         try:
             deployment.compose("ps", "--all")

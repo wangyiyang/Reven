@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/reven-server/backend/ci-release-contract.md", "reason": "保持 full-only 容器门禁、ACR digest 发布及隔离验证契约"}
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "保持 HTTPS Origin、Cookie/CSRF、只读卷与内部 MCP 隔离契约"}
+{"file": ".trellis/tasks/10-06-unify-vps-deploy/research/validation-plan.md", "reason": "生产路由真实验收、CI 路径过滤及既有烟测复用方案"}
+{"file": ".trellis/tasks/10-06-unify-vps-deploy/research/deployment-context.md", "reason": "现网入口、镜像身份与未批准业务迁移的上线边界"}

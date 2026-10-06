@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 
 const noticeName = /^(licen[cs]e|copying|copyright|notice|authors|ofl)([._-]|$)/i;
@@ -39,6 +39,11 @@ function collectPackage(root, output) {
   const raw = readFileSync(join(root, "package.json"));
   const pkg = JSON.parse(raw);
   const id = `${pkg.name.replaceAll("/", "__")}@${pkg.version}`;
+  const legacy = join(output, "packages", id, "package.json");
+  if (existsSync(legacy)) {
+    if (!readFileSync(legacy).equals(raw)) throw new Error(`Unrecognized legacy package manifest: ${id}`);
+    unlinkSync(legacy);
+  }
   const evidence = [];
   for (const file of noticeFiles(root)) {
     const destination = join("packages", id, relative(root, file));
@@ -46,10 +51,9 @@ function collectPackage(root, output) {
     cpSync(file, join(output, destination));
     evidence.push({ path: destination, sha256: createHash("sha256").update(readFileSync(file)).digest("hex") });
   }
-  mkdirSync(join(output, "packages", id), { recursive: true });
-  writeFileSync(join(output, "packages", id, "package.json"), raw);
   return {
     name: pkg.name, version: pkg.version,
+    manifest_sha256: createHash("sha256").update(raw).digest("hex"),
     license: pkg.license ?? pkg.licenses ?? "UNKNOWN",
     source: pkg.repository ?? pkg.homepage ?? "UNKNOWN",
     evidence,
