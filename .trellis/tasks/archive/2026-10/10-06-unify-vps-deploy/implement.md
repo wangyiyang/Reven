@@ -1,13 +1,13 @@
 # 实施与发布计划
 
-状态：用户已于 2026-10-06 明确批准实施，任务为 in_progress。主线部署修复和本地检查已完成；生产补丁制作、提交门禁、原生 AMD64 CI 与上线验收按下列清单继续。
+状态：主线 PR #211 已合并，v0.7.2 已从独立生产补丁发布且完成真实验收。当前产品工作与上线门禁全部完成，按 Trellis finish-work 归档并记录会话；最终证据见 implementation-report.md。
 
 ## 1. 实施前门禁
 
 - [x] 用户在最终规划摘要之后明确批准实施；随后才 task.py start。
 - [x] 创建 codex/unify-vps-deploy 主线修复分支，基于 origin/main；保留当前任务文档和主工作区已有文件。
 - [x] 实施/check 采用 Trellis 代理，提示词包含 Active task 与准确工作树路径；代理不提交、推送、部署，不改未分配文件。
-- [ ] 当前生产基线 v0.7.1 / 2066c3c 与 digest 067d44... 已由运行镜像及成功发布日志对应；发布前重新核对环境未被其它工作改变。
+- [x] 当前生产基线 v0.7.1 / 2066c3c 与 digest 067d44... 已由运行镜像及成功发布日志对应；发布前重新核对环境未被其它工作改变。
 
 ## 2. 主线修复
 
@@ -35,16 +35,16 @@ pnpm --filter @reven/web build
 ```
 
 - [x] 使用实际可用的 uv/pnpm 环境；依赖按 frozen 锁文件安装，不改 lock 文件。
-- [ ] Cookie/CSRF/auth 回归用专用已迁移测试数据库；不得以 fixture skip 当作通过，不指向生产库。
-- [ ] 向功能分支运行 full CI；等待终态与所有 required checks，核实真实生产路由烟测阶段执行。
+- [x] Cookie/CSRF/auth 回归用专用已迁移测试数据库；不得以 fixture skip 当作通过，不指向生产库。
+- [x] 向功能分支运行 full CI；等待终态与所有 required checks，核实真实生产路由烟测阶段执行。
 - [x] check 代理完成主线全范围检查与补丁边界复核，主会话同步规范及任务记录；本地检查结果见 implementation-report.md。
-- [ ] 依 Trellis Phase 3.4 给出实际 dirty files 的原子提交计划，用户一次性确认后提交，不夹带 dogfood-output。
-- [ ] 主线 PR 创建后 attach_artifact，完成审阅/检查后合并；这一步本身不发布 main 应用。
+- [x] 依 Trellis Phase 3.4 给出实际 dirty files 的原子提交计划，用户一次性确认后提交，不夹带 dogfood-output。
+- [x] 主线 PR 创建后 attach_artifact，完成审阅/检查后合并；这一步本身不发布 main 应用。
 
 ## 4. 生产补丁分支
 
 - [x] 用受管理的独立工作树从 v0.7.1 创建 codex/unify-vps-deploy-hotfix（用户已确认本次例外）。
-- [x] 仅回移本任务经审阅的 15 个部署/test/docs/spec 文件；从 main 带入 release.yml 的两条 gha cache 配置修复，不摘取 #207 或其它业务 commit。
+- [x] 回移本任务经审阅的原 15 个部署/test/docs/spec 文件及随后必要的许可包装/验证修复；从 main 带入 release.yml 的两条 gha cache 配置修复，不摘取 #207 或其它业务 commit。
 - [x] 不整文件覆盖业务代码，不 reset/revert main 已有业务变化。
 - [x] 比较包含未提交工作区修改的补丁与 v0.7.1，以下命令无输出；提交后再次核对：
 
@@ -54,26 +54,29 @@ git diff v0.7.1 -- server/src server/migrations web/src pyproject.toml server/py
 
 - [x] check 代理完整检查补丁全部 diff，仅出现获批的部署、验证、文档和缓存变化；alembic heads 确认为 0024_rss_resilience。
 - [x] 实际补丁分支独立运行聚焦 pytest、ruff/format、mypy、actionlint、前端构建和假 Docker 部署脚本测试，全部通过。
-- [ ] 在实际补丁分支运行原生 Linux AMD64 full CI，不用 main 的检查冒充补丁证据。
+- [x] 在实际补丁分支运行原生 Linux AMD64 full CI，不用 main 的检查冒充补丁证据。
 
 ## 5. 发布与真实验收
 
-- [ ] 发布前只读检查当前 DB revision=0024、镜像仍为已确认基线、Vercel 旧入口可用；记录健康镜像历史与其它 VPS 服务状态。
-- [ ] 新 semver tag 计划 v0.7.2，先检查 tag 与 ACR 版本均未占用；不重写既有 tag、不使用 latest 作为部署身份。
-- [ ] tag 指向经过验证的补丁 commit；沿现有 release workflow 完整 gate、构建、漏洞扫描、SBOM、镜像推送及按 digest 部署。服务器不 build，不私自替换 infra。
-- [ ] 等待 release/deploy 的真实终态；API health 与依赖检查均 ok，Caddy 正常。
-- [ ] HTTPS GET 首页/login/实际深链接，提取当次 index 的 JS/CSS，验收 MIME/缓存/缺失资源 404、安全头及 /agent/* 404。
-- [ ] 核对 HTTP index/release 与新镜像一致，Caddy 静态挂载 ro；DB revision 仍为 0024。
-- [ ] 用受控真实会话验证 VPS 同源登录与业务只读页面；秘密仅留在内存，输出只保留状态与验收结果，不创建业务数据。
-- [ ] 验证 Vercel 不再日常 Git 自动发布；保留旧站点/白名单回退能力，记录正式 VPS 入口与用户首次需重新登录。
-- [ ] 记录源码、tag、digest、run 链接、测试和线上证据。不能用 health=200 或 GitHub Release 页面代替全部验收。
+- [x] 发布前只读检查当前 DB revision=0024、镜像仍为已确认基线、Vercel 旧入口可用；记录健康镜像历史与其它 VPS 服务状态。
+- [x] 新 semver tag 计划 v0.7.2，先检查 tag 与 ACR 版本均未占用；不重写既有 tag、不使用 latest 作为部署身份。
+- [x] tag 指向经过验证的补丁 commit；沿现有 release workflow 完整 gate、构建、漏洞扫描、SBOM、镜像推送及按 digest 部署。服务器不 build，不私自替换 infra。
+- [x] 等待 release/deploy 的真实终态；API health 与依赖检查均 ok，Caddy 正常。
+- [x] HTTPS GET 首页/login/实际深链接，提取当次 index 的 JS/CSS，验收 MIME/缓存/缺失资源 404、安全头及 /agent/* 404。
+- [x] 核对 HTTP index/release 与新镜像一致，Caddy 静态挂载 ro；DB revision 仍为 0024。
+- [x] 用受控真实会话验证 VPS 同源登录与业务只读页面；秘密仅留在内存，输出只保留状态与验收结果，不创建业务数据。
+- [x] 验证 Vercel 不再日常 Git 自动发布；保留旧站点/白名单回退能力，记录正式 VPS 入口与用户首次需重新登录。
+- [x] 记录源码、tag、digest、run 链接、测试和线上证据。不能用 health=200 或 GitHub Release 页面代替全部验收。
 
 ## 6. 故障恢复与收尾
 
-- [ ] 若新入口失败，按原 v0.7.1 完整 digest 调用现有受限部署脚本；不执行 DB downgrade、不清空任何数据卷。
-- [ ] 验证原 API + Vercel 入口恢复；明确该回滚不会保留 VPS 前端。
-- [ ] 若上线前 DB 已被其它发布推进，停止此补丁上线并报告，不强行把 0024 应用放回更高 schema。
-- [ ] 最终按 Trellis finish-work 记录/归档，保留主线与补丁的关联证据，清理仅本任务不再需要的受管理工作树。
+本次发布未失败，也未发现数据库已被其它上线推进，以下条件分支未触发，不能记作实际回滚验证：
+
+- 若新入口失败，按原 v0.7.1 完整 digest 调用现有受限部署脚本；不执行 DB downgrade、不清空数据卷。未实际执行。
+- 恢复后须验证原 API + Vercel 入口；该回滚不保留 VPS 前端。未实际执行恢复验收。
+- 若上线前 DB 已被其它发布推进，停止此补丁上线。发布前核对仍为 0024，本次未触发停止条件。
+- [x] 实际 CI、发布、digest、数据库、可信 HTTPS 与真实会话验收已记录；正式版本说明已发布。
+- Trellis 归档、journal 与记录分支合并在收尾阶段执行；仅清理本任务不再需要的受管理工作树。
 
 ## 关键文件与回滚点
 
