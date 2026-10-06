@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "talents 域现状契约：端点、写入口、due 语义；本任务将扩展并改写到期语义条款"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "P1 后的范式参考：派生读入口、嵌套端点、scoped 404、exclude_unset 更新"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "alembic migration、check 约束、RLS 惯例"}
+{"file": ".trellis/spec/reven-server/backend/error-handling.md", "reason": "错误映射与 404/422 约定"}
+{"file": ".trellis/spec/web/frontend/index.md", "reason": "web 层 pre-development checklist 入口"}
+{"file": ".trellis/spec/web/frontend/type-safety.md", "reason": "类型与 API payload 序列化约定，改 types/talents-api 前必读"}
+{"file": ".trellis/tasks/10-05-talent-profile-expansion/research/touchpoints.md", "reason": "P2 全触点清单（file:line），实施与自检依据"}
