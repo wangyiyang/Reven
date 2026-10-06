@@ -7,9 +7,9 @@ ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安�
 
 2026-10-06 的 [v0.7.2](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2) 已发布并通过生产验收，以 v0.7.1 为基线，保留数据库
 `0024_rss_resilience`，不包含 main 中的 0025/0026 与 CRM/人才库业务变更。
-旧 Vercel 部署与其 CSRF Origin 白名单保留作故障回退。当前项目未连接 Git，没有持续
-Git 自动发布，平台自动部署开关仍启用；本次无需改平台。上线后已再次核对无 Git 连接，
-后续接入仍须核对平台状态，不能仅凭 web/vercel.json 宣称平台开关已关闭。历史配置见
+2026-10-06 随后已删除旧 Vercel 项目、部署与默认域名，并清空服务器的旧 Origin
+白名单；旧页面回退入口正式退役，当前站点不依赖 Vercel 代理。清理及验证见
+[Vercel 清理记录](vercel-cleanup-20261006.md)，历史配置见
 [Vercel 部署记录](vercel-deploy.md)。发布前后的实际状态仍须按第 9 节核验。
 
 Reven 以 Docker Compose 部署在 `dev.wangyiyang.cc`，时区统一使用
@@ -294,9 +294,10 @@ DEPLOY_OPERATION=rollback /opt/reven/scripts/deploy_reven.sh
 不得直接回滚到该迁移之前的镜像；需要恢复旧功能时先恢复对应数据库备份。
 同一新数据模型内的镜像回滚后重复第 9 步验证。
 
-本次补丁的回退基线为原 v0.7.1 镜像：恢复它会同步该镜像的纯 API Caddy 配置，VPS
-首页再次返回 404，页面访问改回旧 Vercel 域。为此保留旧部署与 Origin 白名单；不要把
-“恢复原镜像”描述为“回滚后仍有 VPS 前端”。该补丁没有 schema 变化，不执行数据库降级。
+原 v0.7.1 镜像只含生产 API 路由，恢复它会使 VPS 首页再次返回 404。旧 Vercel
+项目及其 Origin 白名单已于 2026-10-06 清理，不能再依赖旧站完成页面回退，也不能把
+“恢复原镜像”描述为整站恢复。保持完整站点须选择包含 VPS 前端路由与只读静态卷挂载的
+兼容镜像（例如当前 v0.7.2），并验证数据库兼容性。该补丁没有 schema 变化，不执行数据库降级。
 若发布前发现数据库已由其它上线推进到 0025/0026，停止本补丁上线并重新评估；旧 0024
 应用不能当作更高 schema 的直接回滚方案。
 
