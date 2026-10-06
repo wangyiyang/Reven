@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-06-search-profile-fields/research/touchpoints.md", "reason": "触点核对无遗漏；推荐字段清单与实施 diff 对照"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "EXISTS/禁止 join 契约核对"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "q/tag 语义核对（tag 精确筛不得变）"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "服务端质量门"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "web 质量门"}

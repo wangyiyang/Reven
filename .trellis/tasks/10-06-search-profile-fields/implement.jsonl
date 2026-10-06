@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-06-search-profile-fields/research/touchpoints.md", "reason": "全部触点与字段行号证据，实施前必读"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "EXISTS 既定模式与禁止 join 直数契约（:68-69, :89-91）"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "q/tag 语义契约（:64-67），扩展时保持 tag 精确筛不变"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "服务端质量门"}
