@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -26,21 +27,41 @@ def test_compose_publishes_tls_and_transitional_http_ports() -> None:
     assert compose["services"]["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
 
 
-def test_caddy_api_only_no_static_file_serving() -> None:
+def test_caddy_keeps_api_and_internal_agent_outside_spa_fallback() -> None:
     caddyfile = (ROOT / "infra/caddy/Caddyfile").read_text(encoding="utf-8")
 
-    # VPS 纯 API 形态（2026-10-05）：前端唯一入口 Vercel，Caddy 不再服务静态文件
-    assert "file_server" not in caddyfile
-    assert "try_files" not in caddyfile
-    assert "/srv/reven" not in caddyfile
-    # /api 反代保留，非 /api 路径兜底 404
     assert "handle /api/* {\n\t\treverse_proxy reven:8000\n\t}" in caddyfile
-    assert "respond 404" in caddyfile
+    assert "handle /agent/* {\n\t\trespond 404\n\t}" in caddyfile
 
 
-def test_compose_caddy_does_not_mount_static_volume() -> None:
+def test_caddy_static_assets_and_spa_have_separate_cache_policies() -> None:
+    caddyfile = (ROOT / "infra/caddy/Caddyfile").read_text(encoding="utf-8")
+    assets = caddyfile.split("\thandle /assets/* {\n", 1)[1].split("\n\t}", 1)[0]
+    pages = caddyfile.split("\thandle {\n", 1)[1].split("\n\t}", 1)[0]
+
+    assert 'header Cache-Control "public, max-age=31536000, immutable"' in assets
+    assert "root * /srv/reven/current" in assets
+    assert "file_server" in assets
+    # 缺失静态资源必须返回 404，不能重写成 index.html。
+    assert "try_files" not in assets
+    assert 'header Cache-Control "no-cache"' in pages
+    assert "root * /srv/reven/current" in pages
+    assert "try_files {path} /index.html" in pages
+    assert "file_server" in pages
+
+
+def test_compose_shares_static_volume_read_only_with_caddy() -> None:
     compose = yaml.safe_load((ROOT / "infra/compose/docker-compose.yml").read_text(encoding="utf-8"))
 
-    # caddy 不再挂载 reven-static；reven 服务仍写入该卷（留待镜像 slim 化一并处理）
-    assert not any("reven-static" in volume for volume in compose["services"]["caddy"]["volumes"])
+    assert "reven-static:/srv/reven:ro" in compose["services"]["caddy"]["volumes"]
     assert "reven-static:/srv/reven" in compose["services"]["reven"]["volumes"]
+
+
+def test_vercel_retains_fallback_rewrites_without_git_deployments() -> None:
+    config = json.loads((ROOT / "web/vercel.json").read_text(encoding="utf-8"))
+
+    assert config["git"]["deploymentEnabled"] is False
+    assert config["rewrites"] == [
+        {"source": "/api/(.*)", "destination": "https://dev.wangyiyang.cc/api/$1"},
+        {"source": "/(.*)", "destination": "/index.html"},
+    ]

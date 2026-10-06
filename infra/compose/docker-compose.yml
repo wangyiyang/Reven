@@ -60,6 +60,7 @@ services:
       - "443:443/udp"
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - reven-static:/srv/reven:ro
       - caddy-data:/data
       - caddy-config:/config
     read_only: true
