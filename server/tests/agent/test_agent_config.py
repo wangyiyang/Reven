@@ -77,7 +77,7 @@ async def test_resolves_config_from_integration_table(
         },
         api_key="sk-db-key",
     )
-    settings = _make_settings(dsh_home=tmp_path / "dsh")
+    settings = _make_settings(dsh_home=tmp_path / "dsh", workspace_root=tmp_path / "workspace")
 
     config = await resolve_agent_config(IntegrationCredentials(session_factory, settings), settings)
 
@@ -87,7 +87,7 @@ async def test_resolves_config_from_integration_table(
         base_url="https://api.deepseek.com",
         api_key="sk-db-key",
         dsh_home=tmp_path / "dsh",
-        cwd=tmp_path / "dsh",
+        cwd=tmp_path / "workspace",
     )
 
 
