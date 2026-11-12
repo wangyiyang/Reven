@@ -289,17 +289,38 @@ class Deployment:
         agent = ""
         reven = "    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
         if isolated:
+            workspace_dir = self.temporary / "workspace"
+            downloads_dir = workspace_dir / "downloads"
+            downloads_dir.mkdir(parents=True, exist_ok=True)
+            workspace_dir.chmod(0o777)
+            downloads_dir.chmod(0o777)
+
             postgres = f"  postgres: {json.dumps(isolated['postgres'])}\n"
+            agent_env = {
+                **isolated["reven"]["environment"],
+                "DSH_HOME": "/data/dsh",
+                "WORKSPACE_ROOT": "/workspace",
+                "HOME": "/data/dsh",
+                "REVEN_AGENT_MCP_URL": "http://reven:8000/agent/mcp",
+            }
             agent = (
                 "  agent:\n"
                 "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
                 "    env_file: !override []\n"
+                f"    environment: {json.dumps(agent_env)}\n"
+                "    volumes: !override\n"
+                "      - dsh-data:/data/dsh:rw\n"
+                f"      - {json.dumps(str(workspace_dir))}:/workspace:rw\n"
             )
             environment = {**isolated["reven"]["environment"], "REVEN_PUBLIC_BASE_URL": "https://localhost:8443"}
             reven = (
                 "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
                 "    env_file: !override []\n"
                 f"    environment: {json.dumps(environment)}\n"
+                "    volumes: !override\n"
+                "      - reven-data:/data\n"
+                "      - reven-static:/srv/reven\n"
+                f"      - {json.dumps(str(downloads_dir))}:/workspace/downloads:rw\n"
             )
         override.write_text(
             "services:\n"
