@@ -12,7 +12,7 @@ DEFAULT_AGENT_MCP_URL = "http://127.0.0.1:8000/agent/mcp"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     database_url: SecretStr
     reven_master_key: SecretStr
