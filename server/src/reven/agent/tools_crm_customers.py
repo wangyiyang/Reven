@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from pydantic import Field
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
     ConfirmCustomerNameParam,
@@ -17,7 +18,6 @@ from reven.agent.crm_tool_support import (
     _today,
     _validate,
 )
-from reven.agent.tool_binding import ToolSessionBinding
 from reven.agent.tools_crm_contacts import _contact_line
 from reven.agent.tools_crm_follow_ups import _follow_up_line
 from reven.crm.inputs import CustomerCreate, CustomerUpdate
@@ -27,7 +27,10 @@ from reven.crm.service import CrmService
 from reven.scheduling import SHANGHAI
 
 
-class CrmCustomerTools(ToolSessionBinding):
+class CrmCustomerTools:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
     async def list_customers(
         self,
         query: Annotated[
@@ -43,7 +46,7 @@ class CrmCustomerTools(ToolSessionBinding):
         拿到 id 后可调用 crm_customer_get 看详情，或 crm_customer_update / crm_customer_delete 做变更。
         """
         today = _today()
-        async with self._session() as session:
+        async with self._session_factory() as session:
             plans = await CrmRepository(session).list_customers(
                 status=status,
                 due=due,
@@ -58,7 +61,7 @@ class CrmCustomerTools(ToolSessionBinding):
 
     async def get_customer(self, customer_id: CustomerIdParam) -> str:
         """查看客户详情：基本信息 + 当前跟进计划（派生自最新跟进记录）+ 全部联系人 + 全部跟进（拜访）记录。"""
-        async with self._session() as session:
+        async with self._session_factory() as session:
             repository = CrmRepository(session)
             plan = await repository.get_customer_plan(customer_id)
             if plan is None:
@@ -100,9 +103,8 @@ class CrmCustomerTools(ToolSessionBinding):
             },
         )
         with _mutation_errors():
-            async with self._session() as session:
-                customer = await CrmService(session, commit=self._commits).create_customer(payload)
-                self._record_entity(customer)
+            async with self._session_factory() as session:
+                customer = await CrmService(session).create_customer(payload)
         plan = CustomerPlan(customer=customer, next_action=None, next_due_on=None)
         return f"已创建客户：{_customer_line(plan)}。可用 crm_follow_up_create 记录第一次跟进并定下当前计划。"
 
@@ -122,9 +124,8 @@ class CrmCustomerTools(ToolSessionBinding):
         values = _collect_updates({"name": name, "status": status, "source": source, "notes": notes})
         payload = _validate(CustomerUpdate, values)
         with _mutation_errors():
-            async with self._session() as session:
-                updated = await CrmService(session, commit=self._commits).update_customer(customer_id, payload)
-                self._record_entity(updated)
+            async with self._session_factory() as session:
+                updated = await CrmService(session).update_customer(customer_id, payload)
                 plan = await CrmRepository(session).get_customer_plan(updated.id)
         if plan is None:  # pragma: no cover - 刚更新的客户必然存在
             raise _customer_not_found(customer_id)
@@ -138,16 +139,15 @@ class CrmCustomerTools(ToolSessionBinding):
         调用前必须与用户确认删除意图，并把客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
-            async with self._session() as session:
+            async with self._session_factory() as session:
                 await _confirm_customer_name(session, customer_id, confirm_customer_name)
-                customer = await CrmService(session, commit=self._commits).delete_customer(customer_id)
-                self._record_entity(customer)
+                customer = await CrmService(session).delete_customer(customer_id)
                 name = customer.name
         return f"已删除客户「{name}」（id={customer_id}），其名下联系人与跟进记录已一并删除。"
 
     async def lead_funnel_stats(self) -> str:
         """线索漏斗统计：按客户状态（潜在客户/跟进中/合作客户/暂停跟进/已流失）统计各阶段客户数量。"""
-        async with self._session() as session:
+        async with self._session_factory() as session:
             plans = await CrmRepository(session).list_customers(
                 status=None,
                 due=None,
@@ -165,7 +165,7 @@ class CrmCustomerTools(ToolSessionBinding):
     async def list_due_follow_ups(self) -> str:
         """今日待跟进清单：下次跟进日期已到期（今天）或已逾期的客户，含下一步行动，按日期升序。"""
         today = _today()
-        async with self._session() as session:
+        async with self._session_factory() as session:
             repository = CrmRepository(session)
             overdue = await repository.list_customers(status=None, due="overdue", query=None, today=today)
             due_today = await repository.list_customers(status=None, due="today", query=None, today=today)

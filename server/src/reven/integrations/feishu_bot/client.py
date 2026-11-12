@@ -84,6 +84,27 @@ class FeishuBotApiClient:
             raise FeishuBotApiError("飞书机器人信息响应格式无效")
         return open_id
 
+    async def download_message_resource(
+        self,
+        message_id: str,
+        file_key: str,
+        *,
+        resource_type: str = "file",
+    ) -> bytes:
+        """从消息中下载附件资源（如 Excel 报表文件）。"""
+        token = await self._tenant_token()
+        url = f"{MESSAGES_URL}/{quote(message_id)}/resources/{quote(file_key)}"
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {"type": resource_type}
+        if self._http is not None:
+            resp = await self._http.get(url, headers=headers, params=params, timeout=60.0, follow_redirects=True)
+        else:
+            async with httpx.AsyncClient(timeout=60.0, transport=self._transport) as client:
+                resp = await client.get(url, headers=headers, params=params, follow_redirects=True)
+        if resp.status_code != 200:
+            raise FeishuBotApiError(f"飞书附件下载失败（HTTP {resp.status_code}）")
+        return resp.content
+
     async def send_text(self, open_id: str, text: str) -> None:
         await self._send_message(open_id, "text", {"text": text})
 

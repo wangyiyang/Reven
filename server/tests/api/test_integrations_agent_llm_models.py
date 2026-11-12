@@ -5,8 +5,11 @@ import base64
 import os
 
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
+from reven.agent.runtime import AgentRuntime
+from reven.agent.service import AgentService
 from reven.integrations.models import Integration
 from reven.security.secrets import SecretBox
 from sqlalchemy import select
@@ -297,16 +300,13 @@ def test_disabled_model_can_still_be_tested(client: TestClient) -> None:
     assert response.json()["success"] is True
 
 
-def test_delete_active_run_model_rejected_with_async_guard(client: TestClient) -> None:
+@pytest.mark.parametrize("session_id", ["rest-session", "feishu:chat:user"])
+def test_delete_in_use_model_rejected(client: TestClient, session_id: str) -> None:
     _put_with_models(client, KEY_DEFAULT, [PRO_ENTRY, {**QWEN_ENTRY, "enabled": True}])
-
-    class ActiveRunService:
-        async def model_refs_in_use(self) -> frozenset[str]:
-            return frozenset({PRO_REF})
-
-    service = ActiveRunService()
+    service = AgentService(AgentRuntime(None), client.app.state.integration_credentials)  # type: ignore[union-attr]
     client.app.state.agent_service = service  # type: ignore[union-attr]
-    assert client.portal.call(service.model_refs_in_use) == frozenset({PRO_REF})
+    client.portal.call(service.use_model, session_id, PRO_REF)
+    assert service.model_refs_in_use() == frozenset({PRO_REF})
 
     blocked = client.put("/api/integrations/agent-llm", json=_payload(models=[QWEN_ENTRY]))
     assert blocked.status_code == 409

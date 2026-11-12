@@ -1,53 +1,18 @@
 """Shared API dependencies and typed service injection points."""
 
 from collections.abc import AsyncIterator
-from typing import Annotated, Literal, Protocol, cast
-from uuid import UUID
+from typing import Annotated, Protocol, cast
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from reven.agent.context import ADMIN_ACTOR, AgentActor
-from reven.agent.service_types import AgentTurn, ConfigurationState, RunState
+from reven.agent.service import AgentTurn
 from reven.config import Settings
 from reven.rss.review_service import CandidateReviewService
 
 
 class AgentChatService(Protocol):
-    async def chat(
-        self,
-        message: str,
-        session_id: str | None = None,
-        *,
-        actor: AgentActor = ADMIN_ACTOR,
-        request_key: str | None = None,
-        wait_timeout_seconds: float | None = None,
-    ) -> AgentTurn: ...
-
-    async def get_configuration(self) -> ConfigurationState: ...
-
-    async def update_configuration(self, prompt: str, tool_names: list[str]) -> ConfigurationState: ...
-
-    async def get_revision(self, revision_id: UUID) -> ConfigurationState: ...
-
-    async def history(self, session_id: str, *, actor: AgentActor = ADMIN_ACTOR) -> tuple[RunState, ...]: ...
-
-    async def get_run(
-        self, run_id: UUID, *, actor: AgentActor = ADMIN_ACTOR, session_id: str | None = None
-    ) -> RunState: ...
-
-    async def resolve_approval(
-        self,
-        approval_id: UUID,
-        decision: Literal["approve", "reject"],
-        session_id: str,
-        *,
-        actor: AgentActor = ADMIN_ACTOR,
-    ) -> RunState: ...
-
-    async def resume_run(
-        self, run_id: UUID, *, actor: AgentActor = ADMIN_ACTOR, session_id: str | None = None
-    ) -> AgentTurn: ...
+    async def chat(self, message: str, session_id: str | None = None) -> AgentTurn: ...
 
 
 def get_agent_service(request: Request) -> AgentChatService:
@@ -58,15 +23,6 @@ def get_agent_service(request: Request) -> AgentChatService:
 
 
 AgentServiceDep = Annotated[AgentChatService, Depends(get_agent_service)]
-
-
-def get_agent_actor(request: Request) -> AgentActor:
-    if getattr(request.state, "authenticated_owner_id", None) != ADMIN_ACTOR.owner_id:
-        raise HTTPException(status_code=401, detail="未认证的 Agent 请求")
-    return ADMIN_ACTOR
-
-
-AgentActorDep = Annotated[AgentActor, Depends(get_agent_actor)]
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:

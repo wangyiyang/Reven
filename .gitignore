@@ -21,5 +21,6 @@ sync-to-notion.sh
 .dsh-runtime/
 .next/
 test-results/
+dogfood-output/
 *.tsbuildinfo
 next-env.d.ts

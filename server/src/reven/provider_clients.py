@@ -143,3 +143,16 @@ class FeishuReplier:
             if bot is None:
                 raise FeishuBotApiError("飞书应用机器人未启用或凭证不可用")
             await bot.api.reply_markdown(message_id, text)
+
+
+class FeishuResourceDownloader:
+    """下载消息附件资源，复用 ProviderClients 主循环 HTTP 客户端。"""
+
+    def __init__(self, clients: ProviderClients) -> None:
+        self._clients = clients
+
+    async def __call__(self, message_id: str, file_key: str, *, resource_type: str = "file") -> bytes:
+        async with self._clients.feishu_bot() as bot:
+            if bot is None:
+                raise FeishuBotApiError("飞书应用机器人未启用或凭证不可用")
+            return await bot.api.download_message_resource(message_id, file_key, resource_type=resource_type)

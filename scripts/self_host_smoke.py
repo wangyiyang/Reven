@@ -18,7 +18,7 @@ from typing import Any
 from self_host_http_smoke import Browser
 
 ROOT = Path(__file__).resolve().parents[1]
-SENTINELS = ("/data/self-host-smoke", "/srv/reven/.self-host-smoke")
+SENTINELS = ("/data/self-host-smoke", "/data/dsh/self-host-smoke", "/srv/reven/.self-host-smoke")
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -42,7 +42,6 @@ class Deployment:
     def __init__(self, temporary: Path) -> None:
         self.project = f"reven-ci-self-host-{secrets.token_hex(6)}"
         self.temporary = temporary
-        self.agent_thread_id: str | None = None
         self.password = secrets.token_hex(24)
         environment = temporary / ".env"
         environment.write_text(
@@ -92,10 +91,6 @@ class Deployment:
         assert not any("unconfined" in option for option in config["SecurityOpt"])
         assert config["SecurityOpt"] == ["no-new-privileges:true"]
         self.assert_licenses()
-        output = self.compose(
-            "exec", "-T", "reven", "python", "-c", (ROOT / "scripts/native_agent_smoke.py").read_text(), capture=True
-        )
-        self.agent_thread_id = output.splitlines()[-1]
 
     def assert_licenses(self) -> None:
         self.compose(
@@ -190,17 +185,6 @@ class Deployment:
         )
         self.compose("down", "--timeout", "30")
         self.up()
-        assert self.agent_thread_id is not None
-        self.compose(
-            "exec",
-            "-T",
-            "-e",
-            f"REVEN_SMOKE_THREAD={self.agent_thread_id}",
-            "reven",
-            "python",
-            "-c",
-            (ROOT / "scripts/native_agent_smoke.py").read_text(),
-        )
         browser.assert_persisted_source(source_id)
         browser.assert_saved_candidate(saved)
         self.compose(
@@ -301,26 +285,28 @@ class Deployment:
 
     def write_tls_override(self, caddyfile: Path, isolated: dict[str, dict[str, Any]] | None) -> Path:
         override = self.temporary / ("production-tls.yml" if isolated else "tls.yml")
-        postgres = ""
+        agent = ""
         reven = "    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
         if isolated:
-            postgres = f"  postgres: {json.dumps(isolated['postgres'])}\n"
+            agent = (
+                "  agent:\n"
+                "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
+                "    env_file: !override []\n"
+            )
             environment = {**isolated["reven"]["environment"], "REVEN_PUBLIC_BASE_URL": "https://localhost:8443"}
             reven = (
                 "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
                 "    env_file: !override []\n"
                 f"    environment: {json.dumps(environment)}\n"
-                f"    depends_on: {json.dumps(isolated['reven']['depends_on'])}\n"
             )
         override.write_text(
             "services:\n"
-            + postgres
+            + agent
             + "  reven:\n"
             + reven
             + "  caddy:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
             "    ports: !override\n      - '127.0.0.1:8443:8443'\n"
-            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n"
-            + ("volumes:\n  postgres-data:\n" if isolated else ""),
+            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n",
             encoding="utf-8",
         )
         override.chmod(0o600)

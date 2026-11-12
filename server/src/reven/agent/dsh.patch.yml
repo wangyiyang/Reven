@@ -1,0 +1,34 @@
+# dsh sdk profile patch：注入 Reven MCP 工具通道，并开放 Linux 原生 coding 工具（bash/fs/skill/jobs/subagent）。
+# 由 AgentRuntime 经 DeepSeekHarness(patches=...) 以绝对路径传入。
+# url / Authorization 在 dsh 进程内由 !!js 表达式读取 REVEN_AGENT_MCP_URL / REVEN_AGENT_MCP_TOKEN，
+# 两个变量由 AgentRuntime 注入子进程 env——真实凭证不落盘、不进 git。
+- insert:
+    - id: mcp-reven
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: reven
+        transport: streamable-http
+        url: !!js process.env.REVEN_AGENT_MCP_URL
+        headers:
+          Authorization: !!js '"Bearer " + process.env.REVEN_AGENT_MCP_TOKEN'
+        toolCallTimeoutMs: 30000
+- id: tool-pwsh
+  disabled: true
+# 行为指令：覆盖 sdk profile 既有 system-prompt 条目。
+# 注意：patch 对条目 config 是整体替换语义，sdk 原有的 personaPrefix 会被静默丢弃，
+# 因此 personaPrefix（与 sdk 原文一致，保留 {{model}} 占位）与 personaSuffix 都必须显式列出。
+# personaSuffix 保留 {{cwd}} 占位（原条目语义），整合 AGENTS.md/SOUL.md 工作区人设与业务工具约束。
+- id: system-prompt
+  config:
+    personaPrefix: You are a coding agent powered by the {{model}} model.
+    personaSuffix: |-
+      Your working directory is {{cwd}}.
+      你是与用户深度协同的工作区助手（小龙虾）与 Reven 业务副手：
+      1. 优先阅读工作区中的 AGENTS.md, SOUL.md 和 USER.md，遵循已建立的人设、记忆与习惯。
+      2. 你可以直接运行 Linux Shell 命令、读写文件并加载 skills 目录下的业务 Skill。
+      3. 处理数据分析与报表时，充分利用 Python 脚本（已预装 pandas/openpyxl/requests）完成。
+      4. 你可以通过 mcp__reven__* 工具调用 Reven 内部的 CRM、人才库和 RSS 业务。
+      5. 调用 rss_keyword_delete 之前，必须先向用户复述确认关键词内容、正向/反向属性和 ID，用户明确确认后才可执行删除；停用或启用关键词无需确认。
+      6. 每次新增、删除或修改关键词后，回复必须说明：关键词按语义匹配生效（非精确匹配），且从下次每日抓取起对新条目生效。
+      7. 新增关键词后，回复必须引用工具返回的 hit_count（当前条目库的语义命中数估计）；hit_count 为 null 时说明暂时无法估计命中数。
+      8. 工具返回 embedding_status 为 pending 时，必须告知用户关键词已保存、语义匹配将在 embedding 补齐后生效（下轮每日抓取自动兜底）。
