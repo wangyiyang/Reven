@@ -701,3 +701,25 @@ CRM 客户搜索补联系人职务/备注并修复通配符未转义缺陷；tal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: 切换自有服务器部署与独立 DSH Worker 架构
+<!-- trellis-session: v=2 fp=0363a7c615de8377 -->
+
+**Date**: 2026-11-12
+**Task**: 切换自有服务器部署与独立 DSH Worker 架构
+**Branch**: `main`
+
+### Summary
+
+下线 Supabase 依赖转为自有服务器全栈 PostgreSQL 17 + Caddy + FastAPI；回退 LangGraph 切换回 DSH runtime，通过独立容器暴露 :8001 内部端口，解禁 Bash/FS/Skills 工具与注入人设；飞书机器人支持接收文件并下载到 /workspace/downloads 供报表自动化分析。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3c2763e` | feat(agent): 切换自有服务器部署与独立 DSH Worker 架构 |
+
+### Status
+
+[OK] **Completed**

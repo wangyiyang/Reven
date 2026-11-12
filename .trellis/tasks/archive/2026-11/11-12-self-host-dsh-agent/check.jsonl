@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "Code quality, linting, typechecking, and test discipline"}
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "Verification of DSH runtime, timeout, and degradation"}
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "Verification of self-host compose healthchecks and container security"}
+{"file": ".trellis/spec/reven-server/backend/ci-release-contract.md", "reason": "Verification of release deployment script and image packaging"}

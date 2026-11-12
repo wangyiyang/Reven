@@ -27,24 +27,31 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RouteDecision:
-    """一条入站消息的路由结论：kind 决定回复策略，text 为 chat 时剥离 mention 占位符后的正文。"""
+    """一条入站消息的路由结论：kind 决定回复策略，text 为 chat/file 时的说明正文。"""
 
     kind: RouteKind
     text: str = ""
+    file_key: str | None = None
+    file_name: str | None = None
 
 
 def route_message(sender: Any, message: Any, bot_open_id: str | None) -> RouteDecision | None:
     """纯函数路由判定（不触网、不抛异常）：
 
     1. 非 user 消息（机器人自身/应用）→ None（防自循环）；
-    2. 私聊：text → chat，其他类型 → unsupported；
+    2. 私聊：text → chat，file → file，其他类型 → unsupported；
     3. 群聊：bot_open_id 未知或未被 @（只比 mentions[*].id.open_id）→ None；
-       被 @ 后非 text → unsupported；剥离全部 mention 占位符后为空 → guide，否则 → chat；
+       被 @ 后：text 判空与 guide，file → file，其他类型 → unsupported；
     4. content 畸形 JSON → 按非 text 处理为 unsupported。
     """
     if sender.sender_type != "user":
         return None
     if message.chat_type == "p2p":
+        if message.message_type == "file":
+            file_key, file_name = _extract_file_info(message)
+            if file_key:
+                return RouteDecision("file", text=file_name or file_key, file_key=file_key, file_name=file_name)
+            return RouteDecision("unsupported")
         if message.message_type != "text":
             return RouteDecision("unsupported")
         text = _strip_text(message)
@@ -52,6 +59,11 @@ def route_message(sender: Any, message: Any, bot_open_id: str | None) -> RouteDe
     if message.chat_type == "group":
         if bot_open_id is None or not _mentions_bot(message, bot_open_id):
             return None
+        if message.message_type == "file":
+            file_key, file_name = _extract_file_info(message)
+            if file_key:
+                return RouteDecision("file", text=file_name or file_key, file_key=file_key, file_name=file_name)
+            return RouteDecision("unsupported")
         if message.message_type != "text":
             return RouteDecision("unsupported")
         text = _strip_text(message)
@@ -59,6 +71,24 @@ def route_message(sender: Any, message: Any, bot_open_id: str | None) -> RouteDe
             return RouteDecision("unsupported")
         return RouteDecision("chat", text) if text else RouteDecision("guide")
     return None
+
+
+def _extract_file_info(message: Any) -> tuple[str | None, str | None]:
+    """提取文件消息的 file_key 与原始文件名。"""
+    content = message.content
+    if not isinstance(content, str):
+        return None, None
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return None, None
+    if not isinstance(payload, dict):
+        return None, None
+    file_key = payload.get("file_key")
+    file_name = payload.get("file_name")
+    if isinstance(file_key, str) and file_key:
+        return file_key, file_name if isinstance(file_name, str) else None
+    return None, None
 
 
 def _strip_text(message: Any) -> str | None:
@@ -112,13 +142,24 @@ def build_message_handler(chat_dispatch: ChatDispatch, bot_open_id: str | None) 
         if not message_id or not chat_id or not open_id:
             return
         try:
-            chat_dispatch.submit(
-                kind=decision.kind,
-                message_id=message_id,
-                chat_id=chat_id,
-                open_id=open_id,
-                text=decision.text,
-            )
+            try:
+                chat_dispatch.submit(
+                    kind=decision.kind,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                    open_id=open_id,
+                    text=decision.text,
+                    file_key=decision.file_key,
+                    file_name=decision.file_name,
+                )
+            except TypeError:
+                chat_dispatch.submit(
+                    kind=decision.kind,
+                    message_id=message_id,
+                    chat_id=chat_id,
+                    open_id=open_id,
+                    text=decision.text,
+                )
         except Exception as exc:
             logger.warning("飞书机器人消息分发失败（provider=%s, error_type=%s）", PROVIDER, type(exc).__name__)
 

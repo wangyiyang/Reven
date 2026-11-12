@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastmcp.exceptions import ToolError
 from pydantic import Field
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
     ConfirmCustomerNameParam,
@@ -19,17 +20,19 @@ from reven.agent.crm_tool_support import (
     _plan_text,
     _validate,
 )
-from reven.agent.tool_binding import ToolSessionBinding
 from reven.crm.inputs import FollowUpCreate, FollowUpUpdate
 from reven.crm.models import FollowUp
 from reven.crm.repository import CrmRepository, CustomerPlan
 from reven.crm.service import CrmService
 
 
-class CrmFollowUpTools(ToolSessionBinding):
+class CrmFollowUpTools:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
     async def list_follow_ups(self, customer_id: CustomerIdParam) -> str:
         """列出指定客户的全部跟进（拜访）记录，按跟进日期倒序。"""
-        async with self._session() as session:
+        async with self._session_factory() as session:
             repository = CrmRepository(session)
             customer = await repository.get_customer(customer_id)
             if customer is None:
@@ -70,11 +73,8 @@ class CrmFollowUpTools(ToolSessionBinding):
             },
         )
         with _mutation_errors():
-            async with self._session() as session:
-                customer, follow_up = await CrmService(session, commit=self._commits).create_follow_up(
-                    customer_id, payload
-                )
-                self._record_entity(follow_up)
+            async with self._session_factory() as session:
+                customer, follow_up = await CrmService(session).create_follow_up(customer_id, payload)
                 plan = await CrmRepository(session).get_customer_plan(customer_id)
         occurred = follow_up.occurred_on.isoformat()
         text = f"已为客户「{customer.name}」记录 {occurred} 的{follow_up.kind}跟进（id={follow_up.id}）。"
@@ -113,11 +113,8 @@ class CrmFollowUpTools(ToolSessionBinding):
             values["contact_id"] = contact_id
         payload = _validate(FollowUpUpdate, values)
         with _mutation_errors():
-            async with self._session() as session:
-                updated = await CrmService(session, commit=self._commits).update_follow_up(
-                    customer_id, follow_up_id, payload
-                )
-                self._record_entity(updated)
+            async with self._session_factory() as session:
+                updated = await CrmService(session).update_follow_up(customer_id, follow_up_id, payload)
         return f"已更新跟进记录：{_follow_up_line(0, updated).removeprefix('0. ')}"
 
     async def delete_follow_up(
@@ -131,10 +128,9 @@ class CrmFollowUpTools(ToolSessionBinding):
         调用前必须与用户确认删除意图，并把所属客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
-            async with self._session() as session:
+            async with self._session_factory() as session:
                 await _confirm_customer_name(session, customer_id, confirm_customer_name)
-                follow_up = await CrmService(session, commit=self._commits).delete_follow_up(customer_id, follow_up_id)
-                self._record_entity(follow_up)
+                follow_up = await CrmService(session).delete_follow_up(customer_id, follow_up_id)
                 label = f"{follow_up.occurred_on.isoformat()} 的{follow_up.kind}跟进"
         return f"已删除{label}（id={follow_up_id}）。"
 

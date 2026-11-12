@@ -1,32 +1,22 @@
-# Reven 维护者现有生产部署手册
+# Reven 维护者自有服务器全栈生产部署手册
 
-本文件对应维护者前后端统一部署到 VPS 的配置：正式入口为
+本文件对应维护者部署到自有服务器的配置：正式入口为
 `https://reven.wangyiyang.cc`，Caddy 服务前端静态文件并反代 `/api/*`，前后端使用同一
-ACR 镜像 digest 发布。新用户请从[自托管指南](self-hosting.md)安装独立环境；不要照搬
-维护者域名、账号或私有镜像地址。PostgreSQL 继续使用 Supabase，素材继续使用 COS。
+ACR 镜像 digest 发布。PostgreSQL 采用本地容器 `postgres:17-alpine`，Agent 采用独立容器 `agent`，
+全栈由 Compose 统一编排并托管。素材继续使用腾讯云 COS。
 
-2026-10-06 的 [v0.7.2](https://github.com/wangyiyang/Reven/releases/tag/v0.7.2) 已发布并通过生产验收，以 v0.7.1 为基线，保留数据库
-`0024_rss_resilience`，不包含 main 中的 0025/0026 与 CRM/人才库业务变更。
-2026-10-06 随后已删除旧 Vercel 项目、部署与默认域名，并清空服务器的旧 Origin
-白名单；旧页面回退入口正式退役，当前站点不依赖 Vercel 代理。清理及验证见
-[Vercel 清理记录](vercel-cleanup-20261006.md)，历史配置见
-[Vercel 部署记录](vercel-deploy.md)。发布前后的实际状态仍须按第 9 节核验。
+Compose 运行 `postgres`、`agent`、`reven` 与 `caddy` 四大服务，宿主机现有 3000 端口服务不属于 Reven。
 
-Reven 以 Docker Compose 部署在 `reven.wangyiyang.cc`，时区统一使用
-`Asia/Shanghai`。Compose 只运行 Reven 与 Caddy；PostgreSQL 使用
-Supabase，宿主机现有 3000 端口服务不属于 Reven。
+## 1. 配置 PostgreSQL 密码
 
-## 1. 配置 Supabase Session Pooler
-
-在 Supabase 控制台复制支持 IPv4 的 Session Pooler 连接串，不使用
-Transaction Pooler。将驱动改为 `postgresql+asyncpg`，并明确启用 SSL：
+在服务器部署目录的 `.env` 中设置强随机密码：
 
 ```dotenv
-DATABASE_URL=postgresql+asyncpg://<DB_USER>:<DB_PASSWORD>@<SESSION_POOLER_HOST>:5432/postgres?ssl=require
+POSTGRES_PASSWORD=<STRONG_POSTGRES_PASSWORD>
+DATABASE_URL=postgresql+asyncpg://reven:<STRONG_POSTGRES_PASSWORD>@postgres:5432/reven
 ```
 
-先从服务器验证 DNS、IPv4 和 TLS 可达性。连接串仅写入服务器部署目录的
-`.env`，不得提交到 Git 或写入镜像。
+连接串仅写入服务器部署目录的 `.env`，不得提交到 Git 或写入镜像。Alembic 迁移将在容器首次启动时自动执行。
 
 ## 2. 生成主密钥
 
