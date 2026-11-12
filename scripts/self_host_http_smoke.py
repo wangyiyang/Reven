@@ -56,8 +56,7 @@ class Browser:
         deadline = time.monotonic() + 30
         while True:
             try:
-                body, _ = self.request("/api/health")
-                self.assert_runtime_health(body)
+                self.request("/api/health")
                 break
             except (URLError, ConnectionError):
                 if time.monotonic() >= deadline:
@@ -96,20 +95,11 @@ class Browser:
         self.request("/agent/mcp", body={}, expected=404)
         body, headers = self.request("/api/health")
         assert headers.get_content_type() == "application/json"
-        self.assert_runtime_health(body)
+        assert json.loads(body)["service"] == "reven" and json.loads(body)["status"] == "ok"
         self.assert_security_headers(headers)
         body, headers = self.request("/api/auth/me", expected=401)
         assert headers.get_content_type() == "application/json" and isinstance(json.loads(body), dict)
         self.assert_security_headers(headers)
-
-    @staticmethod
-    def assert_runtime_health(body: bytes) -> None:
-        health = json.loads(body)
-        assert health["service"] == "reven" and health["status"] == "ok"
-        checks = health["checks"]
-        assert set(checks) == {"db", "agent", "checkpointer", "background_runner"}
-        assert checks["db"]["status"] == checks["checkpointer"]["status"] == "ok"
-        assert checks["agent"]["status"] == "disabled"
 
     def assert_assets(self, index: bytes) -> None:
         assets = FrontendAssets()

@@ -72,7 +72,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     row.expires_at = now + SESSION_TTL
                 row.last_seen_at = now
                 await session.commit()
-        request.state.authenticated_owner_id = "admin"
         return await call_next(request)
 
 

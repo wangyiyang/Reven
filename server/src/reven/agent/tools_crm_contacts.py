@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from pydantic import Field
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.crm_tool_support import (
     ConfirmCustomerNameParam,
@@ -14,17 +15,19 @@ from reven.agent.crm_tool_support import (
     _mutation_errors,
     _validate,
 )
-from reven.agent.tool_binding import ToolSessionBinding
 from reven.crm.inputs import ContactCreate, ContactUpdate
 from reven.crm.models import Contact
 from reven.crm.repository import CrmRepository
 from reven.crm.service import CrmService
 
 
-class CrmContactTools(ToolSessionBinding):
+class CrmContactTools:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
     async def list_contacts(self, customer_id: CustomerIdParam) -> str:
         """列出指定客户的全部联系人（主联系人排在最前）。"""
-        async with self._session() as session:
+        async with self._session_factory() as session:
             repository = CrmRepository(session)
             customer = await repository.get_customer(customer_id)
             if customer is None:
@@ -61,9 +64,8 @@ class CrmContactTools(ToolSessionBinding):
             },
         )
         with _mutation_errors():
-            async with self._session() as session:
-                customer, contact = await CrmService(session, commit=self._commits).create_contact(customer_id, payload)
-                self._record_entity(contact)
+            async with self._session_factory() as session:
+                customer, contact = await CrmService(session).create_contact(customer_id, payload)
         suffix = "，已设为该客户唯一主联系人" if contact.is_primary else ""
         return f"已为客户「{customer.name}」新增联系人「{contact.name}」（id={contact.id}）{suffix}。"
 
@@ -93,11 +95,8 @@ class CrmContactTools(ToolSessionBinding):
         )
         payload = _validate(ContactUpdate, values)
         with _mutation_errors():
-            async with self._session() as session:
-                updated = await CrmService(session, commit=self._commits).update_contact(
-                    customer_id, contact_id, payload
-                )
-                self._record_entity(updated)
+            async with self._session_factory() as session:
+                updated = await CrmService(session).update_contact(customer_id, contact_id, payload)
         return f"已更新联系人：{_contact_line(0, updated).removeprefix('0. ')}"
 
     async def delete_contact(
@@ -108,10 +107,9 @@ class CrmContactTools(ToolSessionBinding):
         调用前必须与用户确认删除意图，并把所属客户名称逐字填入 confirm_customer_name。
         """
         with _mutation_errors():
-            async with self._session() as session:
+            async with self._session_factory() as session:
                 await _confirm_customer_name(session, customer_id, confirm_customer_name)
-                contact = await CrmService(session, commit=self._commits).delete_contact(customer_id, contact_id)
-                self._record_entity(contact)
+                contact = await CrmService(session).delete_contact(customer_id, contact_id)
                 name = contact.name
         return f"已删除联系人「{name}」（id={contact_id}）；相关跟进记录已保留，联系人信息以快照留存。"
 

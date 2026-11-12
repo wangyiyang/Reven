@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
-- **Last Active**: 2026-10-06
+- **Total Sessions**: 24
+- **Last Active**: 2026-11-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~703 | Active |
+| `journal-1.md` | ~725 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-11-12 | 切换自有服务器部署与独立 DSH Worker 架构 | `3c2763e` | `main` |
 | 23 | 2026-10-06 | Agent 原生 LangGraph 与 PostgreSQL 迁移交付 | `d1d2514`, `b1fc2ab`, `5c1b89d`, `d1b876b` | `codex/agent-langgraph-migration` |
 | 22 | 2026-10-06 | 搜索扩展到画像字段（#201 P4） | `df2b34b`, `546cc46`, `694584c`, `5c65353` | `issue/gh-201-p4-search-profile-fields` |
 | 21 | 2026-10-06 | #213 站点域名迁移 dev.wangyiyang.cc → reven.wangyiyang.cc | `5b4da75` | `issue/gh-213-domain-reven-wangyiyang-cc` |

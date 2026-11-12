@@ -14,12 +14,13 @@ dist/
 coverage/
 htmlcov/
 .coverage
-workspace/
+/workspace/
 sync-to-notion.sh
 .vite/
 .data/
 .dsh-runtime/
 .next/
 test-results/
+dogfood-output/
 *.tsbuildinfo
 next-env.d.ts

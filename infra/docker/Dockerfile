@@ -28,9 +28,11 @@ RUN apt-get update \
     && apt-get install -y --only-upgrade perl-base \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+# /data/dsh is the writable DSH_HOME for the dsh agent (profiles, session logs).
+# /workspace is the agent working directory (cwd).
 RUN useradd --create-home --uid 10001 reven \
-    && mkdir -p /app /data /srv/reven \
-    && chown -R reven:reven /app /data /srv/reven
+    && mkdir -p /app /data/dsh /srv/reven /workspace \
+    && chown -R reven:reven /app /data /srv/reven /workspace
 WORKDIR /app
 COPY --from=python-build --chown=reven:reven /app/.venv /app/.venv
 COPY LICENSE THIRD_PARTY_NOTICES.md /opt/reven-licenses/
@@ -55,7 +57,8 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/server/src" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    LANGGRAPH_STRICT_MSGPACK=true
+    DSH_HOME=/data/dsh \
+    WORKSPACE_ROOT=/workspace
 USER reven
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

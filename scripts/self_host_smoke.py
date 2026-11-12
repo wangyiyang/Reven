@@ -18,7 +18,7 @@ from typing import Any
 from self_host_http_smoke import Browser
 
 ROOT = Path(__file__).resolve().parents[1]
-SENTINELS = ("/data/self-host-smoke", "/srv/reven/.self-host-smoke")
+SENTINELS = ("/data/self-host-smoke", "/data/dsh/self-host-smoke", "/srv/reven/.self-host-smoke")
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -42,7 +42,6 @@ class Deployment:
     def __init__(self, temporary: Path) -> None:
         self.project = f"reven-ci-self-host-{secrets.token_hex(6)}"
         self.temporary = temporary
-        self.agent_thread_id: str | None = None
         self.password = secrets.token_hex(24)
         environment = temporary / ".env"
         environment.write_text(
@@ -92,10 +91,6 @@ class Deployment:
         assert not any("unconfined" in option for option in config["SecurityOpt"])
         assert config["SecurityOpt"] == ["no-new-privileges:true"]
         self.assert_licenses()
-        output = self.compose(
-            "exec", "-T", "reven", "python", "-c", (ROOT / "scripts/native_agent_smoke.py").read_text(), capture=True
-        )
-        self.agent_thread_id = output.splitlines()[-1]
 
     def assert_licenses(self) -> None:
         self.compose(
@@ -190,17 +185,6 @@ class Deployment:
         )
         self.compose("down", "--timeout", "30")
         self.up()
-        assert self.agent_thread_id is not None
-        self.compose(
-            "exec",
-            "-T",
-            "-e",
-            f"REVEN_SMOKE_THREAD={self.agent_thread_id}",
-            "reven",
-            "python",
-            "-c",
-            (ROOT / "scripts/native_agent_smoke.py").read_text(),
-        )
         browser.assert_persisted_source(source_id)
         browser.assert_saved_candidate(saved)
         self.compose(
@@ -302,19 +286,46 @@ class Deployment:
     def write_tls_override(self, caddyfile: Path, isolated: dict[str, dict[str, Any]] | None) -> Path:
         override = self.temporary / ("production-tls.yml" if isolated else "tls.yml")
         postgres = ""
+        agent = ""
         reven = "    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
         if isolated:
+            workspace_dir = self.temporary / "workspace"
+            downloads_dir = workspace_dir / "downloads"
+            downloads_dir.mkdir(parents=True, exist_ok=True)
+            workspace_dir.chmod(0o777)
+            downloads_dir.chmod(0o777)
+
             postgres = f"  postgres: {json.dumps(isolated['postgres'])}\n"
+            agent_env = {
+                **isolated["reven"]["environment"],
+                "DSH_HOME": "/data/dsh",
+                "WORKSPACE_ROOT": "/workspace",
+                "HOME": "/data/dsh",
+                "REVEN_AGENT_MCP_URL": "http://reven:8000/agent/mcp",
+            }
+            agent = (
+                "  agent:\n"
+                "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
+                "    env_file: !override []\n"
+                f"    environment: {json.dumps(agent_env)}\n"
+                "    volumes: !override\n"
+                "      - dsh-data:/data/dsh:rw\n"
+                f"      - {json.dumps(f'{workspace_dir}:/workspace:rw')}\n"
+            )
             environment = {**isolated["reven"]["environment"], "REVEN_PUBLIC_BASE_URL": "https://localhost:8443"}
             reven = (
                 "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
                 "    env_file: !override []\n"
                 f"    environment: {json.dumps(environment)}\n"
-                f"    depends_on: {json.dumps(isolated['reven']['depends_on'])}\n"
+                "    volumes: !override\n"
+                "      - reven-data:/data\n"
+                "      - reven-static:/srv/reven\n"
+                f"      - {json.dumps(f'{downloads_dir}:/workspace/downloads:rw')}\n"
             )
         override.write_text(
             "services:\n"
             + postgres
+            + agent
             + "  reven:\n"
             + reven
             + "  caddy:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"

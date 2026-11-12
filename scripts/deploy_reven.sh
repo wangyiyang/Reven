@@ -172,6 +172,7 @@ sync_infra() {
 
 start_and_check_health() {
   compose pull reven || return 1
+  mkdir -p "$deploy_dir/workspace/downloads"
   compose up -d --wait --no-build || return 1
   compose exec -T reven python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()" || return 1

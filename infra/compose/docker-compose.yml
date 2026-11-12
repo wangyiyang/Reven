@@ -1,8 +1,8 @@
 services:
-  reven:
+  agent:
     image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full Alibaba ACR sha256 digest, tags are forbidden}
     restart: unless-stopped
-    # json 日志轮转上限：单文件 50m 保留 3 份，防磁盘写满（2026-10-01 评审 P1-9）
+    command: ["/app/.venv/bin/python", "-m", "reven.agent.worker"]
     logging:
       driver: json-file
       options:
@@ -10,12 +10,55 @@ services:
         max-file: "3"
     env_file:
       - ../../.env
+    environment:
+      DSH_HOME: /data/dsh
+      WORKSPACE_ROOT: /workspace
+      HOME: /data/dsh
+      REVEN_AGENT_MCP_URL: http://reven:8000/agent/mcp
+    volumes:
+      - /opt/reven/workspace:/workspace:rw
+      - dsh-data:/data/dsh:rw
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/internal/agent/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  reven:
+    image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full Alibaba ACR sha256 digest, tags are forbidden}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    depends_on:
+      agent:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    environment:
+      AGENT_WORKER_URL: http://agent:8001
+      WORKSPACE_ROOT: /workspace
     volumes:
       - reven-data:/data
       - reven-static:/srv/reven
+      - /opt/reven/workspace/downloads:/workspace/downloads:rw
     read_only: true
-    mem_limit: 2g
-    cpus: 2.0
+    mem_limit: 1.5g
+    cpus: 1.5
     pids_limit: 128
     tmpfs:
       - /tmp:size=256m,mode=1777
@@ -33,7 +76,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-
   caddy:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
@@ -46,8 +88,6 @@ services:
       reven:
         condition: service_healthy
     ports:
-      # 2026-10-01 全站 TLS 化：发布 80（ACME 签发/HTTP 跳转）与 443（HTTPS 主站）；
-      # 3001 过渡端口随 #213 域名迁移下线
       - "80:80"
       - "443:443"
       - "443:443/udp"
@@ -61,9 +101,6 @@ services:
       - /tmp:size=64m,mode=1777
     cap_drop:
       - ALL
-    # Caddy 官方镜像给 /usr/bin/caddy 打了 cap_net_bind_service=ep 的 filecap；
-    # bounding set 缺该 cap 时 execve 直接 EPERM，容器无法启动。绑定特权端口
-    # 80/443 同样需要此 cap 作为 exec 前提，删除会导致崩溃循环。
     cap_add:
       - NET_BIND_SERVICE
     security_opt:
@@ -71,6 +108,7 @@ services:
 
 volumes:
   reven-data:
+  dsh-data:
   reven-static:
   caddy-data:
   caddy-config:
