@@ -14,7 +14,7 @@ dist/
 coverage/
 htmlcov/
 .coverage
-workspace/
+/workspace/
 sync-to-notion.sh
 .vite/
 .data/
