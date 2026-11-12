@@ -310,7 +310,7 @@ class Deployment:
                 f"    environment: {json.dumps(agent_env)}\n"
                 "    volumes: !override\n"
                 "      - dsh-data:/data/dsh:rw\n"
-                f"      - {json.dumps(str(workspace_dir))}:/workspace:rw\n"
+                f"      - {json.dumps(f'{workspace_dir}:/workspace:rw')}\n"
             )
             environment = {**isolated["reven"]["environment"], "REVEN_PUBLIC_BASE_URL": "https://localhost:8443"}
             reven = (
@@ -320,7 +320,7 @@ class Deployment:
                 "    volumes: !override\n"
                 "      - reven-data:/data\n"
                 "      - reven-static:/srv/reven\n"
-                f"      - {json.dumps(str(downloads_dir))}:/workspace/downloads:rw\n"
+                f"      - {json.dumps(f'{downloads_dir}:/workspace/downloads:rw')}\n"
             )
         override.write_text(
             "services:\n"
