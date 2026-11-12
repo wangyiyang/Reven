@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/reven-server/backend/agent-dsh-contract.md", "reason": "DSH runtime and MCP loopback contracts"}
+{"file": ".trellis/spec/reven-server/backend/crm-contract.md", "reason": "CRM MCP tools specification and behavior"}
+{"file": ".trellis/spec/reven-server/backend/talents-contract.md", "reason": "Talents MCP tools specification and behavior"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "Feishu bot message dispatching and file downloading"}
+{"file": ".trellis/spec/reven-server/backend/open-source-self-host-contract.md", "reason": "Self-hosted Docker compose deployment and environment variables"}
+{"file": ".trellis/spec/reven-server/backend/ci-release-contract.md", "reason": "CI release, Docker build, and deployment automation"}
