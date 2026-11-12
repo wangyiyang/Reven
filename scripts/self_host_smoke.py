@@ -285,9 +285,11 @@ class Deployment:
 
     def write_tls_override(self, caddyfile: Path, isolated: dict[str, dict[str, Any]] | None) -> Path:
         override = self.temporary / ("production-tls.yml" if isolated else "tls.yml")
+        postgres = ""
         agent = ""
         reven = "    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
         if isolated:
+            postgres = f"  postgres: {json.dumps(isolated['postgres'])}\n"
             agent = (
                 "  agent:\n"
                 "    image: reven:test\n    pull_policy: never\n    platform: linux/amd64\n"
@@ -301,12 +303,14 @@ class Deployment:
             )
         override.write_text(
             "services:\n"
+            + postgres
             + agent
             + "  reven:\n"
             + reven
             + "  caddy:\n    environment:\n      REVEN_PUBLIC_BASE_URL: https://localhost:8443\n"
             "    ports: !override\n      - '127.0.0.1:8443:8443'\n"
-            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n",
+            f"    volumes:\n      - {json.dumps(str(caddyfile) + ':/etc/caddy/Caddyfile:ro')}\n"
+            + ("volumes:\n  postgres-data:\n" if isolated else ""),
             encoding="utf-8",
         )
         override.chmod(0o600)

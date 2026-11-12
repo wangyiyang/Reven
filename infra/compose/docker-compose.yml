@@ -1,25 +1,4 @@
 services:
-  postgres:
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: reven
-      POSTGRES_USER: reven
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate POSTGRES_PASSWORD before starting}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    mem_limit: 1g
-    cpus: 1.0
-    pids_limit: 128
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: [CMD-SHELL, pg_isready -U reven -d reven]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 10s
-
   agent:
     image: ${REVEN_IMAGE:?REVEN_IMAGE must be a full Alibaba ACR sha256 digest, tags are forbidden}
     restart: unless-stopped
@@ -29,13 +8,9 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    depends_on:
-      postgres:
-        condition: service_healthy
     env_file:
       - ../../.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://reven:${POSTGRES_PASSWORD:?Generate POSTGRES_PASSWORD before starting}@postgres:5432/reven
       DSH_HOME: /data/dsh
       WORKSPACE_ROOT: /workspace
       HOME: /data/dsh
@@ -70,14 +45,11 @@ services:
         max-size: "50m"
         max-file: "3"
     depends_on:
-      postgres:
-        condition: service_healthy
       agent:
         condition: service_healthy
     env_file:
       - ../../.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://reven:${POSTGRES_PASSWORD:?Generate POSTGRES_PASSWORD before starting}@postgres:5432/reven
       AGENT_WORKER_URL: http://agent:8001
       WORKSPACE_ROOT: /workspace
     volumes:
@@ -104,7 +76,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-
   caddy:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
@@ -136,7 +107,6 @@ services:
       - no-new-privileges:true
 
 volumes:
-  postgres-data:
   reven-data:
   dsh-data:
   reven-static:
