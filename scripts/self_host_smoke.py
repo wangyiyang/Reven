@@ -7,6 +7,7 @@ changes host security policy; dependency images must be pulled beforehand.
 import base64
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -211,6 +212,7 @@ class Deployment:
 
     def assert_production(self) -> None:
         source = (ROOT / "infra/caddy/Caddyfile").read_text()
+        source = re.sub(r"\ndev\.wangyiyang\.cc\s*\{[^}]*\}", "", source)
         source = source.replace("\nreven.wangyiyang.cc {\n", "\nhttps://localhost:8443 {\n\ttls internal\n", 1)
         assert "reven.wangyiyang.cc" not in source and "tls internal" in source
         browser = self.https_browser(source, production=True)

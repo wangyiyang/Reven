@@ -1,6 +1,7 @@
 """独立 DSH Agent Worker 容器入口与内部 HTTP 服务。"""
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
@@ -31,6 +32,31 @@ class ChatResponse(BaseModel):
     response: str
 
 
+async def ensure_runtime_configured(app: FastAPI) -> None:
+    """动态检查凭证并自愈 Worker 运行时配置。
+
+    未就绪或未配置时每次调用均尝试重解析，一旦 DB 迁移完成或凭据就绪即可自动恢复；
+    正常就绪后按 5 秒节流，兼顾近即时生效与轻量低开销。
+    """
+    runtime: AgentRuntime | None = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return
+    now = time.monotonic()
+    last_check = getattr(app.state, "last_config_check", 0.0)
+    if runtime.available and runtime.configured and (now - last_check < 5.0):
+        return
+    app.state.last_config_check = now
+    settings = getattr(app.state, "settings", None)
+    credentials = getattr(app.state, "credentials", None)
+    if settings is None:
+        return
+    try:
+        new_config = await resolve_agent_config(credentials, settings)
+        await runtime.reload_config(new_config)
+    except Exception as exc:
+        logger.warning("Agent Worker 动态刷新配置失败（error_type=%s）", type(exc).__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
@@ -54,7 +80,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         model_resolver=resolver,
         run_timeout_seconds=settings.agent_run_timeout_seconds,
     )
+    app.state.settings = settings
+    app.state.credentials = credentials
     app.state.runtime = runtime
+    app.state.last_config_check = 0.0
     await runtime.start()
 
     try:
@@ -71,6 +100,7 @@ app = FastAPI(title="Reven Agent Worker", lifespan=lifespan)
 
 @app.get("/internal/agent/health")
 async def health() -> dict[str, Any]:
+    await ensure_runtime_configured(app)
     runtime: AgentRuntime | None = getattr(app.state, "runtime", None)
     if runtime is None:
         return {"status": "starting", "available": False, "configured": False, "default_model_ref": None}
@@ -84,6 +114,7 @@ async def health() -> dict[str, Any]:
 
 @app.post("/internal/agent/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
+    await ensure_runtime_configured(app)
     runtime: AgentRuntime | None = getattr(app.state, "runtime", None)
     if runtime is None:
         raise HTTPException(status_code=502, detail={"code": "AGENT_RUNTIME_UNAVAILABLE", "message": "Worker 未就绪"})

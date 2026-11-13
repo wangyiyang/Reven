@@ -26,6 +26,8 @@ class AgentRuntimeProtocol(Protocol):
 
     async def close(self) -> None: ...
 
+    async def refresh(self) -> None: ...
+
     async def chat(
         self,
         message: str,
@@ -60,6 +62,12 @@ class RemoteAgentWorkerClient:
 
     async def start(self) -> None:
         self._http = httpx.AsyncClient(timeout=self._run_timeout_seconds)
+        await self.refresh()
+
+    async def refresh(self) -> None:
+        """刷新远端 Worker 运行状态。"""
+        if self._http is None:
+            return
         try:
             resp = await self._http.get(f"{self.base_url}/internal/agent/health", timeout=5.0)
             if resp.status_code == 200:
@@ -87,6 +95,8 @@ class RemoteAgentWorkerClient:
     ) -> tuple[str, str]:
         if self._http is None:
             raise AgentRuntimeError("AGENT_RUNTIME_UNAVAILABLE", "Agent Worker 客户端未初始化")
+        if not self._available or not self._configured:
+            await self.refresh()
         try:
             resp = await self._http.post(
                 f"{self.base_url}/internal/agent/chat",

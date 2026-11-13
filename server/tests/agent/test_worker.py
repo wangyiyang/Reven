@@ -142,3 +142,48 @@ async def test_agent_service_with_remote_worker(respx_mock: object) -> None:
     assert turn.model_ref == "deepseek-official/test-model"
 
     await client.close()
+
+
+@pytest.mark.anyio
+async def test_worker_auto_recovers_when_configured(
+    worker_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from reven.agent.config import AgentConfig
+
+    mock_runtime = AsyncMock()
+    mock_runtime.available = False
+    mock_runtime.configured = False
+    mock_runtime.default_model_ref = None
+
+    worker_app.state.runtime = mock_runtime
+    worker_app.state.settings = MagicMock()
+    worker_app.state.credentials = MagicMock()
+    worker_app.state.last_config_check = 0.0
+
+    target_config = AgentConfig(
+        provider="deepseek",
+        model="deepseek-chat",
+        base_url=None,
+        api_key="test-key",
+        dsh_home=Path("/tmp/dsh"),
+        cwd=Path("/tmp/cwd"),
+    )
+
+    async def fake_resolve(credentials: object, settings: object) -> AgentConfig:
+        mock_runtime.available = True
+        mock_runtime.configured = True
+        mock_runtime.default_model_ref = "deepseek/deepseek-chat"
+        return target_config
+
+    monkeypatch.setattr("reven.agent.worker.resolve_agent_config", fake_resolve)
+
+    resp = await worker_client.get("/internal/agent/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert resp.json()["available"] is True
+    assert resp.json()["configured"] is True
+    assert resp.json()["default_model_ref"] == "deepseek/deepseek-chat"
+    mock_runtime.reload_config.assert_awaited_once_with(target_config)
