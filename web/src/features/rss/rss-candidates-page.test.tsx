@@ -12,32 +12,20 @@ import { RssCandidatesPage } from "./rss-candidates-page"
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const candidate = {
-  id: "11111111-1111-1111-1111-111111111111",
+  record_id: "rec_1",
   source_name: "Example",
   url: "https://example.com/agent-systems",
-  title: "Agent systems",
-  summary: "A practical guide to agent systems.",
-  title_zh: "智能体系统",
-  summary_zh: "一份关于智能体系统的实践指南。",
+  title: "智能体系统",
+  summary: "一份关于智能体系统的实践指南。",
   published_at: "2026-08-11T01:00:00Z",
   status: "candidate",
-  positive_literal_matches: ["agent"],
-  negative_literal_matches: [],
-  bm25_score: 0.6,
-  positive_embedding_score: 0.9,
-  negative_embedding_score: 0.1,
-  embedding_model: "BAAI/bge-m3",
-  embedding_status: "completed",
-  model_status: "skipped",
-  model_score: null,
-  reason: "正向信号达到阈值",
-  rules_version: "rss-v1",
-  screening_error: null,
-  saved_at: null,
+  matched_keywords: ["AI 智能体"],
+  archived_at: "2026-08-11T02:00:00Z",
+  dedupe_key: "url:key-1",
 }
 
-function pageOf(items: unknown[], total = items.length, page = 1, pageSize = 30) {
-  return { items, total, page, page_size: pageSize }
+function pageOf(items: unknown[], total = items.length, nextCursor: string | null = null) {
+  return { items, total, next_cursor: nextCursor }
 }
 
 function renderPage(path = "/rss/candidates") {
@@ -52,16 +40,15 @@ function renderPage(path = "/rss/candidates") {
 describe("RssCandidatesPage", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("shows candidate evidence and source material", async () => {
+  it("shows candidate title, summary, keywords and source link", async () => {
     server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))))
 
     renderPage()
 
     expect(await screen.findByRole("heading", { name: "RSS 内容发现" })).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
-    expect(screen.getByText("正向信号达到阈值")).toBeInTheDocument()
-    expect(screen.getByText("agent")).toBeInTheDocument()
-    expect(screen.getByText("0.900")).toBeInTheDocument()
+    expect(screen.getByText("一份关于智能体系统的实践指南。")).toBeInTheDocument()
+    expect(screen.getByText("AI 智能体")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "查看原文" })).toHaveAttribute(
       "href",
       "https://example.com/agent-systems",
@@ -72,7 +59,7 @@ describe("RssCandidatesPage", () => {
     const longSummary = "这是一段很长的摘要。".repeat(60)
     server.use(
       http.get("/api/rss/candidates", () =>
-        HttpResponse.json(pageOf([{ ...candidate, summary_zh: longSummary }])),
+        HttpResponse.json(pageOf([{ ...candidate, summary: longSummary }])),
       ),
     )
     renderPage()
@@ -98,7 +85,7 @@ describe("RssCandidatesPage", () => {
     let items: unknown[] = [candidate]
     server.use(
       http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(items, items.length))),
-      http.post("/api/rss/candidates/:id/ignore", () => {
+      http.post("/api/rss/candidates/:recordId/ignore", () => {
         items = []
         return HttpResponse.json({ ...candidate, status: "ignored" })
       }),
@@ -111,9 +98,9 @@ describe("RssCandidatesPage", () => {
     expect(toast.success).toHaveBeenCalledWith("已忽略候选")
   })
 
-  it("saves an approved candidate locally and makes it available in saved materials", async () => {
+  it("saves an approved candidate and makes it available in saved materials", async () => {
     let saved = false
-    const savedItem = { ...candidate, status: "saved", saved_at: "2026-09-21T01:00:00Z" }
+    const savedItem = { ...candidate, status: "saved" }
     const requestedStatuses: string[] = []
     server.use(
       http.get("/api/rss/candidates", ({ request }) => {
@@ -122,7 +109,7 @@ describe("RssCandidatesPage", () => {
         const items = status === "saved" ? (saved ? [savedItem] : []) : (saved ? [] : [candidate])
         return HttpResponse.json(pageOf(items))
       }),
-      http.post("/api/rss/candidates/:id/confirm", () => {
+      http.post("/api/rss/candidates/:recordId/confirm", () => {
         saved = true
         return HttpResponse.json(savedItem)
       }),
@@ -135,7 +122,6 @@ describe("RssCandidatesPage", () => {
     expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("tab", { name: "已保存素材" }))
     expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
-    expect(screen.getByText(/已保存 ·/)).toHaveTextContent("2026")
     expect(screen.getByRole("link", { name: "查看原文" })).toHaveAttribute("href", candidate.url)
     expect(screen.queryByRole("button", { name: /采纳并保存|忽略/ })).not.toBeInTheDocument()
     expect(requestedStatuses).toContain("saved")
@@ -167,7 +153,7 @@ describe("RssCandidatesPage", () => {
     let resolved = false
     server.use(
       http.get("/api/rss/candidates", () => HttpResponse.json(pageOf(resolved ? [] : [candidate]))),
-      http.post(`/api/rss/candidates/:id/${action}`, () => {
+      http.post(`/api/rss/candidates/:recordId/${action}`, () => {
         calls += 1
         if (calls === 1) return HttpResponse.json({ code: "failed", message: "操作失败，请重试" }, { status: 503 })
         resolved = true
@@ -185,10 +171,37 @@ describe("RssCandidatesPage", () => {
     expect(calls).toBe(2)
   })
 
+  it("toasts and refreshes the list on a 409 conflict", async () => {
+    let listCalls = 0
+    let conflicted = false
+    server.use(
+      http.get("/api/rss/candidates", () => {
+        listCalls += 1
+        return HttpResponse.json(pageOf(conflicted ? [] : [candidate]))
+      }),
+      http.post("/api/rss/candidates/:recordId/confirm", () => {
+        conflicted = true
+        return HttpResponse.json(
+          { code: "RSS_CANDIDATE_NOT_SAVABLE", message: "RSS 候选状态已变更，当前状态不允许保存（请刷新列表）" },
+          { status: 409 },
+        )
+      }),
+    )
+    renderPage()
+
+    await userEvent.click(await screen.findByRole("button", { name: "采纳并保存 智能体系统" }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("该条已在飞书侧变更，已刷新"))
+    expect(toast.success).not.toHaveBeenCalled()
+    // 冲突后列表被 invalidate：重新拉取并显示刷新后的空队列
+    expect(await screen.findByText("候选队列已清空")).toBeInTheDocument()
+    expect(listCalls).toBeGreaterThanOrEqual(2)
+  })
+
   it("does not report success when confirmation returns an unsaved record", async () => {
     server.use(
       http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))),
-      http.post("/api/rss/candidates/:id/confirm", () => HttpResponse.json(candidate)),
+      http.post("/api/rss/candidates/:recordId/confirm", () => HttpResponse.json(candidate)),
     )
     renderPage()
     await userEvent.click(await screen.findByRole("button", { name: "采纳并保存 智能体系统" }))
@@ -197,25 +210,23 @@ describe("RssCandidatesPage", () => {
     expect(screen.getByRole("button", { name: "采纳并保存 智能体系统" })).toBeEnabled()
   })
 
-  it("loads the next server page via the load-more control", async () => {
+  it("loads the next server page via the cursor-based load-more control", async () => {
     const first = Array.from({ length: 30 }, (_, i) => ({
       ...candidate,
-      id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, "0")}`,
+      record_id: `rec_${i + 1}`,
       title: `候选 ${i + 1}`,
-      title_zh: `候选 ${i + 1}`,
     }))
     const second = Array.from({ length: 5 }, (_, i) => ({
       ...candidate,
-      id: `00000000-0000-0000-0000-${String(i + 31).padStart(12, "0")}`,
+      record_id: `rec_${i + 31}`,
       title: `候选 ${i + 31}`,
-      title_zh: `候选 ${i + 31}`,
     }))
-    const requestedPages: string[] = []
+    const requestedCursors: (string | null)[] = []
     server.use(
       http.get("/api/rss/candidates", ({ request }) => {
-        const page = new URL(request.url).searchParams.get("page") ?? "1"
-        requestedPages.push(page)
-        return HttpResponse.json(page === "1" ? pageOf(first, 35, 1) : pageOf(second, 35, 2))
+        const cursor = new URL(request.url).searchParams.get("cursor")
+        requestedCursors.push(cursor)
+        return HttpResponse.json(cursor === null ? pageOf(first, 35, "tok-2") : pageOf(second, 35, null))
       }),
     )
 
@@ -230,7 +241,7 @@ describe("RssCandidatesPage", () => {
 
     await userEvent.click(more)
     expect(await screen.findByText("候选 35")).toBeInTheDocument()
-    expect(requestedPages).toEqual(["1", "2"])
+    expect(requestedCursors).toEqual([null, "tok-2"])
     expect(screen.queryByRole("button", { name: /加载更多/ })).not.toBeInTheDocument()
   })
 
@@ -239,24 +250,5 @@ describe("RssCandidatesPage", () => {
     renderPage()
 
     expect(await screen.findByRole("alert")).toHaveTextContent("RSS 内容读取失败")
-  })
-
-  it("surfaces a degraded embedding badge with the screening error code", async () => {
-    server.use(
-      http.get("/api/rss/candidates", () =>
-        HttpResponse.json(pageOf([{ ...candidate, embedding_status: "degraded", screening_error: "embedding_http_429" }]))),
-    )
-    renderPage()
-
-    expect(await screen.findByText("语义降级")).toBeInTheDocument()
-    expect(screen.getByText("embedding_http_429")).toBeInTheDocument()
-  })
-
-  it("does not flag a completed embedding status", async () => {
-    server.use(http.get("/api/rss/candidates", () => HttpResponse.json(pageOf([candidate]))))
-    renderPage()
-
-    expect(await screen.findByRole("heading", { name: "智能体系统" })).toBeInTheDocument()
-    expect(screen.queryByText("语义降级")).not.toBeInTheDocument()
   })
 })

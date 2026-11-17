@@ -2,12 +2,15 @@
 
 只做"读 + SQL 计数"，不新增表、不改任何现有接口；CRM 待跟进清单复用
 `CrmRepository.list_due_follow_ups`（与飞书每日提醒同源），不新写查询逻辑。
+RSS 候选/已保存计数来自 Bitable 候选存储（PG 不保存条目级候选数据）；
+候选存储不可用时错误向上抛，由路由映射为 503，不静默降级为 0。
 "今日"统一按 Asia/Shanghai 日历日（对齐 CRM repository 的 due 过滤口径）。
 返回纯数据 dataclass，响应模型由 API 层拥有（对齐"响应类由 API 拥有"约定）。
 """
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, select
@@ -19,12 +22,18 @@ from reven.finance.models import FinanceEntry
 from reven.integrations.models import Integration
 from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
 from reven.projects.models import Project
-from reven.rss.models import RssDiscoveryRun, RssItem
+from reven.rss.models import RssDiscoveryRun
 from reven.scheduling import SHANGHAI
 
 DUE_ITEMS_LIMIT = 5
 ACTIVE_PROJECTS_LIMIT = 5
 ACTIVE_PROJECT_STATUS = "进行中"
+
+
+class CandidateCounter(Protocol):
+    """候选计数 seam：由 BitableCandidateStore 提供（count_candidates）。"""
+
+    async def count_candidates(self, status: str) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -95,9 +104,10 @@ class DashboardAggregate:
 
 
 class DashboardService:
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(self, session: AsyncSession, settings: Settings, candidates: CandidateCounter) -> None:
         self.session = session
         self.settings = settings
+        self.candidates = candidates
 
     async def build_summary(self, *, today: date | None = None) -> DashboardAggregate:
         """组装四模块聚合数据 + 集成缺失清单；today 可注入以便测试锚定日期。"""
@@ -131,8 +141,8 @@ class DashboardService:
         )
 
     async def _rss_summary(self) -> RssAggregate:
-        candidate_count = await self._count_items("candidate")
-        saved_count = await self._count_items("saved")
+        candidate_count = await self.candidates.count_candidates("candidate")
+        saved_count = await self.candidates.count_candidates("saved")
         latest = await self.session.scalar(select(RssDiscoveryRun).order_by(RssDiscoveryRun.run_date.desc()).limit(1))
         return RssAggregate(
             candidate_count=candidate_count,
@@ -145,11 +155,6 @@ class DashboardService:
                 finished_at=latest.finished_at,
             ),
         )
-
-    async def _count_items(self, item_status: str) -> int:
-        statement = select(func.count()).select_from(RssItem).where(RssItem.status == item_status)
-        count = await self.session.scalar(statement)
-        return count or 0
 
     async def _crm_summary(self, today: date) -> CrmAggregate:
         repository = CrmRepository(self.session)

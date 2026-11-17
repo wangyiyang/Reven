@@ -58,39 +58,26 @@ class RssKeywordResponse(BaseModel):
 
 
 class RssCandidateResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Bitable 候选记录的 API 映射：record_id + 九个固定字段（发布时间/入库日期为毫秒时间戳转 ISO）。"""
 
-    id: UUID
-    source_name: str
-    url: str | None
+    record_id: str
     title: str
     summary: str
-    title_zh: str
-    summary_zh: str
+    source_name: str
     published_at: datetime | None
+    url: str | None
     status: str
-    positive_literal_matches: list[str]
-    negative_literal_matches: list[str]
-    bm25_score: float
-    positive_embedding_score: float
-    negative_embedding_score: float
-    embedding_model: str | None
-    embedding_status: str
-    model_status: str
-    model_score: float | None
-    reason: str | None
-    rules_version: str | None
-    screening_error: str | None
-    saved_at: datetime | None
+    matched_keywords: list[str]
+    archived_at: datetime | None
+    dedupe_key: str
 
 
 class RssCandidatePage(BaseModel):
-    """候选分页响应：服务端分页避免一次拉回全量（候选可上千条、单条含双语摘要）。"""
+    """候选分页响应：飞书 page_token 游标翻页（next_cursor 为空表示没有更多页）。"""
 
     items: list[RssCandidateResponse]
     total: int
-    page: int
-    page_size: int
+    next_cursor: str | None
 
 
 class RssEmbeddingRebuildResponse(BaseModel):

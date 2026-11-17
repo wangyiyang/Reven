@@ -43,9 +43,9 @@ export function RssCandidatesPage() {
                 busy={controller.busyId != null}
                 candidate={candidate}
                 index={index + 1}
-                key={candidate.id}
-                onConfirm={() => controller.confirm(candidate.id)}
-                onIgnore={() => controller.ignore(candidate.id)}
+                key={candidate.record_id}
+                onConfirm={() => controller.confirm(candidate.record_id)}
+                onIgnore={() => controller.ignore(candidate.record_id)}
               />
             ))}
           </ol>
@@ -84,7 +84,7 @@ function CandidateCard(props: {
 }) {
   const { candidate } = props
   const [expanded, setExpanded] = useState(false)
-  const summaryText = candidate.summary_zh || candidate.summary || "暂无摘要"
+  const summaryText = candidate.summary || "暂无摘要"
   const isLongSummary = summaryText.length > 240
   return (
     <li className="candidate-card grid overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--bg)] lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -93,8 +93,7 @@ function CandidateCard(props: {
           <span>#{String(props.index).padStart(2, "0")}</span>
           <span>{candidate.source_name}</span><span aria-hidden>·</span><time>{formatDate(candidate.published_at)}</time>
         </div>
-        <h2 className="mt-4 text-lg font-semibold leading-tight">{candidate.title_zh}</h2>
-        {candidate.title_zh !== candidate.title && <p className="mt-2 text-sm italic text-[var(--muted)]">{candidate.title}</p>}
+        <h2 className="mt-4 text-lg font-semibold leading-tight">{candidate.title}</h2>
         <p className={`mt-5 max-w-3xl text-sm leading-7${isLongSummary && !expanded ? " line-clamp-4" : ""}`}>{summaryText}</p>
         {isLongSummary && (
           <button
@@ -104,45 +103,24 @@ function CandidateCard(props: {
           >{expanded ? "收起" : "展开全文"}</button>
         )}
         <div className="mt-6 flex flex-wrap gap-2">
-          {candidate.positive_literal_matches.map((term) => <Badge className="text-[var(--signal)]" key={`positive-${term}`}>{term}</Badge>)}
-          {candidate.negative_literal_matches.map((term) => <Badge className="text-[var(--danger)]" key={`negative-${term}`}>反向 · {term}</Badge>)}
-          {candidate.positive_literal_matches.length + candidate.negative_literal_matches.length === 0 && <span className="text-xs text-[var(--muted)]">无字面命中</span>}
+          {candidate.matched_keywords.map((term) => <Badge className="text-[var(--signal)]" key={term}>{term}</Badge>)}
+          {candidate.matched_keywords.length === 0 && <span className="text-xs text-[var(--muted)]">无命中关键词</span>}
         </div>
-        <p className="mt-5 rounded-r-md border-l-2 border-[var(--line)] bg-[var(--faint)] py-2 pr-3 pl-4 text-sm leading-6"><span className="font-semibold">入选依据：</span>{candidate.reason ?? "未提供"}</p>
       </article>
       <aside className="flex flex-col border-t border-[var(--line)] bg-[var(--faint)] p-5 lg:border-t-0 lg:border-l">
-        <p className="text-xs text-[var(--muted)]">Signal report</p>
-        <dl className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-1">
-          <Score label="BM25" value={candidate.bm25_score} />
-          <Score label="正向语义" value={candidate.positive_embedding_score} />
-          <Score label="反向语义" value={candidate.negative_embedding_score} />
-        </dl>
-        {candidate.embedding_status === "degraded" && (
-          <p className="mt-4 flex flex-wrap items-center gap-2">
-            <Badge className="text-[var(--danger)]">语义降级</Badge>
-            {candidate.screening_error && <span className="text-[11px] text-[var(--danger)]">{candidate.screening_error}</span>}
-          </p>
-        )}
-        <div className="mt-5 text-[11px] leading-5 text-[var(--muted)]">
-          <p>向量：{candidate.embedding_status} · {candidate.embedding_model ?? "未启用"}</p>
-          <p>模型复核：{candidate.model_status}</p>
-          <p>规则：{candidate.rules_version ?? "—"}</p>
-        </div>
+        <p className="text-xs text-[var(--muted)]">入库时间</p>
+        <p className="mt-1 text-sm">{formatDate(candidate.archived_at)}</p>
         <div className="mt-auto grid gap-2 pt-6">
           {candidate.url && <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line)] px-4 text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)] hover:no-underline" href={candidate.url} rel="noopener noreferrer" target="_blank">查看原文 <ArrowUpRight aria-hidden size={15} /></a>}
           {candidate.status === "candidate" && <>
-            <Button aria-label={`采纳并保存 ${candidate.title_zh}`} disabled={props.busy} onClick={props.onConfirm}><Check aria-hidden size={16} />采纳并保存</Button>
-            <Button aria-label={`忽略 ${candidate.title_zh}`} disabled={props.busy} onClick={props.onIgnore} variant="ghost"><X aria-hidden size={16} />忽略</Button>
+            <Button aria-label={`采纳并保存 ${candidate.title}`} disabled={props.busy} onClick={props.onConfirm}><Check aria-hidden size={16} />采纳并保存</Button>
+            <Button aria-label={`忽略 ${candidate.title}`} disabled={props.busy} onClick={props.onIgnore} variant="ghost"><X aria-hidden size={16} />忽略</Button>
           </>}
-          {candidate.status === "saved" && <p className="text-center text-xs text-[var(--signal)]">已保存 · {formatDate(candidate.saved_at)}</p>}
+          {candidate.status === "saved" && <p className="text-center text-xs text-[var(--signal)]">已保存素材</p>}
         </div>
       </aside>
     </li>
   )
-}
-
-function Score({ label, value }: { label: string; value: number }) {
-  return <div className="border-b border-[var(--line)] py-2"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className="mt-1 font-mono text-sm">{value.toFixed(3)}</dd></div>
 }
 
 function formatDate(value: string | null): string {

@@ -1,11 +1,12 @@
-"""飞书应用 API：通知消息发送共用鉴权与脱敏错误处理。"""
+"""飞书应用 API：通知消息发送与多维表格（Bitable）共用鉴权与脱敏错误处理。"""
 
 import json
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -15,7 +16,11 @@ from reven.notifications import Notification
 TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 BOT_INFO_URL = "https://open.feishu.cn/open-apis/bot/v3/info"
 MESSAGES_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+BITABLE_APPS_URL = "https://open.feishu.cn/open-apis/bitable/v1/apps"
 _MAX_RESPONSE_BYTES = 64 * 1024
+# 多维表格写接口单批上限 500 条（官方限制），查询单页上限 500
+BITABLE_MAX_BATCH_SIZE = 500
+BITABLE_MAX_PAGE_SIZE = 500
 
 
 class FeishuBotApiError(Exception):
@@ -27,6 +32,71 @@ class FeishuBotApiError(Exception):
     def __init__(self, message: str, *, code: int | None = None) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True)
+class BitableField:
+    """多维表格字段元数据（type 为官方字段类型数字编码）。
+
+    options 仅单选/多选类字段非空（取自 property.options[*].name），
+    供写入方预检单选选项是否已配置。
+    """
+
+    field_id: str
+    name: str
+    type: int
+    options: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class BitableRecord:
+    """多维表格记录：record_id + 原始 fields 字典。"""
+
+    record_id: str
+    fields: dict[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True)
+class BitableRecordPage:
+    """records/search 单页结果；total 为匹配记录总数（官方返回，防御性解析为可空）。"""
+
+    records: tuple[BitableRecord, ...]
+    page_token: str | None
+    has_more: bool
+    total: int | None = None
+
+
+@dataclass(frozen=True)
+class BitableRecordWrite:
+    """待创建记录；client_token 供幂等去重（同 token 重复创建被飞书拒绝）。"""
+
+    fields: dict[str, Any]
+    client_token: str | None = None
+
+
+@dataclass(frozen=True)
+class BitableRecordUpdate:
+    """待更新记录：record_id + 要写入的 fields。"""
+
+    record_id: str
+    fields: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BitableFilterCondition:
+    """search 过滤条件（operator 取官方枚举：is/contains/isNot 等）。"""
+
+    field_name: str
+    operator: str
+    value: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BitableSortField:
+    """search 排序条件（desc=True 倒序）。"""
+
+    field_name: str
+    desc: bool = False
 
 
 class FeishuBotApiClient:
@@ -199,6 +269,153 @@ class FeishuBotApiClient:
             error="飞书消息回复失败",
         )
 
+    # --- 多维表格（Bitable）---
+
+    async def list_fields(self, app_token: str, table_id: str) -> tuple[BitableField, ...]:
+        """列出目标表全部字段（自动翻页）；供绑定测试的字段校验使用。"""
+        fields: list[BitableField] = []
+        page_token: str | None = None
+        while True:
+            query: dict[str, str | int] = {"page_size": BITABLE_MAX_PAGE_SIZE}
+            if page_token is not None:
+                query["page_token"] = page_token
+            url = f"{_bitable_table_url(app_token, table_id)}/fields?{urlencode(query)}"
+            payload = await self._request(
+                "GET", url, token=await self._tenant_token(), error="飞书多维表格字段查询失败"
+            )
+            data = _bitable_data(payload)
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise FeishuBotApiError("飞书多维表格响应格式无效")
+            fields.extend(_parse_bitable_field(item) for item in items)
+            next_token = data.get("page_token")
+            if data.get("has_more") is True and isinstance(next_token, str) and next_token:
+                page_token = next_token
+                continue
+            return tuple(fields)
+
+    async def search_records(
+        self,
+        app_token: str,
+        table_id: str,
+        *,
+        filter_conditions: Sequence[BitableFilterCondition] | None = None,
+        sort_fields: Sequence[BitableSortField] | None = None,
+        page_size: int = BITABLE_MAX_PAGE_SIZE,
+        page_token: str | None = None,
+    ) -> BitableRecordPage:
+        """按条件只读查询记录（单页）；page_size 收敛到 [1, 500]。"""
+        query: dict[str, str | int] = {"page_size": max(1, min(page_size, BITABLE_MAX_PAGE_SIZE))}
+        if page_token is not None:
+            query["page_token"] = page_token
+        url = f"{_bitable_table_url(app_token, table_id)}/records/search?{urlencode(query)}"
+        body: dict[str, Any] = {}
+        if filter_conditions:
+            body["filter"] = {
+                "conjunction": "and",
+                "conditions": [
+                    {"field_name": condition.field_name, "operator": condition.operator, "value": list(condition.value)}
+                    for condition in filter_conditions
+                ],
+            }
+        if sort_fields:
+            body["sort"] = [{"field_name": sort.field_name, "desc": sort.desc} for sort in sort_fields]
+        payload = await self._request(
+            "POST", url, token=await self._tenant_token(), body=body, error="飞书多维表格记录查询失败"
+        )
+        data = _bitable_data(payload)
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise FeishuBotApiError("飞书多维表格响应格式无效")
+        next_token = data.get("page_token")
+        total = data.get("total")
+        return BitableRecordPage(
+            records=tuple(_parse_bitable_record(item) for item in items),
+            page_token=next_token if isinstance(next_token, str) and next_token else None,
+            has_more=data.get("has_more") is True,
+            total=total if type(total) is int else None,
+        )
+
+    async def get_record(self, app_token: str, table_id: str, record_id: str) -> BitableRecord | None:
+        """按 record_id 读取单条记录（batch_get 语义）；记录不存在返回 None。"""
+        payload = await self._request(
+            "POST",
+            f"{_bitable_table_url(app_token, table_id)}/records/batch_get",
+            token=await self._tenant_token(),
+            body={"record_ids": [record_id]},
+            error="飞书多维表格记录读取失败",
+        )
+        data = _bitable_data(payload)
+        absent = data.get("absent_record_ids")
+        if isinstance(absent, list) and record_id in absent:
+            return None
+        records = data.get("records")
+        if not isinstance(records, list):
+            raise FeishuBotApiError("飞书多维表格响应格式无效")
+        for item in records:
+            record = _parse_bitable_record(item)
+            if record.record_id == record_id:
+                return record
+        return None
+
+    async def batch_create_records(
+        self, app_token: str, table_id: str, records: Sequence[BitableRecordWrite]
+    ) -> tuple[BitableRecord, ...]:
+        """批量创建记录；超过单批 500 条自动分批，返回全部已创建记录。"""
+        created: list[BitableRecord] = []
+        for chunk in _bitable_chunks(records):
+            body = {
+                "records": [
+                    {"fields": record.fields, **({"client_token": record.client_token} if record.client_token else {})}
+                    for record in chunk
+                ]
+            }
+            payload = await self._request(
+                "POST",
+                f"{_bitable_table_url(app_token, table_id)}/records/batch_create",
+                token=await self._tenant_token(),
+                body=body,
+                error="飞书多维表格记录创建失败",
+            )
+            data = _bitable_data(payload)
+            items = data.get("records")
+            if not isinstance(items, list):
+                raise FeishuBotApiError("飞书多维表格响应格式无效")
+            created.extend(_parse_bitable_record(item) for item in items)
+        return tuple(created)
+
+    async def batch_update_records(
+        self, app_token: str, table_id: str, records: Sequence[BitableRecordUpdate]
+    ) -> tuple[BitableRecord, ...]:
+        """批量更新记录；超过单批 500 条自动分批，返回全部已更新记录。"""
+        updated: list[BitableRecord] = []
+        for chunk in _bitable_chunks(records):
+            body = {"records": [{"record_id": record.record_id, "fields": record.fields} for record in chunk]}
+            payload = await self._request(
+                "POST",
+                f"{_bitable_table_url(app_token, table_id)}/records/batch_update",
+                token=await self._tenant_token(),
+                body=body,
+                error="飞书多维表格记录更新失败",
+            )
+            data = _bitable_data(payload)
+            items = data.get("records")
+            if not isinstance(items, list):
+                raise FeishuBotApiError("飞书多维表格响应格式无效")
+            updated.extend(_parse_bitable_record(item) for item in items)
+        return tuple(updated)
+
+    async def batch_delete_records(self, app_token: str, table_id: str, record_ids: Sequence[str]) -> None:
+        """批量删除记录；超过单批 500 条自动分批。"""
+        for chunk in _bitable_chunks(record_ids):
+            await self._request(
+                "POST",
+                f"{_bitable_table_url(app_token, table_id)}/records/batch_delete",
+                token=await self._tenant_token(),
+                body={"records": list(chunk)},
+                error="飞书多维表格记录删除失败",
+            )
+
     async def _request(
         self,
         method: str,
@@ -260,3 +477,53 @@ async def _read_payload(response: httpx.Response) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise FeishuBotApiError("飞书应用响应格式无效")
     return payload
+
+
+def _bitable_table_url(app_token: str, table_id: str) -> str:
+    return f"{BITABLE_APPS_URL}/{quote(app_token, safe='')}/tables/{quote(table_id, safe='')}"
+
+
+def _bitable_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise FeishuBotApiError("飞书多维表格响应格式无效")
+    return data
+
+
+def _parse_bitable_field(item: object) -> BitableField:
+    if not isinstance(item, dict):
+        raise FeishuBotApiError("飞书多维表格响应格式无效")
+    field_id = item.get("field_id")
+    name = item.get("field_name")
+    field_type = item.get("type")
+    if not isinstance(field_id, str) or not isinstance(name, str) or type(field_type) is not int:
+        raise FeishuBotApiError("飞书多维表格响应格式无效")
+    return BitableField(
+        field_id=field_id, name=name, type=field_type, options=_parse_field_options(item.get("property"))
+    )
+
+
+def _parse_field_options(property_value: object) -> tuple[str, ...]:
+    if not isinstance(property_value, dict):
+        return ()
+    options = property_value.get("options")
+    if not isinstance(options, list):
+        return ()
+    return tuple(
+        option["name"] for option in options if isinstance(option, dict) and isinstance(option.get("name"), str)
+    )
+
+
+def _parse_bitable_record(item: object) -> BitableRecord:
+    if not isinstance(item, dict):
+        raise FeishuBotApiError("飞书多维表格响应格式无效")
+    record_id = item.get("record_id")
+    fields = item.get("fields")
+    if not isinstance(record_id, str) or not isinstance(fields, dict):
+        raise FeishuBotApiError("飞书多维表格响应格式无效")
+    return BitableRecord(record_id=record_id, fields=fields)
+
+
+def _bitable_chunks(items: Sequence[Any]) -> Iterator[Sequence[Any]]:
+    for start in range(0, len(items), BITABLE_MAX_BATCH_SIZE):
+        yield items[start : start + BITABLE_MAX_BATCH_SIZE]

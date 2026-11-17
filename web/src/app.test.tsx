@@ -25,7 +25,7 @@ function renderApp(path: string) {
         integrations: { missing_providers: [], cos_configured: true },
       }),
     ),
-    http.get("/api/rss/candidates", () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 30 })),
+    http.get("/api/rss/candidates", () => HttpResponse.json({ items: [], total: 0, next_cursor: null })),
   )
   return render(
     <QueryClientProvider client={client}>

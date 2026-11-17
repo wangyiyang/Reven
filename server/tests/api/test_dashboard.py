@@ -3,24 +3,34 @@
 覆盖：空库、各模块有数据、财务逾期计算（due_on < 今日未收）、
 missing providers 差集（含 secret_configured=false）、cos_configured、
 无 RSS run 时 latest_run=null。
+RSS 候选/已保存计数来自 Bitable（CandidateStoreDep）：多数用例注入内存 counter 替身；
+另有真实 store + MockTransport 用例验证计数确实来自 Bitable search，以及未配置绑定时的 503。
 """
 
 import asyncio
-import hashlib
+import base64
+import json
 from datetime import UTC, date, datetime, timedelta
 
+import httpx
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from reven.api.dependencies import get_candidate_store
+from reven.config import Settings
 from reven.crm.models import Customer, FollowUp
 from reven.finance.models import FinanceEntry
-from reven.integrations.models import Integration
+from reven.integrations.credentials import IntegrationCredentials
+from reven.integrations.models import FeishuResourceBinding, Integration
 from reven.integrations.providers import SUPPORTED_INTEGRATION_PROVIDERS
 from reven.projects.models import Project
-from reven.rss.models import RssDiscoveryRun, RssItem
+from reven.provider_clients import ProviderClients
+from reven.rss.models import RssDiscoveryRun
 from reven.scheduling import SHANGHAI
+from reven.security.secrets import SecretBox
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 Factory = async_sessionmaker[AsyncSession]
+TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
 
 
 def today_shanghai() -> date:
@@ -29,6 +39,46 @@ def today_shanghai() -> date:
 
 def run(coro):  # type: ignore[no-untyped-def]
     return asyncio.run(coro)
+
+
+class _FakeCandidateCounter:
+    """候选计数替身：按状态返回注入值。"""
+
+    def __init__(self, counts: dict[str, int]) -> None:
+        self._counts = counts
+        self.calls: list[str] = []
+
+    async def count_candidates(self, status: str) -> int:
+        self.calls.append(status)
+        return self._counts.get(status, 0)
+
+
+def use_candidate_counts(client: TestClient, counts: dict[str, int]) -> _FakeCandidateCounter:
+    counter = _FakeCandidateCounter(counts)
+    client.app.dependency_overrides[get_candidate_store] = lambda: counter
+    return counter
+
+
+class _BitableCountStub:
+    """按「状态」filter 值返回 total 的飞书 Bitable search stub。"""
+
+    def __init__(self, totals: dict[str, int]) -> None:
+        self._totals = totals
+        self.seen_statuses: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/auth/" in path:
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "t-dash-token"})
+        if path.endswith("/records/search"):
+            body = json.loads(request.content)
+            status = body["filter"]["conditions"][0]["value"][0]
+            self.seen_statuses.append(status)
+            return httpx.Response(
+                200,
+                json={"code": 0, "data": {"items": [], "has_more": False, "total": self._totals.get(status, 0)}},
+            )
+        return httpx.Response(500, json={"code": 500, "msg": "unexpected"})
 
 
 def finance_entry(**overrides: object) -> FinanceEntry:
@@ -48,25 +98,9 @@ def finance_entry(**overrides: object) -> FinanceEntry:
     return FinanceEntry(**values)
 
 
-def rss_item(run_id, status: str, key: str) -> RssItem:  # type: ignore[no-untyped-def]
-    def digest(value: str) -> str:
-        return hashlib.sha256(value.encode()).hexdigest()
-
-    return RssItem(
-        first_seen_run_id=run_id,
-        source_name="Example",
-        url_key=digest(f"url-{key}"),
-        guid_key=digest(f"guid-{key}"),
-        title_key=digest(f"title-{key}"),
-        title=f"标题 {key}",
-        title_zh=f"标题 {key}",
-        published_at=datetime(2026, 9, 1, tzinfo=UTC),
-        status=status,
-    )
-
-
 def test_dashboard_summary_empty_database(workbench: tuple[TestClient, Factory]) -> None:
     client, _factory = workbench
+    use_candidate_counts(client, {})
 
     response = client.get("/api/dashboard/summary")
 
@@ -90,6 +124,7 @@ def test_dashboard_summary_empty_database(workbench: tuple[TestClient, Factory])
 
 def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, Factory]) -> None:
     client, factory = workbench
+    counter = use_candidate_counts(client, {"candidate": 2, "saved": 1})
     today = today_shanghai()
 
     async def seed() -> None:
@@ -116,15 +151,6 @@ def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, F
                 finished_at=datetime(2026, 10, 5, 6, 0, tzinfo=UTC),
             )
             session.add(run_)
-            await session.flush()
-            session.add_all(
-                [
-                    rss_item(run_.id, "candidate", "c1"),
-                    rss_item(run_.id, "candidate", "c2"),
-                    rss_item(run_.id, "saved", "s1"),
-                    rss_item(run_.id, "ignored", "i1"),
-                ]
-            )
             customers = [
                 Customer(name="逾期客户"),
                 Customer(name="今日客户"),
@@ -187,6 +213,7 @@ def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, F
     }
     assert body["rss"]["candidate_count"] == 2
     assert body["rss"]["saved_count"] == 1
+    assert set(counter.calls) == {"candidate", "saved"}
     assert body["rss"]["latest_run"] == {
         "status": "partial",
         "failure_count": 2,
@@ -213,9 +240,70 @@ def test_dashboard_summary_aggregates_all_modules(workbench: tuple[TestClient, F
     assert body["integrations"]["cos_configured"] is False
 
 
+def test_dashboard_rss_counts_come_from_bitable(workbench: tuple[TestClient, Factory]) -> None:
+    """真实 CandidateStore + MockTransport：candidate/saved 计数来自 Bitable search 的 total。"""
+    client, factory = workbench
+    stub = _BitableCountStub({"candidate": 7, "saved": 3})
+
+    async def seed() -> None:
+        async with factory.begin() as session:
+            integration = Integration(
+                provider="feishu_bot",
+                public_config={"enabled": True, "whitelist_open_ids": ["ou_dash"]},
+                encrypted_secret=SecretBox.from_base64(TEST_MASTER_KEY).encrypt(
+                    {"app_id": "cli_dash", "app_secret": "s3cret"}
+                ),
+            )
+            session.add(integration)
+            await session.flush()
+            session.add(
+                FeishuResourceBinding(
+                    integration_id=integration.id,
+                    resource_type="bitable",
+                    purpose="rss_candidates",
+                    config={"app_token": "bascn_dash", "table_id": "tbl_dash"},
+                    enabled=True,
+                )
+            )
+
+    run(seed())
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
+        reven_master_key=TEST_MASTER_KEY,
+        reven_admin_password="unused-password",
+        siliconflow_api_key=None,
+        agent_api_key=None,
+        _env_file=None,
+    )
+    clients = ProviderClients(
+        IntegrationCredentials(factory, settings),
+        settings,
+        feishu_transport=httpx.MockTransport(stub),
+    )
+    client.app.state.provider_clients = clients
+
+    body = client.get("/api/dashboard/summary").json()
+
+    assert body["rss"]["candidate_count"] == 7
+    assert body["rss"]["saved_count"] == 3
+    assert sorted(stub.seen_statuses) == ["candidate", "saved"]
+    run(clients.aclose())
+
+
+def test_dashboard_summary_fails_503_without_enabled_binding(workbench: tuple[TestClient, Factory]) -> None:
+    """未配置启用绑定（真实 store、无 override）：明确 503，不静默返回 0 计数。"""
+    client, _factory = workbench
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "RSS_CANDIDATES_BINDING_MISSING"
+
+
 def test_dashboard_finance_overdue_counts_only_unsettled_receivables(workbench: tuple[TestClient, Factory]) -> None:
     """逾期 = status=应收 且 due_on < 今日；今日到期、已收、应付均不计入逾期。"""
     client, factory = workbench
+    use_candidate_counts(client, {})
     today = today_shanghai()
 
     async def seed() -> None:
@@ -255,6 +343,7 @@ def test_dashboard_finance_overdue_counts_only_unsettled_receivables(workbench: 
 def test_dashboard_crm_due_items_top5_most_overdue_first(workbench: tuple[TestClient, Factory]) -> None:
     """Top 5 复用 list_due_follow_ups：派生 next_due_on <= 今日，最逾期在前。"""
     client, factory = workbench
+    use_candidate_counts(client, {})
     today = today_shanghai()
 
     async def seed() -> None:
@@ -294,6 +383,7 @@ def test_dashboard_missing_providers_diff_includes_unconfigured_secret(
 ) -> None:
     """DB 行存在但 secret_configured=false（无密文）也算 missing；未知行不影响差集。"""
     client, factory = workbench
+    use_candidate_counts(client, {})
 
     async def seed() -> None:
         async with factory.begin() as session:
@@ -315,6 +405,7 @@ def test_dashboard_missing_providers_diff_includes_unconfigured_secret(
 def test_dashboard_cos_configured_reflects_settings(workbench: tuple[TestClient, Factory]) -> None:
     """cos_* 四个环境值齐备才算 configured；缺任一即 false。"""
     client, _factory = workbench
+    use_candidate_counts(client, {})
     settings = client.app.state.settings  # type: ignore[attr-defined]
 
     assert client.get("/api/dashboard/summary").json()["integrations"]["cos_configured"] is False
@@ -331,14 +422,12 @@ def test_dashboard_cos_configured_reflects_settings(workbench: tuple[TestClient,
 def test_dashboard_rss_counts_with_run_present(workbench: tuple[TestClient, Factory]) -> None:
     """有运行记录时 latest_run 返回最近一次（按 run_date 降序）。"""
     client, factory = workbench
+    use_candidate_counts(client, {"candidate": 1})
     today = today_shanghai()
 
     async def seed() -> None:
         async with factory.begin() as session:
-            older = RssDiscoveryRun(run_date=today - timedelta(days=1), status="completed", failure_count=1)
-            session.add(older)
-            await session.flush()
-            session.add(rss_item(older.id, "candidate", "only"))
+            session.add(RssDiscoveryRun(run_date=today - timedelta(days=1), status="completed", failure_count=1))
             session.add(RssDiscoveryRun(run_date=today, status="partial", failure_count=3))
 
     run(seed())
@@ -351,6 +440,7 @@ def test_dashboard_rss_counts_with_run_present(workbench: tuple[TestClient, Fact
 def test_dashboard_rss_latest_run_unfinished(workbench: tuple[TestClient, Factory]) -> None:
     """running 中的 run：finished_at=null 原样返回。"""
     client, factory = workbench
+    use_candidate_counts(client, {})
     today = today_shanghai()
 
     async def seed() -> None:
@@ -365,6 +455,7 @@ def test_dashboard_rss_latest_run_unfinished(workbench: tuple[TestClient, Factor
 
 def test_dashboard_projects_top5_due_on_ascending_nulls_last(workbench: tuple[TestClient, Factory]) -> None:
     client, factory = workbench
+    use_candidate_counts(client, {})
     today = today_shanghai()
 
     async def seed() -> None:

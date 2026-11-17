@@ -86,11 +86,11 @@ def test_migration_0022_removes_only_webhook_and_downgrade_does_not_restore_it()
     config = _alembic_config(database_url)
 
     try:
-        command.upgrade(config, "head")
-        command.downgrade(config, "0021_retire_publishing")
+        # 0029 起 downgrade 不可跨越 rss_items 删除点，本用例显式锚定 0022/0021 两个 revision
+        command.upgrade(config, "0021_retire_publishing")
         asyncio.run(_seed_rows(database_url))
 
-        command.upgrade(config, "head")
+        command.upgrade(config, "0022_remove_feishu_webhook")
         assert asyncio.run(_stored_providers(database_url)) == {
             "feishu_bot",
             "translate_baidu",

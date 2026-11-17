@@ -128,47 +128,9 @@ class Deployment:
             ),
         )
 
-    def seed_candidate(self, source_id: str) -> str:
-        """Seed only the isolated database; the disabled source is never fetched."""
-        return self.compose(
-            "exec",
-            "-T",
-            "reven",
-            "python",
-            "-c",
-            "\n".join(
-                [
-                    "import asyncio, hashlib",
-                    "from datetime import date",
-                    "from uuid import UUID",
-                    "from reven.config import Settings",
-                    "from reven.db import create_session_factory",
-                    "from reven.rss.models import RssDiscoveryRun, RssItem",
-                    "async def seed():",
-                    "    async with create_session_factory(Settings()).begin() as session:",
-                    "        run = RssDiscoveryRun(run_date=date(2000, 1, 1), status='completed')",
-                    "        session.add(run)",
-                    "        await session.flush()",
-                    "        item = RssItem(",
-                    f"            source_id=UUID({source_id!r}), first_seen_run_id=run.id,",
-                    "            source_name='self-host smoke', title='Local smoke candidate',",
-                    "            title_zh='本地验收候选', summary='Deterministic local fixture',",
-                    "            summary_zh='本地确定性测试素材', status='candidate',",
-                    "            title_key=hashlib.sha256(b'self-host-smoke-candidate').hexdigest(),",
-                    "            embedding_status='skipped', model_status='skipped')",
-                    "        session.add(item)",
-                    "        await session.flush()",
-                    "        print(item.id)",
-                    "asyncio.run(seed())",
-                ]
-            ),
-            capture=True,
-        )
-
     def assert_persistence(self, browser: Browser) -> None:
         token = browser.login(self.password)
         source_id = browser.create_disabled_source()
-        saved = browser.save_candidate(self.seed_candidate(source_id))
         self.compose(
             "exec",
             "-T",
@@ -186,7 +148,6 @@ class Deployment:
         self.compose("down", "--timeout", "30")
         self.up()
         browser.assert_persisted_source(source_id)
-        browser.assert_saved_candidate(saved)
         self.compose(
             "exec",
             "-T",
@@ -343,7 +304,7 @@ def exercise(deployment: Deployment) -> None:
         deployment.up()
         deployment.assert_runtime()
         deployment.assert_persistence(Browser("http://localhost:8080"))
-        print("Self-host HTTP, authentication, saved RSS materials, volumes and licenses passed.", flush=True)
+        print("Self-host HTTP, authentication, persisted RSS source configuration, volumes and licenses passed.", flush=True)
         deployment.assert_https()
         print("Self-host HTTPS passed with an explicitly trusted test CA and Secure session cookies.", flush=True)
         deployment.assert_production()
