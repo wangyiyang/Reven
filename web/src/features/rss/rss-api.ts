@@ -3,11 +3,11 @@ import type { RssCandidate, RssCandidateView, RssKeyword, RssSource } from "./ty
 
 export const CANDIDATE_PAGE_SIZE = 30
 
+/** 游标分页（飞书 page_token 透传）：next_cursor 为空表示没有更多页。 */
 export interface RssCandidatePage {
   items: RssCandidate[]
   total: number
-  page: number
-  page_size: number
+  next_cursor: string | null
 }
 
 export interface RssSourceInput {
@@ -47,20 +47,22 @@ export async function fetchRssKeywords(): Promise<RssKeyword[]> {
   return value
 }
 
-export async function fetchRssCandidatesPage(page: number, status: RssCandidateView): Promise<RssCandidatePage> {
-  const value = await apiRequest<unknown>(`/rss/candidates?page=${page}&page_size=${CANDIDATE_PAGE_SIZE}&status=${status}`)
+export async function fetchRssCandidatesPage(cursor: string | null, status: RssCandidateView): Promise<RssCandidatePage> {
+  const query = new URLSearchParams({ page_size: String(CANDIDATE_PAGE_SIZE), status })
+  if (cursor) query.set("cursor", cursor)
+  const value = await apiRequest<unknown>(`/rss/candidates?${query}`)
   if (!isRssCandidatePage(value)) throw candidateInvalidResponse()
   return value
 }
 
-export async function ignoreRssCandidate(id: string): Promise<void> {
-  const value = await apiRequest<unknown>(`/rss/candidates/${id}/ignore`, { method: "POST" })
+export async function ignoreRssCandidate(recordId: string): Promise<void> {
+  const value = await apiRequest<unknown>(`/rss/candidates/${encodeURIComponent(recordId)}/ignore`, { method: "POST" })
   if (!isRssCandidate(value) || value.status !== "ignored") throw candidateInvalidResponse()
 }
 
-export async function confirmRssCandidate(id: string): Promise<RssCandidate> {
-  const value = await apiRequest<unknown>(`/rss/candidates/${id}/confirm`, { method: "POST" })
-  if (!isRssCandidate(value) || value.status !== "saved" || value.id !== id) throw candidateInvalidResponse()
+export async function confirmRssCandidate(recordId: string): Promise<RssCandidate> {
+  const value = await apiRequest<unknown>(`/rss/candidates/${encodeURIComponent(recordId)}/confirm`, { method: "POST" })
+  if (!isRssCandidate(value) || value.status !== "saved" || value.record_id !== recordId) throw candidateInvalidResponse()
   return value
 }
 
@@ -116,33 +118,21 @@ function isRssKeyword(value: unknown): value is RssKeyword {
 function isRssCandidatePage(value: unknown): value is RssCandidatePage {
   if (!isRecord(value)) return false
   if (!Array.isArray(value.items) || !value.items.every(isRssCandidate)) return false
-  return Number.isInteger(value.total) && Number.isInteger(value.page) && Number.isInteger(value.page_size)
+  return Number.isInteger(value.total) && (value.next_cursor === null || typeof value.next_cursor === "string")
 }
 
 function isRssCandidate(value: unknown): value is RssCandidate {
   return isRecord(value)
-    && typeof value.id === "string"
+    && typeof value.record_id === "string"
     && typeof value.source_name === "string"
     && nullableHttpUrl(value.url)
     && typeof value.title === "string"
     && typeof value.summary === "string"
-    && typeof value.title_zh === "string"
-    && typeof value.summary_zh === "string"
     && nullableString(value.published_at)
     && typeof value.status === "string"
-    && stringArray(value.positive_literal_matches)
-    && stringArray(value.negative_literal_matches)
-    && finiteNumber(value.bm25_score)
-    && finiteNumber(value.positive_embedding_score)
-    && finiteNumber(value.negative_embedding_score)
-    && nullableString(value.embedding_model)
-    && typeof value.embedding_status === "string"
-    && typeof value.model_status === "string"
-    && nullableNumber(value.model_score)
-    && nullableString(value.reason)
-    && nullableString(value.rules_version)
-    && nullableString(value.screening_error)
-    && nullableDateTime(value.saved_at)
+    && stringArray(value.matched_keywords)
+    && nullableDateTime(value.archived_at)
+    && typeof value.dedupe_key === "string"
 }
 
 function nullableDateTime(value: unknown): value is string | null {
@@ -153,16 +143,8 @@ function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string"
 }
 
-function nullableNumber(value: unknown): value is number | null {
-  return value === null || finiteNumber(value)
-}
-
 function nullableHttpUrl(value: unknown): value is string | null {
   return value === null || isHttpUrl(value)
-}
-
-function finiteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value)
 }
 
 function stringArray(value: unknown): value is string[] {

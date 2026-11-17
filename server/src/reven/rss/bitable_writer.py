@@ -29,7 +29,7 @@ from reven.integrations.bindings import (
     RESOURCE_TYPE_BITABLE,
     FeishuResourceBindingService,
 )
-from reven.integrations.feishu_bot.bitable import validate_required_fields
+from reven.integrations.feishu_bot.bitable import bitable_text_value, validate_required_fields
 from reven.integrations.feishu_bot.client import (
     BitableFilterCondition,
     BitableRecordWrite,
@@ -83,8 +83,7 @@ class BitableCandidateWriter:
         binding = await self._enabled_binding()
         if binding is None:
             raise BitableCandidateWriteError(
-                "未配置启用的飞书多维表格绑定（bitable/rss_candidates）："
-                "请在飞书应用机器人集成中创建并启用候选表绑定"
+                "未配置启用的飞书多维表格绑定（bitable/rss_candidates）：请在飞书应用机器人集成中创建并启用候选表绑定"
             )
         app_token, table_id = _bitable_target(binding)
         if not candidates:
@@ -173,7 +172,7 @@ async def _existing_dedupe_keys(
                 page_token=page_token,
             )
             for record in page.records:
-                if key := _text_field_value(record.fields.get(DEDUPE_KEY_FIELD)):
+                if key := bitable_text_value(record.fields.get(DEDUPE_KEY_FIELD)):
                     existing.add(key)
             if page.has_more and page.page_token is not None:
                 page_token = page.page_token
@@ -208,21 +207,6 @@ def _client_token(run_id: UUID, dedupe_key: str) -> str:
 
 def _millis(value: datetime) -> int:
     return int(value.timestamp() * 1000)
-
-
-def _text_field_value(value: object) -> str | None:
-    """Bitable 文本字段读路径可能返回纯字符串或富文本段数组，两种形态都兼容。"""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        parts = [
-            segment["text"]
-            for segment in value
-            if isinstance(segment, dict) and isinstance(segment.get("text"), str)
-        ]
-        if parts:
-            return "".join(parts)
-    return None
 
 
 def _chunks(values: tuple[str, ...], size: int) -> Iterator[tuple[str, ...]]:

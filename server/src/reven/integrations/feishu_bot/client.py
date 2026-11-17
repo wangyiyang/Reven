@@ -58,11 +58,12 @@ class BitableRecord:
 
 @dataclass(frozen=True)
 class BitableRecordPage:
-    """records/search 单页结果。"""
+    """records/search 单页结果；total 为匹配记录总数（官方返回，防御性解析为可空）。"""
 
     records: tuple[BitableRecord, ...]
     page_token: str | None
     has_more: bool
+    total: int | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,14 @@ class BitableFilterCondition:
     field_name: str
     operator: str
     value: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BitableSortField:
+    """search 排序条件（desc=True 倒序）。"""
+
+    field_name: str
+    desc: bool = False
 
 
 class FeishuBotApiClient:
@@ -291,6 +300,7 @@ class FeishuBotApiClient:
         table_id: str,
         *,
         filter_conditions: Sequence[BitableFilterCondition] | None = None,
+        sort_fields: Sequence[BitableSortField] | None = None,
         page_size: int = BITABLE_MAX_PAGE_SIZE,
         page_token: str | None = None,
     ) -> BitableRecordPage:
@@ -308,6 +318,8 @@ class FeishuBotApiClient:
                     for condition in filter_conditions
                 ],
             }
+        if sort_fields:
+            body["sort"] = [{"field_name": sort.field_name, "desc": sort.desc} for sort in sort_fields]
         payload = await self._request(
             "POST", url, token=await self._tenant_token(), body=body, error="飞书多维表格记录查询失败"
         )
@@ -316,11 +328,35 @@ class FeishuBotApiClient:
         if not isinstance(items, list):
             raise FeishuBotApiError("飞书多维表格响应格式无效")
         next_token = data.get("page_token")
+        total = data.get("total")
         return BitableRecordPage(
             records=tuple(_parse_bitable_record(item) for item in items),
             page_token=next_token if isinstance(next_token, str) and next_token else None,
             has_more=data.get("has_more") is True,
+            total=total if type(total) is int else None,
         )
+
+    async def get_record(self, app_token: str, table_id: str, record_id: str) -> BitableRecord | None:
+        """按 record_id 读取单条记录（batch_get 语义）；记录不存在返回 None。"""
+        payload = await self._request(
+            "POST",
+            f"{_bitable_table_url(app_token, table_id)}/records/batch_get",
+            token=await self._tenant_token(),
+            body={"record_ids": [record_id]},
+            error="飞书多维表格记录读取失败",
+        )
+        data = _bitable_data(payload)
+        absent = data.get("absent_record_ids")
+        if isinstance(absent, list) and record_id in absent:
+            return None
+        records = data.get("records")
+        if not isinstance(records, list):
+            raise FeishuBotApiError("飞书多维表格响应格式无效")
+        for item in records:
+            record = _parse_bitable_record(item)
+            if record.record_id == record_id:
+                return record
+        return None
 
     async def batch_create_records(
         self, app_token: str, table_id: str, records: Sequence[BitableRecordWrite]

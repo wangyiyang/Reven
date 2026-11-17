@@ -1,26 +1,40 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { ApiError } from "@/lib/api"
 import type { RssCandidateView } from "./types"
 import { confirmRssCandidate, fetchRssCandidatesPage, ignoreRssCandidate } from "./rss-api"
 
 const QUERY_KEY = ["rss-candidates"] as const
+
+/** 409 = 飞书侧状态已变更（先读后写冲突）：提示并刷新列表，不做强制覆盖。 */
+function isConflict(error: Error): boolean {
+  return error instanceof ApiError && error.status === 409
+}
 
 export function useRssCandidatesController(status: RssCandidateView) {
   const queryClient = useQueryClient()
   const candidates = useInfiniteQuery({
     queryKey: [...QUERY_KEY, status],
     queryFn: ({ pageParam }) => fetchRssCandidatesPage(pageParam, status),
-    initialPageParam: 1,
-    getNextPageParam: (last) => (last.page * last.page_size < last.total ? last.page + 1 : undefined),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
+  const onReviewError = async (error: Error) => {
+    if (isConflict(error)) {
+      toast.error("该条已在飞书侧变更，已刷新")
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+      return
+    }
+    toast.error(error.message)
+  }
   const ignore = useMutation({
     mutationFn: ignoreRssCandidate,
     onSuccess: async () => {
       toast.success("已忽略候选")
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY })
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: onReviewError,
   })
   const confirm = useMutation({
     mutationFn: confirmRssCandidate,
@@ -28,7 +42,7 @@ export function useRssCandidatesController(status: RssCandidateView) {
       toast.success("已保存到素材库")
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY })
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: onReviewError,
   })
   const items = candidates.data?.pages.flatMap((page) => page.items) ?? []
   return {

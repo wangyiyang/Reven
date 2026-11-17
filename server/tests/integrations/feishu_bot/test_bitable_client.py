@@ -10,6 +10,7 @@ from reven.integrations.feishu_bot.client import (
     BitableFilterCondition,
     BitableRecordUpdate,
     BitableRecordWrite,
+    BitableSortField,
     FeishuBotApiClient,
     FeishuBotApiError,
 )
@@ -106,12 +107,14 @@ async def test_search_records_posts_filter_and_parses_page() -> None:
             APP_TOKEN,
             TABLE_ID,
             filter_conditions=[BitableFilterCondition(field_name="去重键", operator="is", value=("key-1",))],
+            sort_fields=[BitableSortField(field_name="发布时间", desc=True)],
             page_size=1000,
             page_token="prev",
         )
 
     assert page.has_more is True
     assert page.page_token == "next"
+    assert page.total == 5
     assert [(record.record_id, record.fields) for record in page.records] == [("rec1", {"标题": "文章"})]
     request = route.calls[0].request
     assert request.url.params["page_size"] == "500"  # clamp 到单页上限
@@ -120,7 +123,8 @@ async def test_search_records_posts_filter_and_parses_page() -> None:
         "filter": {
             "conjunction": "and",
             "conditions": [{"field_name": "去重键", "operator": "is", "value": ["key-1"]}],
-        }
+        },
+        "sort": [{"field_name": "发布时间", "desc": True}],
     }
 
 
@@ -135,8 +139,36 @@ async def test_search_records_without_filter_sends_empty_body() -> None:
 
     assert page.records == ()
     assert page.page_token is None
+    assert page.total is None  # total 缺失时防御性解析为 None
     assert route.calls[0].request.url.params["page_size"] == "1"
     assert json.loads(route.calls[0].request.content) == {}
+
+
+@pytest.mark.anyio
+async def test_get_record_returns_record_and_marks_absent_as_none() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _mock_token(router)
+        route = router.post(f"{TABLE_URL}/records/batch_get").mock(
+            side_effect=lambda request: httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": (
+                        {"records": [{"record_id": "rec1", "fields": {"标题": "文章"}}]}
+                        if json.loads(request.content)["record_ids"] == ["rec1"]
+                        else {"records": [], "absent_record_ids": json.loads(request.content)["record_ids"]}
+                    ),
+                },
+            )
+        )
+        client = FeishuBotApiClient("cli_test", "secret")
+
+        found = await client.get_record(APP_TOKEN, TABLE_ID, "rec1")
+        missing = await client.get_record(APP_TOKEN, TABLE_ID, "rec_gone")
+
+    assert found is not None and found.record_id == "rec1" and found.fields == {"标题": "文章"}
+    assert missing is None
+    assert route.call_count == 2
 
 
 @pytest.mark.anyio

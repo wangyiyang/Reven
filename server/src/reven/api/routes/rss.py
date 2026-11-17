@@ -1,12 +1,13 @@
 """RSS source and keyword configuration routes."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from reven.api.dependencies import CandidateReviewServiceDep, RssEmbeddingRefresherDep, SessionDep
+from reven.api.dependencies import CandidateStoreDep, RssEmbeddingRefresherDep, SessionDep
 from reven.api.schemas.rss import (
     RssCandidatePage,
     RssCandidateResponse,
@@ -17,11 +18,13 @@ from reven.api.schemas.rss import (
     RssSourceCreate,
     RssSourceResponse,
 )
-from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword, RssSource
+from reven.rss.bitable_store import BitableCandidate, BitableCandidateStoreError
+from reven.rss.models import RssDiscoveryRun, RssKeyword, RssSource
 from reven.rss.repository import RssSettingsConflictError, RssSettingsRepository
-from reven.rss.review_service import CandidateReviewError
 
 router = APIRouter(prefix="/api/rss", tags=["rss"])
+
+CandidateStatus = Literal["candidate", "saved", "ignored"]
 
 
 @router.post("/embeddings/rebuild", response_model=RssEmbeddingRebuildResponse)
@@ -45,42 +48,51 @@ async def latest_run(session: SessionDep) -> RssDiscoveryRun | JSONResponse:
 
 @router.get("/candidates", response_model=RssCandidatePage)
 async def list_candidates(
-    session: SessionDep,
-    candidate_status: str = Query("candidate", alias="status", max_length=24),
-    page: int = Query(1, ge=1),
+    store: CandidateStoreDep,
+    candidate_status: CandidateStatus = Query("candidate", alias="status"),
+    cursor: str | None = Query(None, max_length=200),
     page_size: int = Query(30, ge=1, le=100),
-) -> RssCandidatePage:
-    filters = [RssItem.status == candidate_status]
-    total = await session.scalar(select(func.count()).select_from(RssItem).where(*filters))
-    result = await session.scalars(
-        select(RssItem)
-        .where(*filters)
-        .order_by(RssItem.published_at.desc().nullslast(), RssItem.first_seen_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+) -> RssCandidatePage | JSONResponse:
+    try:
+        page = await store.list_candidates(status=candidate_status, page_size=page_size, cursor=cursor)
+    except BitableCandidateStoreError as exc:
+        return _candidate_error(exc.status_code, exc.code, exc.message)
     return RssCandidatePage(
-        items=[RssCandidateResponse.model_validate(item) for item in result],
-        total=total or 0,
-        page=page,
-        page_size=page_size,
+        items=[_candidate_response(item) for item in page.items],
+        total=page.total,
+        next_cursor=page.next_cursor,
     )
 
 
-@router.post("/candidates/{item_id}/ignore", response_model=RssCandidateResponse)
-async def ignore_candidate(item_id: UUID, review: CandidateReviewServiceDep) -> RssItem | JSONResponse:
+@router.post("/candidates/{record_id}/ignore", response_model=RssCandidateResponse)
+async def ignore_candidate(record_id: str, store: CandidateStoreDep) -> RssCandidateResponse | JSONResponse:
     try:
-        return await review.ignore(item_id)
-    except CandidateReviewError as exc:
+        return _candidate_response(await store.set_status(record_id, "ignored"))
+    except BitableCandidateStoreError as exc:
         return _candidate_error(exc.status_code, exc.code, exc.message)
 
 
-@router.post("/candidates/{item_id}/confirm", response_model=RssCandidateResponse)
-async def confirm_candidate(item_id: UUID, review: CandidateReviewServiceDep) -> RssItem | JSONResponse:
+@router.post("/candidates/{record_id}/confirm", response_model=RssCandidateResponse)
+async def confirm_candidate(record_id: str, store: CandidateStoreDep) -> RssCandidateResponse | JSONResponse:
     try:
-        return await review.approve(item_id)
-    except CandidateReviewError as exc:
+        return _candidate_response(await store.set_status(record_id, "saved"))
+    except BitableCandidateStoreError as exc:
         return _candidate_error(exc.status_code, exc.code, exc.message)
+
+
+def _candidate_response(candidate: BitableCandidate) -> RssCandidateResponse:
+    return RssCandidateResponse(
+        record_id=candidate.record_id,
+        title=candidate.title,
+        summary=candidate.summary,
+        source_name=candidate.source_name,
+        published_at=candidate.published_at,
+        url=candidate.url,
+        status=candidate.status,
+        matched_keywords=list(candidate.matched_keywords),
+        archived_at=candidate.archived_at,
+        dedupe_key=candidate.dedupe_key,
+    )
 
 
 @router.get("/sources", response_model=list[RssSourceResponse])

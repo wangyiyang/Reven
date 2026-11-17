@@ -1,6 +1,6 @@
 """Production adapters for the daily RSS discovery workflow."""
 
-from datetime import date, timedelta
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from reven.config import Settings
 from reven.notifications import DeliveryNotifier
 from reven.provider_clients import ProviderClients
+from reven.rss.bitable_store import BitableCandidateStore
 from reven.rss.bitable_writer import BitableCandidateWriter
 from reven.rss.discovery import EntryLocalizer, FeedEntry, FetchedEntry, LocalizedEntry, RssDiscoveryService
 from reven.rss.embedding import (
@@ -19,16 +20,11 @@ from reven.rss.embedding import (
     KeywordEmbeddingService,
 )
 from reven.rss.feed import SecureFeedReader
-from reven.rss.models import RssDiscoveryRun, RssItem, RssKeyword
+from reven.rss.models import RssDiscoveryRun
 from reven.rss.scheduler import RssScheduleTick
-from reven.rss.screening import EMBEDDING_CANDIDATE_THRESHOLD, BoundaryJudge, RssScreeningEngine, cosine_similarity
+from reven.rss.screening import BoundaryJudge, RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from reven.rss.translation import configured_translation_localizer
-from reven.scheduling import utc_now
-
-# 命中数估计的检索窗口：与筛选同款的近期条目（条目向量不持久化，估计时临时重算，故限窗限量）
-HIT_ESTIMATE_WINDOW_DAYS = 7
-HIT_ESTIMATE_MAX_ITEMS = 300
 
 
 class _UnavailableSiliconFlow:
@@ -79,6 +75,7 @@ class RssDiscoveryJob:
     async def run(self, run_date: date) -> object:
         if self._completed_date == run_date:
             return None
+        pending = BitableCandidateStore(self._factory, self._clients)
         if await self._finalized(run_date):
             result = await RssDiscoveryService(
                 self._factory,
@@ -86,6 +83,7 @@ class RssDiscoveryJob:
                 _UnavailableSiliconFlow(),
                 self._notifier,
                 candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                pending_counter=pending.count_candidates,
                 translation_alert_count=self._settings.rss_translation_alert_count,
                 translation_alert_ratio=self._settings.rss_translation_alert_ratio,
                 source_max_consecutive_failures=self._settings.rss_source_max_consecutive_failures,
@@ -117,6 +115,7 @@ class RssDiscoveryJob:
                         self._notifier,
                         screener=pipeline,
                         candidate_url=f"{self._settings.public_base_url}/rss/candidates",
+                        pending_counter=pending.count_candidates,
                         translation_alert_count=self._settings.rss_translation_alert_count,
                         translation_alert_ratio=self._settings.rss_translation_alert_ratio,
                         source_max_consecutive_failures=self._settings.rss_source_max_consecutive_failures,
@@ -154,42 +153,3 @@ class KeywordEmbeddingRefresher:
             if embedder is None:
                 raise RuntimeError("SILICONFLOW_API_KEY_NOT_CONFIGURED")
             return await KeywordEmbeddingService(self._factory, embedder).refresh(force=force)
-
-    async def estimate_hits(self, keyword_id: UUID) -> int | None:
-        """估计关键词对近期条目库的语义命中数，复用筛选同款向量与 EMBEDDING_CANDIDATE_THRESHOLD 阈值。
-
-        库为空返回 0；词向量缺失或 embedder 未配置返回 None（调用方据此降级话术，不抛出）。
-        """
-        if self._clients is None:
-            return None
-        cutoff = utc_now() - timedelta(days=HIT_ESTIMATE_WINDOW_DAYS)
-        async with self._factory() as session:
-            keyword = await session.get(RssKeyword, keyword_id)
-            items = list(
-                (
-                    await session.scalars(
-                        select(RssItem)
-                        .where(RssItem.first_seen_at >= cutoff)
-                        .order_by(RssItem.first_seen_at.desc())
-                        .limit(HIT_ESTIMATE_MAX_ITEMS)
-                    )
-                ).all()
-            )
-        vector = tuple(keyword.embedding) if keyword is not None and keyword.embedding is not None else None
-        if vector is None:
-            return None
-        if not items:
-            return 0
-        async with self._clients.embedding() as embedder:
-            if embedder is None:
-                return None
-            outcome = await KeywordEmbeddingService(self._factory, embedder).embed_temporary(
-                tuple(f"{item.title_zh}\n{item.summary_zh}" for item in items)
-            )
-        return sum(
-            1
-            for item_vector in outcome.vectors
-            if item_vector is not None
-            and len(item_vector) == len(vector)
-            and cosine_similarity(item_vector, vector) >= EMBEDDING_CANDIDATE_THRESHOLD
-        )

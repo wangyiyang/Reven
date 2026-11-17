@@ -1,19 +1,23 @@
 """Daily RSS discovery module: 按源分段抓取入内存，候选直写 Bitable（不落 PG 条目）。"""
 
 import hashlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.notifications import DeliveryNotifier, Notification
-from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
+from reven.rss.models import RssDiscoveryRun, RssSource
 from reven.rss.normalization import normalize_keyword
 from reven.scheduling import utc_now
+
+# 待审核候选计数 seam：生产由 BitableCandidateStore.count_candidates 提供（入参为状态）
+PendingReviewCounter = Callable[[str], Awaitable[int]]
 
 
 @dataclass(frozen=True)
@@ -123,6 +127,7 @@ class RssDiscoveryService:
         *,
         screener: RunScreener | None = None,
         candidate_url: str | None = None,
+        pending_counter: PendingReviewCounter | None = None,
         translation_alert_count: int = 10,
         translation_alert_ratio: float = 0.3,
         source_max_consecutive_failures: int = 3,
@@ -133,6 +138,7 @@ class RssDiscoveryService:
         self._notifier = notifier
         self._screener = screener
         self._candidate_url = candidate_url
+        self._pending_counter = pending_counter
         self._translation_alert_count = translation_alert_count
         self._translation_alert_ratio = translation_alert_ratio
         self._source_max_consecutive_failures = source_max_consecutive_failures
@@ -383,19 +389,21 @@ class RssDiscoveryService:
                 ]
 
     async def _send_summary(self, summary: RssRunSummary) -> None:
-        pending_review = await self._pending_review_count()
         links = {"打开候选工作台": self._candidate_url} if self._candidate_url else {}
-        notification = Notification(
-            "Reven RSS 每日汇总",
-            "RSS 内容发现",
-            (
-                f"抓取 {summary.fetched_count} 条，新增 {summary.new_count} 条，"
-                f"候选 {summary.candidate_count} 条，异常 {summary.failure_count} 个。"
-                f"待审核共 {pending_review} 条。"
-            ),
-            links,
-        )
         try:
+            # 待审核计数与发送同属汇总失败域：计数失败（Bitable 未配置/不可用）不标记已发送，
+            # 记录 notification_error 并随 run 重入重试（对齐汇总失败重试纪律）
+            pending_review = await self._pending_review_count()
+            notification = Notification(
+                "Reven RSS 每日汇总",
+                "RSS 内容发现",
+                (
+                    f"抓取 {summary.fetched_count} 条，新增 {summary.new_count} 条，"
+                    f"候选 {summary.candidate_count} 条，异常 {summary.failure_count} 个。"
+                    f"待审核共 {pending_review} 条。"
+                ),
+                links,
+            )
             await self._notifier.send(notification)
         except Exception as exc:
             async with self._factory.begin() as session:
@@ -410,10 +418,10 @@ class RssDiscoveryService:
                 run.notification_error = None
 
     async def _pending_review_count(self) -> int:
-        """待审核候选总数（status=candidate，含历史积压，与当日 run 无关）。"""
-        async with self._factory() as session:
-            count = await session.scalar(select(func.count()).select_from(RssItem).where(RssItem.status == "candidate"))
-        return int(count or 0)
+        """待审核候选总数（Bitable 中状态为 candidate 的记录数，含历史积压，与当日 run 无关）。"""
+        if self._pending_counter is None:
+            return 0
+        return await self._pending_counter("candidate")
 
 
 def _summary(run: RssDiscoveryRun) -> RssRunSummary:

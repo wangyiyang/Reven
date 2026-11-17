@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.agent.service import AgentTurn
 from reven.config import Settings
-from reven.rss.review_service import CandidateReviewService
+from reven.provider_clients import ProviderClients
+from reven.rss.bitable_store import BitableCandidateStore
 
 
 class AgentChatService(Protocol):
@@ -54,11 +55,16 @@ def get_app_settings(request: Request) -> Settings:
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
-def get_candidate_review_service(request: Request) -> CandidateReviewService:
-    return CandidateReviewService(get_session_factory(request))
+def get_candidate_store(request: Request) -> BitableCandidateStore:
+    """候选 Bitable 存储：session_factory 解析绑定，provider_clients 提供飞书客户端（可为 None，由 store 报 503）。"""
+    clients = getattr(request.app.state, "provider_clients", None)
+    return BitableCandidateStore(
+        get_session_factory(request),
+        cast(ProviderClients | None, clients),
+    )
 
 
-CandidateReviewServiceDep = Annotated[CandidateReviewService, Depends(get_candidate_review_service)]
+CandidateStoreDep = Annotated[BitableCandidateStore, Depends(get_candidate_store)]
 
 
 class RssEmbeddingRefresher(Protocol):

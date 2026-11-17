@@ -1,4 +1,3 @@
-import hashlib
 from datetime import UTC, date, datetime
 
 import pytest
@@ -321,44 +320,32 @@ async def test_sent_summary_is_not_resent_on_same_day_rerun(db_session: AsyncSes
     assert len(notifier.delivered) == 1
 
 
-def _backlog_candidate(source: RssSource, run: RssDiscoveryRun, marker: str) -> RssItem:
-    return RssItem(
-        source_id=source.id,
-        first_seen_run_id=run.id,
-        source_name=source.name,
-        guid=marker,
-        url=f"https://example.com/{marker}",
-        url_key=hashlib.sha256(f"url-{marker}".encode()).hexdigest(),
-        guid_key=hashlib.sha256(f"guid-{marker}".encode()).hexdigest(),
-        title_key=hashlib.sha256(f"title-{marker}".encode()).hexdigest(),
-        title=f"Title {marker}",
-        summary="summary",
-        title_zh=f"标题{marker}",
-        summary_zh="摘要",
-        published_at=datetime(2026, 8, 10, 1, tzinfo=UTC),
-        status="candidate",
-    )
-
-
 @pytest.mark.anyio
 @pytest.mark.parametrize("backlog", [1, 100, 1000])
 async def test_summary_reports_pending_backlog_and_stays_single_message(db_session: AsyncSession, backlog: int) -> None:
     """任意待审核积压量下同一接收人同一天仅收到一条汇总（零审核卡片），含双口径统计与工作台入口。
 
-    注：待审核积压数当前仍读 rss_items（Web 端 Commit 4 切 Bitable 后口径同步切换）。
+    待审核积压数来自 Bitable candidate 计数（生产由 BitableCandidateStore 提供），此处注入计数 stub。
     """
     source = RssSource(name="Example", feed_url=f"https://example.com/backlog-{backlog}.xml", enabled=True)
-    backlog_run = RssDiscoveryRun(run_date=date(2026, 8, 10), status="completed")
-    db_session.add_all([source, backlog_run])
-    await db_session.flush()
-    db_session.add_all([_backlog_candidate(source, backlog_run, f"backlog-{index}") for index in range(backlog)])
+    db_session.add(source)
     await db_session.commit()
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     notifier = FlakyNotifier()
     candidate_url = "http://reven.example/rss/candidates"
+    counter_calls: list[str] = []
+
+    async def pending_counter(status: str) -> int:
+        counter_calls.append(status)
+        return backlog
 
     result = await RssDiscoveryService(
-        factory, StubFeedReader(), StubLocalizer(), notifier, candidate_url=candidate_url
+        factory,
+        StubFeedReader(),
+        StubLocalizer(),
+        notifier,
+        candidate_url=candidate_url,
+        pending_counter=pending_counter,
     ).run(date(2026, 8, 19))
 
     assert result.status == "completed"
@@ -366,9 +353,55 @@ async def test_summary_reports_pending_backlog_and_stays_single_message(db_sessi
     notification = notifier.delivered[0]
     assert "候选 0 条" in notification.summary  # 无筛选管线时不产生候选
     assert f"待审核共 {backlog} 条" in notification.summary
+    assert counter_calls == ["candidate"]
     assert notification.links == {"打开候选工作台": candidate_url}
 
-    await RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier, candidate_url=candidate_url).run(
-        date(2026, 8, 19)
-    )
+    await RssDiscoveryService(
+        factory,
+        StubFeedReader(),
+        StubLocalizer(),
+        notifier,
+        candidate_url=candidate_url,
+        pending_counter=pending_counter,
+    ).run(date(2026, 8, 19))
     assert len(notifier.delivered) == 1  # 积压场景同日重跑也不重复发送
+
+
+@pytest.mark.anyio
+async def test_summary_is_retried_when_pending_count_unavailable(db_session: AsyncSession) -> None:
+    """待审核计数失败 = 汇总发送失败：不标记已发送、记录 notification_error、下轮重入重试。"""
+    source = RssSource(name="Example", feed_url="https://example.com/count-fail.xml", enabled=True)
+    db_session.add(source)
+    await db_session.commit()
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    notifier = FlakyNotifier()
+    fail_count = True
+
+    async def pending_counter(status: str) -> int:
+        if fail_count:
+            raise RuntimeError("bitable count unavailable")
+        return 4
+
+    service = RssDiscoveryService(factory, StubFeedReader(), StubLocalizer(), notifier, pending_counter=pending_counter)
+
+    first = await service.run(date(2026, 8, 20))
+
+    assert first.status == "completed"
+    assert notifier.delivered == []  # 计数失败时不发汇总
+    async with factory() as session:
+        run = await session.get(RssDiscoveryRun, first.run_id)
+        assert run is not None
+        assert run.notification_sent_at is None
+        assert run.notification_error == "RuntimeError"
+
+    fail_count = False
+    second = await service.run(date(2026, 8, 20))
+
+    assert second.run_id == first.run_id
+    assert len(notifier.delivered) == 1
+    assert "待审核共 4 条" in notifier.delivered[0].summary
+    async with factory() as session:
+        run = await session.get(RssDiscoveryRun, first.run_id)
+        assert run is not None
+        assert run.notification_sent_at is not None
+        assert run.notification_error is None

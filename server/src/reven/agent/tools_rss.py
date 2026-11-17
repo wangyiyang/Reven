@@ -30,11 +30,9 @@ KeywordPayload = dict[str, object]
 
 
 class KeywordEmbeddingHooks(Protocol):
-    """关键词 embedding 生效钩子：写后增量 refresh；命中数估计供加词话术引用。"""
+    """关键词 embedding 生效钩子：写后增量 refresh。"""
 
     async def refresh(self, *, force: bool = False) -> int: ...
-
-    async def estimate_hits(self, keyword_id: UUID) -> int | None: ...
 
 
 def register_rss_tools(
@@ -64,8 +62,7 @@ class RssKeywordTools:
     async def create_keyword(self, term: TermParam, kind: KindParam, enabled: EnabledParam = True) -> KeywordPayload:
         """新建一个 RSS 关键词。同一关键词（归一化后）不能同时存在于正向和反向列表。
 
-        响应含 embedding_status（ready/pending）与 hit_count（近期条目库的语义命中数估计，
-        不可估计时为 null）。
+        响应含 embedding_status（ready/pending）：pending 表示向量待下轮每日调度补算。
         """
         _validate_normalized_length(term)
         async with self._session_factory() as session:
@@ -75,10 +72,8 @@ class RssKeywordTools:
                 raise _conflict_tool_error(exc) from exc
             await session.commit()
         embedding_status = await self._refresh_embedding()
-        hit_count = await self._estimate_hits(keyword.id) if embedding_status == "ready" else None
         payload = _serialize(keyword)
         payload["embedding_status"] = embedding_status
-        payload["hit_count"] = hit_count
         return payload
 
     async def list_keywords(self) -> list[KeywordPayload]:
@@ -134,17 +129,6 @@ class RssKeywordTools:
             logger.warning("关键词 embedding 刷新失败，按 pending 降级（error_type=%s）", type(exc).__name__)
             return "pending"
         return "ready"
-
-    async def _estimate_hits(self, keyword_id: UUID) -> int | None:
-        """命中数估计；refresher 未装配或估计失败返回 None，由 Agent 话术省略。"""
-        refresher = self._embedding_refresher
-        if refresher is None:
-            return None
-        try:
-            return await refresher.estimate_hits(keyword_id)
-        except Exception as exc:
-            logger.warning("关键词命中数估计失败（error_type=%s）", type(exc).__name__)
-            return None
 
 
 def _serialize(keyword: RssKeyword) -> KeywordPayload:

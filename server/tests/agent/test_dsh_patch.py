@@ -71,17 +71,18 @@ def test_patch_preserves_persona_prefix() -> None:
 
 
 def test_patch_injects_keyword_ops_behavior_instructions() -> None:
-    """#153 行为指令：删除复述确认 + 话术三要素（语义匹配/下次每日抓取/命中数）。"""
+    """#153 行为指令：删除复述确认 + 话术要素（语义匹配/下次每日抓取）。"""
     suffix = _system_prompt_persona_suffix()
     # 覆盖 personaSuffix 必须保留原条目的工作目录占位
     assert "{{cwd}}" in suffix
     # 删除前复述确认（词、正/反向、ID），用户确认后才调 delete
     assert "复述确认" in suffix
     assert "rss_keyword_delete" in suffix
-    # 话术三要素：语义匹配生效、下次每日抓取后生效、命中数
+    # 话术要素：语义匹配生效、下次每日抓取后生效
     assert "语义匹配" in suffix
     assert "下次每日抓取" in suffix
-    assert "hit_count" in suffix
+    # 命中数估计（hit_count）已随 rss_items 条目库退役，话术不得再引用
+    assert "hit_count" not in suffix
     # embedding pending 降级话术
     assert "embedding_status" in suffix
     assert "pending" in suffix

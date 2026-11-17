@@ -18,29 +18,18 @@ export interface RssKeyword {
   updated_at: string
 }
 
+/** Bitable 候选记录：record_id 为飞书侧记录标识（非 UUID），字段对应候选表九列。 */
 export interface RssCandidate {
-  id: string
+  record_id: string
   source_name: string
   url: string | null
   title: string
   summary: string
-  title_zh: string
-  summary_zh: string
   published_at: string | null
   status: string
-  positive_literal_matches: string[]
-  negative_literal_matches: string[]
-  bm25_score: number
-  positive_embedding_score: number
-  negative_embedding_score: number
-  embedding_model: string | null
-  embedding_status: string
-  model_status: string
-  model_score: number | null
-  reason: string | null
-  rules_version: string | null
-  screening_error: string | null
-  saved_at: string | null
+  matched_keywords: string[]
+  archived_at: string | null
+  dedupe_key: string
 }
 
 export type RssCandidateView = "candidate" | "saved"

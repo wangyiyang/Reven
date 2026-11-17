@@ -90,6 +90,19 @@ def validate_required_fields(
     return None
 
 
+def bitable_text_value(value: object) -> str | None:
+    """Bitable 文本字段读路径可能返回纯字符串或富文本段数组，两种形态都兼容。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts = [
+            segment["text"] for segment in value if isinstance(segment, dict) and isinstance(segment.get("text"), str)
+        ]
+        if parts:
+            return "".join(parts)
+    return None
+
+
 async def probe_rss_candidates_binding(api: FeishuBotApiClient, *, app_token: str, table_id: str) -> BitableProbeResult:
     """rss_candidates 绑定真实探针：字段校验 → 只读查询 → 创建 → 删除，失败即止步。"""
     stages: list[BitableProbeStage] = []

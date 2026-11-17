@@ -1,8 +1,9 @@
 """Dashboard aggregate endpoint."""
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
-from reven.api.dependencies import SessionDep, SettingsDep
+from reven.api.dependencies import CandidateStoreDep, SessionDep, SettingsDep
 from reven.api.schemas.dashboard import (
     DashboardCrmDueItem,
     DashboardCrmSummary,
@@ -15,13 +16,20 @@ from reven.api.schemas.dashboard import (
     DashboardSummary,
 )
 from reven.dashboard.service import DashboardService
+from reven.rss.bitable_store import BitableCandidateStoreError
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("/summary", response_model=DashboardSummary)
-async def dashboard_summary(session: SessionDep, settings: SettingsDep) -> DashboardSummary:
-    aggregate = await DashboardService(session, settings).build_summary()
+async def dashboard_summary(
+    session: SessionDep, settings: SettingsDep, candidates: CandidateStoreDep
+) -> DashboardSummary | JSONResponse:
+    try:
+        aggregate = await DashboardService(session, settings, candidates).build_summary()
+    except BitableCandidateStoreError as exc:
+        # 候选计数源（Bitable）未配置/不可用：显式 503，不静默返回 0
+        return JSONResponse(status_code=exc.status_code, content={"code": exc.code, "message": exc.message})
     return DashboardSummary(
         finance=DashboardFinanceSummary(
             receivable_cents=aggregate.finance.receivable_cents,
