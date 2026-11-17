@@ -84,7 +84,7 @@ RSS 翻译在“集成设置”配置百度翻译或阿里翻译，按优先级�
 当前应用下的接收人 Open ID。该删除不能通过降级恢复。
 
 部署与验证见 [运行手册](docs/runbook.md)，Agent 架构见
-[Agent 架构](docs/agent-architecture.md)，测试覆盖见 [测试地图](docs/ai-test-map.md)。
+[Agent 架构](docs/agent-architecture.md)，数据边界见 [数据架构](docs/data-architecture.md)，测试覆盖见 [测试地图](docs/ai-test-map.md)。
 历史稿件设计保留在 docs/superpowers，已不代表当前产品范围。
 
 ## 文档与贡献
