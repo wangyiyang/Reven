@@ -1,6 +1,5 @@
 """#178 RSS 批韧性：checkpoint 断点续跑 / 翻译失败阈值告警 / 死源自动治理。"""
 
-import hashlib
 from datetime import UTC, date, datetime
 
 import pytest
@@ -11,7 +10,7 @@ from reven.rss.discovery import (
     RssDiscoveryService,
 )
 from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 RUN_DATE = date(2026, 9, 1)
@@ -81,9 +80,8 @@ async def test_checkpoint_resume_skips_already_processed_sources(db_session: Asy
         stored_run = await session.get(RssDiscoveryRun, run.id)
         assert stored_run is not None
         assert sorted(stored_run.processed_source_ids) == sorted(str(s.id) for s in sources)
-        # beta/gamma 各入 1 条；alpha 此前中断未提交任何 item，由 checkpoint 保证不重抓
-        titles = (await session.scalars(select(RssItem.title))).all()
-        assert sorted(titles) == ["Title beta", "Title gamma"]
+        # beta/gamma 条目只进内存（候选权威存储为 Bitable）；alpha 此前中断未提交，由 checkpoint 保证不重抓
+        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio
@@ -338,8 +336,12 @@ async def test_source_deleted_mid_run_is_skipped_without_checkpoint_pollution(db
 
 
 @pytest.mark.anyio
-async def test_checkpoint_resume_after_full_crash_leaves_no_duplicate_items(db_session: AsyncSession) -> None:
-    """模拟单轮处理到一半被 kill：已提交源不重抓、已落库 item 不重复，下轮补齐剩余源。"""
+async def test_checkpoint_resume_after_full_crash_skips_committed_sources(db_session: AsyncSession) -> None:
+    """模拟单轮处理到一半被 kill：已提交源不重抓、下轮补齐剩余源。
+
+    条目只进内存：已提交源的条目随进程丢失、不进当轮筛选（跨轮防重由 Bitable 去重键兜底），
+    这是候选迁出 PG 后的既定取舍；checkpoint 语义（跳过已提交源）保持不变。
+    """
     sources = await _seed_sources(db_session, ["alpha", "beta", "gamma"])
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
 
@@ -369,8 +371,8 @@ async def test_checkpoint_resume_after_full_crash_leaves_no_duplicate_items(db_s
         assert run is not None and run.status == "running"
         # 前两次 fetch 成功提交 checkpoint；第三次进程被杀未提交
         assert sorted(run.processed_source_ids) == sorted(str(s.id) for s in sources if s.name in feed.fetched_names)
-        titles_before = sorted((await session.scalars(select(RssItem.title))).all())
-        assert titles_before == sorted(f"Title {name}" for name in feed.fetched_names)
+        # 条目不落 PG：rss_items 始终为空
+        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
     # 进程重启：新 service 实例；feed 还剩第 3 个源待抓（calls 计数继续，3 不再触发崩溃）
     recovered = RssDiscoveryService(factory, feed, _EchoLocalizer(), _RecordingNotifier())
@@ -381,8 +383,7 @@ async def test_checkpoint_resume_after_full_crash_leaves_no_duplicate_items(db_s
         run = await session.get(RssDiscoveryRun, result.run_id)
         assert run is not None
         assert sorted(run.processed_source_ids) == sorted(str(s.id) for s in sources)
-        titles_after = sorted((await session.scalars(select(RssItem.title))).all())
-        assert titles_after == ["Title alpha", "Title beta", "Title gamma"]
+        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio
@@ -407,10 +408,6 @@ async def test_summary_includes_disabled_source_in_notification_summary(db_sessi
         assert run is not None
         actions = [e for e in run.errors if e.get("stage") == "source_governance"]
         assert len(actions) == 1 and actions[0]["action"] == "auto_disable"
-
-
-def _digest(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
 
 
 @pytest.mark.anyio

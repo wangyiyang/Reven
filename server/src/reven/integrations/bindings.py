@@ -38,6 +38,15 @@ class FeishuResourceBindingService:
             raise IntegrationError(status_code=404, code="BINDING_NOT_FOUND", message="资源绑定不存在")
         return binding
 
+    async def get_enabled_binding(self, purpose: str) -> FeishuResourceBinding | None:
+        """按用途取当前启用绑定（同一用途至多一个启用，由部分唯一索引保证）；无启用绑定返回 None。"""
+        statement = select(FeishuResourceBinding).where(
+            FeishuResourceBinding.purpose == purpose,
+            FeishuResourceBinding.enabled.is_(True),
+        )
+        result = await self._session.scalar(statement)
+        return result if isinstance(result, FeishuResourceBinding) else None
+
     async def create_binding(
         self,
         *,

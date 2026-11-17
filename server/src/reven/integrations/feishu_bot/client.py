@@ -36,11 +36,16 @@ class FeishuBotApiError(Exception):
 
 @dataclass(frozen=True)
 class BitableField:
-    """多维表格字段元数据（type 为官方字段类型数字编码）。"""
+    """多维表格字段元数据（type 为官方字段类型数字编码）。
+
+    options 仅单选/多选类字段非空（取自 property.options[*].name），
+    供写入方预检单选选项是否已配置。
+    """
 
     field_id: str
     name: str
     type: int
+    options: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -457,7 +462,20 @@ def _parse_bitable_field(item: object) -> BitableField:
     field_type = item.get("type")
     if not isinstance(field_id, str) or not isinstance(name, str) or type(field_type) is not int:
         raise FeishuBotApiError("飞书多维表格响应格式无效")
-    return BitableField(field_id=field_id, name=name, type=field_type)
+    return BitableField(
+        field_id=field_id, name=name, type=field_type, options=_parse_field_options(item.get("property"))
+    )
+
+
+def _parse_field_options(property_value: object) -> tuple[str, ...]:
+    if not isinstance(property_value, dict):
+        return ()
+    options = property_value.get("options")
+    if not isinstance(options, list):
+        return ()
+    return tuple(
+        option["name"] for option in options if isinstance(option, dict) and isinstance(option.get("name"), str)
+    )
 
 
 def _parse_bitable_record(item: object) -> BitableRecord:

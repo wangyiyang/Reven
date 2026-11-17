@@ -1,11 +1,15 @@
-import hashlib
-from datetime import UTC, date, datetime
+"""RssScreeningService 内存筛选契约：run 内条目进、候选分组出，不落 PG 条目。
+
+- 关键词配置仍存 PG；embedding/关键词向量失败整批降级为字面 + BM25 信号；
+- filtered 不返回（不落任何存储）；候选映射字段供 Bitable writer 消费。
+"""
+
+from datetime import UTC, datetime
 
 import pytest
-from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, EmbeddingError, EmbedOutcome, KeywordEmbeddingService
-from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
+from reven.rss.discovery import FeedEntry, FetchedEntry, LocalizedEntry
+from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, EmbedOutcome, KeywordEmbeddingService
 from reven.rss.repository import RssSettingsRepository
-from reven.rss.review_service import CandidateReviewService
 from reven.rss.screening import RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -30,372 +34,113 @@ class FailingEmbedder:
         raise RuntimeError("provider unavailable")
 
 
-class CodedFailingEmbedder:
+class NoCallEmbedder:
     model = BGE_M3_MODEL
     dimension = BGE_M3_DIMENSION
 
     async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
-        raise EmbeddingError("EMBEDDING_TIMEOUT", "Embedding 请求超时", retryable=True)
+        raise AssertionError("不应发起 embedding 调用")
 
 
-class PartiallyDegradingEmbedder:
-    """含 degraded 的文本返回 None + 错误码，其余正常。"""
-
-    model = BGE_M3_MODEL
-    dimension = BGE_M3_DIMENSION
-
-    async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
-        vectors: list[tuple[float, ...] | None] = []
-        codes: list[str | None] = []
-        for text in texts:
-            if "degraded" in text:
-                vectors.append(None)
-                codes.append("EMBEDDING_HTTP_ERROR")
-            else:
-                vectors.append(tuple([1.0] + [0.0] * (self.dimension - 1)))
-                codes.append(None)
-        return EmbedOutcome(tuple(vectors), tuple(codes))
-
-
-def digest(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
-async def seed_item(
-    db_session: AsyncSession,
-    run: RssDiscoveryRun,
-    source: RssSource,
-    *,
-    suffix: str,
-    title_zh: str = "AI 智能体架构",
-    status: str = "pending",
-    embedding_status: str = "pending",
-    screening_error: str | None = None,
-    saved_at: datetime | None = None,
-) -> RssItem:
-    item = RssItem(
-        source_id=source.id,
-        first_seen_run_id=run.id,
-        source_name=source.name,
-        guid=suffix,
-        url=f"https://example.com/{suffix}",
-        url_key=digest(f"url-{suffix}"),
-        guid_key=digest(f"guid-{suffix}"),
-        title_key=digest(f"title-{suffix}"),
-        title=f"title {suffix}",
-        summary="Practical patterns",
-        title_zh=title_zh,
-        summary_zh="实用模式",
-        status=status,
-        embedding_status=embedding_status,
-        screening_error=screening_error,
-        saved_at=saved_at,
+def _fetched(dedupe_key: str, *, title_zh: str = "AI 智能体架构", summary_zh: str = "实用模式") -> FetchedEntry:
+    entry = FeedEntry(
+        guid=f"guid-{dedupe_key}",
+        url=f"https://example.com/{dedupe_key}",
+        title=f"title {dedupe_key}",
+        summary="summary",
+        published_at=datetime(2026, 8, 11, 1, tzinfo=UTC),
     )
-    db_session.add(item)
-    return item
+    return FetchedEntry(
+        source_name="Example",
+        entry=entry,
+        localized=LocalizedEntry(entry, title_zh, summary_zh),
+        dedupe_key=dedupe_key,
+    )
+
+
+def _service(db_session: AsyncSession, embedder: object) -> RssScreeningService:
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    return RssScreeningService(factory, KeywordEmbeddingService(factory, embedder), RssScreeningEngine())  # type: ignore[arg-type]
 
 
 @pytest.mark.anyio
-async def test_screening_service_persists_derived_scores_but_not_item_vectors(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 11))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    item = await seed_item(db_session, run, source, suffix="one")
+async def test_screen_run_returns_candidates_with_writer_fields(db_session: AsyncSession) -> None:
     await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
     await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    embeddings = KeywordEmbeddingService(factory, DeterministicEmbedder())
-    service = RssScreeningService(factory, embeddings, RssScreeningEngine())
+    service = _service(db_session, DeterministicEmbedder())
 
-    assert await service.screen_run(run.id) == 1
+    candidates = await service.screen_run((_fetched("url:key-1"),))
 
-    async with factory() as session:
-        stored = await session.get(RssItem, item.id)
-        stored_run = await session.get(RssDiscoveryRun, run.id)
-        assert stored is not None and stored_run is not None
-        assert stored.status == "candidate"
-        assert stored.positive_literal_matches == ["AI 智能体"]
-        assert stored.bm25_score > 0
-        assert stored.positive_embedding_score == 1.0
-        assert stored.embedding_model == BGE_M3_MODEL
-        assert stored.embedding_status == "completed"
-        assert stored.screening_error is None
-        assert stored.rules_version == "rss-v1"
-        assert stored_run.candidate_count == 1
-        assert "embedding" not in RssItem.__table__.columns
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.title == "AI 智能体架构"
+    assert candidate.summary == "实用模式"
+    assert candidate.source_name == "Example"
+    assert candidate.url == "https://example.com/url:key-1"
+    assert candidate.published_at == datetime(2026, 8, 11, 1, tzinfo=UTC)
+    assert candidate.matched_keywords == ("AI 智能体",)
+    assert candidate.dedupe_key == "url:key-1"
 
 
 @pytest.mark.anyio
-async def test_screening_degrades_to_literal_and_bm25_when_embedding_fails(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-2", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 12))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    item = await seed_item(db_session, run, source, suffix="two")
-    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
+async def test_screen_run_filters_out_entries_without_positive_signal(db_session: AsyncSession) -> None:
+    await RssSettingsRepository(db_session).create_keyword(term="具身智能", kind="positive", enabled=True)
     await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, FailingEmbedder()),
-        RssScreeningEngine(),
-    )
+    service = _service(db_session, DeterministicEmbedder())
 
-    assert await service.screen_run(run.id) == 1
+    # 关键词向量 [1,0,...] 与条目向量同向 → embedding 命中候选
+    embedding_hit = _fetched("url:embedding-hit", title_zh="天气", summary_zh="晴")
+    candidates = await service.screen_run((embedding_hit,))
+    assert [candidate.dedupe_key for candidate in candidates] == ["url:embedding-hit"]
+    assert candidates[0].matched_keywords == ()
 
-    async with factory() as session:
-        stored = await session.get(RssItem, item.id)
-        assert stored is not None
-        assert stored.status == "candidate"
-        assert stored.positive_literal_matches == ["AI 智能体"]
-        assert stored.embedding_status == "degraded"
-        assert stored.screening_error == "RuntimeError"
-
-
-@pytest.mark.anyio
-async def test_screening_persists_concrete_embedding_error_code(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-3", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 13))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    item = await seed_item(db_session, run, source, suffix="three")
-    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, CodedFailingEmbedder()),
-        RssScreeningEngine(),
-    )
-
-    assert await service.screen_run(run.id) == 1
-
-    async with factory() as session:
-        stored = await session.get(RssItem, item.id)
-        assert stored is not None
-        assert stored.embedding_status == "degraded"
-        assert stored.embedding_model is None
-        assert stored.screening_error == "EMBEDDING_TIMEOUT"
-
-
-@pytest.mark.anyio
-async def test_screening_degrades_single_item_when_its_vector_missing(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-4", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 14))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    degraded_item = await seed_item(db_session, run, source, suffix="four-a", title_zh="degraded 条目")
-    healthy_item = await seed_item(db_session, run, source, suffix="four-b", title_zh="AI 智能体架构")
-    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, PartiallyDegradingEmbedder()),
-        RssScreeningEngine(),
-    )
-
-    assert await service.screen_run(run.id) == 1
-
-    async with factory() as session:
-        degraded = await session.get(RssItem, degraded_item.id)
-        healthy = await session.get(RssItem, healthy_item.id)
-        assert degraded is not None and healthy is not None
-        assert degraded.embedding_status == "degraded"
-        assert degraded.screening_error == "EMBEDDING_HTTP_ERROR"
-        assert degraded.embedding_model is None
-        assert healthy.embedding_status == "completed"
-        assert healthy.screening_error is None
-        assert healthy.embedding_model == BGE_M3_MODEL
-
-
-@pytest.mark.anyio
-async def test_rescreen_degraded_backfills_scores_and_skips_human_decisions(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-5", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 15))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    degraded = await seed_item(
-        db_session,
-        run,
-        source,
-        suffix="five-a",
-        status="filtered",
-        embedding_status="degraded",
-        screening_error="EMBEDDING_TIMEOUT",
-    )
-    ignored = await seed_item(
-        db_session,
-        run,
-        source,
-        suffix="five-b",
-        status="ignored",
-        embedding_status="degraded",
-        screening_error="EMBEDDING_TIMEOUT",
-    )
-    saved_at = datetime(2026, 8, 15, tzinfo=UTC)
-    saved = await seed_item(
-        db_session,
-        run,
-        source,
-        suffix="five-c",
-        status="saved",
-        embedding_status="degraded",
-        screening_error="EMBEDDING_TIMEOUT",
-        saved_at=saved_at,
-    )
-    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, DeterministicEmbedder()),
-        RssScreeningEngine(),
-    )
-
-    assert await service.rescreen_degraded() == 1
-
-    async with factory() as session:
-        backfilled = await session.get(RssItem, degraded.id)
-        skipped_ignored = await session.get(RssItem, ignored.id)
-        skipped_saved = await session.get(RssItem, saved.id)
-        assert backfilled is not None and skipped_ignored is not None and skipped_saved is not None
-        # degraded 条目被重新打分并补齐语义分
-        assert backfilled.status == "candidate"
-        assert backfilled.embedding_status == "completed"
-        assert backfilled.screening_error is None
-        assert backfilled.embedding_model == BGE_M3_MODEL
-        assert backfilled.positive_embedding_score == 1.0
-        # 人工已忽略/已保存的条目保持原样
-        assert skipped_ignored.status == "ignored"
-        assert skipped_ignored.screening_error == "EMBEDDING_TIMEOUT"
-        assert skipped_saved.screening_error == "EMBEDDING_TIMEOUT"
-        assert skipped_saved.embedding_status == "degraded"
-        assert skipped_saved.status == "saved"
-        assert skipped_saved.saved_at == saved_at
-
-
-@pytest.mark.anyio
-async def test_rescreen_degraded_keeps_degraded_with_new_code_when_still_failing(
-    db_session: AsyncSession,
-) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-6", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 16))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    item = await seed_item(
-        db_session,
-        run,
-        source,
-        suffix="six",
-        status="candidate",
-        embedding_status="degraded",
-        screening_error="EMBEDDING_TIMEOUT",
-    )
-    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
-    await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-
-    # refresh 只处理 1 个关键词（成功），embed_temporary 对条目文本降级
-    class ItemFailingEmbedder:
+    # 字面/语义均无正向信号 → filtered，不返回
+    class OrthogonalEmbedder:
         model = BGE_M3_MODEL
         dimension = BGE_M3_DIMENSION
 
-        def __init__(self) -> None:
-            self.calls = 0
-
         async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
-            self.calls += 1
-            if self.calls == 1:
-                # refresh 关键词成功
-                return EmbedOutcome(
-                    tuple(tuple([1.0] + [0.0] * (self.dimension - 1)) for _ in texts),
-                    tuple(None for _ in texts),
-                )
-            return EmbedOutcome(
-                tuple(None for _ in texts),
-                tuple("EMBEDDING_RATE_LIMITED" for _ in texts),
+            # 关键词（refresh）取 [1,0,...]；条目取 [0,1,...] 正交 → 语义分 0
+            vectors = tuple(
+                tuple([1.0] + [0.0] * (self.dimension - 1))
+                if text == "具身智能"
+                else tuple([0.0, 1.0] + [0.0] * (self.dimension - 2))
+                for text in texts
             )
+            return EmbedOutcome(vectors, tuple(None for _text in texts))
 
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, ItemFailingEmbedder()),
-        RssScreeningEngine(),
-    )
-
-    assert await service.rescreen_degraded() == 1
-
-    async with factory() as session:
-        stored = await session.get(RssItem, item.id)
-        assert stored is not None
-        assert stored.embedding_status == "degraded"
-        assert stored.screening_error == "EMBEDDING_RATE_LIMITED"
-        assert stored.embedding_model is None
+    service = _service(db_session, OrthogonalEmbedder())
+    candidates = await service.screen_run((_fetched("url:no-signal", title_zh="天气", summary_zh="晴"),))
+    assert candidates == ()
 
 
 @pytest.mark.anyio
-async def test_rescreen_degraded_without_degraded_items_is_noop(
-    db_session: AsyncSession,
-) -> None:
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-
-    class NoCallEmbedder:
-        model = BGE_M3_MODEL
-        dimension = BGE_M3_DIMENSION
-
-        async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
-            raise AssertionError("不应发起 embedding 调用")
-
-    service = RssScreeningService(
-        factory,
-        KeywordEmbeddingService(factory, NoCallEmbedder()),
-        RssScreeningEngine(),
-    )
-
-    assert await service.rescreen_degraded() == 0
-
-
-@pytest.mark.anyio
-async def test_rescreen_does_not_overwrite_material_saved_while_embedding(db_session: AsyncSession) -> None:
-    source = RssSource(name="Example", feed_url="https://example.com/feed-race", enabled=True)
-    run = RssDiscoveryRun(run_date=date(2026, 8, 17))
-    db_session.add_all([source, run])
-    await db_session.flush()
-    item = await seed_item(
-        db_session,
-        run,
-        source,
-        suffix="race",
-        status="candidate",
-        embedding_status="degraded",
-        screening_error="EMBEDDING_TIMEOUT",
-    )
+async def test_screen_run_degrades_to_literal_when_embedding_fails(db_session: AsyncSession) -> None:
     await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
     await db_session.commit()
-    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    review = CandidateReviewService(factory)
+    service = _service(db_session, FailingEmbedder())
 
-    class SavingEmbedder(DeterministicEmbedder):
-        async def embed(self, texts: tuple[str, ...]) -> EmbedOutcome:
-            await review.approve(item.id)
-            return await super().embed(texts)
+    candidates = await service.screen_run((_fetched("url:key-2"),))
 
-    service = RssScreeningService(factory, KeywordEmbeddingService(factory, SavingEmbedder()), RssScreeningEngine())
+    assert len(candidates) == 1
+    assert candidates[0].matched_keywords == ("AI 智能体",)
 
-    assert await service.rescreen_degraded() == 0
-    await db_session.refresh(item)
-    assert item.status == "saved"
-    assert item.saved_at is not None
-    assert item.embedding_status == "degraded"
-    assert item.screening_error == "EMBEDDING_TIMEOUT"
+
+@pytest.mark.anyio
+async def test_screen_run_with_empty_entries_skips_embedding(db_session: AsyncSession) -> None:
+    service = _service(db_session, NoCallEmbedder())
+
+    assert await service.screen_run(()) == ()
+
+
+@pytest.mark.anyio
+async def test_screen_run_negative_literal_blocks_candidate(db_session: AsyncSession) -> None:
+    await RssSettingsRepository(db_session).create_keyword(term="AI 智能体", kind="positive", enabled=True)
+    await RssSettingsRepository(db_session).create_keyword(term="广告", kind="negative", enabled=True)
+    await db_session.commit()
+    service = _service(db_session, FailingEmbedder())
+
+    # 无正向字面命中且命中反向词 → filtered（正向命中存在时负向不拦截，见 screening 引擎契约）
+    candidates = await service.screen_run((_fetched("url:key-3", title_zh="广告 推广", summary_zh="软文"),))
+
+    assert candidates == ()

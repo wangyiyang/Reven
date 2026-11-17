@@ -1,4 +1,4 @@
-"""Daily RSS discovery module with idempotent persistence and one summary."""
+"""Daily RSS discovery module: 按源分段抓取入内存，候选直写 Bitable（不落 PG 条目）。"""
 
 import hashlib
 from dataclasses import dataclass
@@ -7,7 +7,7 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from reven.notifications import DeliveryNotifier, Notification
@@ -30,6 +30,16 @@ class LocalizedEntry:
     entry: FeedEntry
     title_zh: str
     summary_zh: str
+
+
+@dataclass(frozen=True)
+class FetchedEntry:
+    """单源分段抓取+本地化后的内存条目（不落 PG）；dedupe_key 优先级 URL > GUID > 归一化标题。"""
+
+    source_name: str
+    entry: FeedEntry
+    localized: LocalizedEntry
+    dedupe_key: str
 
 
 class PartialLocalizationError(RuntimeError):
@@ -64,14 +74,42 @@ class EntryLocalizer(Protocol):
 
 
 class RunScreener(Protocol):
-    async def screen_run(self, run_id: UUID) -> int: ...
+    async def screen_run(self, run_id: UUID, entries: tuple[FetchedEntry, ...]) -> int:
+        """内存筛选 run 内抓取条目并把候选写入权威存储，返回实际写入的候选数。
+
+        写入是 run 关键步骤：抛错 = run 失败（调用方标记 failed、不推进 checkpoint、
+        不发成功汇总），下一轮整体重试。
+        """
+        ...
+
+
+class _RunEntryCollector:
+    """run 内抓取条目收集器：seen-set 按去重键去重（防重第一层），add 返回是否为新条目。"""
+
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+        self._entries: list[FetchedEntry] = []
+
+    @property
+    def entries(self) -> tuple[FetchedEntry, ...]:
+        return tuple(self._entries)
+
+    def add(self, source: RssSource, entry: FeedEntry, localized: LocalizedEntry) -> int:
+        key = _dedupe_key(source, entry)
+        if key in self._seen:
+            return 0
+        self._seen.add(key)
+        self._entries.append(FetchedEntry(source.name, entry, localized, key))
+        return 1
 
 
 class RssDiscoveryService:
-    """每日 RSS 发现：按源分段提交 checkpoint，支持中断续跑与死源自动治理（#178）。
+    """每日 RSS 发现：按源分段提交 checkpoint，候选经内存筛选直写 Bitable（#226）。
 
-    - 每个 source 一个事务：fetch + localize + 持久化 + 标记 processed_source_ids，
-      进程中断后下一轮跳过已提交源，避免单轮超时全部重来。
+    - 每个 source 一个事务：fetch + localize + 统计/errors + 标记 processed_source_ids，
+      进程中断后下一轮跳过已提交源；条目本身只进内存集合（权威存储为 Bitable）。
+    - 筛选+候选写入失败 = run 失败：run 标记 failed、不发成功汇总；下轮重试整体重跑
+      （重跑入口重置 checkpoint 与计数），Bitable 侧去重键查重 + client_token 兜底幂等。
     - 翻译失败超阈值（绝对数或占比）时在当日汇总后追加一条告警通知。
     - source 连续 N 轮抓取失败自动禁用并在 errors 中标注 source_governance。
     """
@@ -102,9 +140,11 @@ class RssDiscoveryService:
     async def run(self, run_date: date) -> RssRunSummary:
         existing = await self._existing_run(run_date)
         if existing is not None:
-            if existing.status == "screening" and self._screener is not None:
-                return await self._notify_if_needed(await self._screen(existing))
-            if existing.status != "running":
+            if existing.status in {"screening", "failed"} and self._screener is not None:
+                # screening 中断（内存筛选输入已失）或候选写入失败：重置 checkpoint 与计数整体重跑，
+                # Bitable 去重键查重 + 稳定 client_token 保证重试不产生明显重复
+                await self._reset_for_retry(existing.run_id)
+            elif existing.status != "running":
                 return await self._notify_if_needed(existing)
             run_id = existing.run_id
             sources = await self._enabled_sources()
@@ -113,17 +153,34 @@ class RssDiscoveryService:
             run, sources = await self._start_run(run_date)
             run_id = run.id
             processed = set()
+        collector = _RunEntryCollector()
         for source in sources:
             if str(source.id) in processed:
                 continue
-            await self._process_source(run_id, source)
+            await self._process_source(run_id, source, collector)
         summary = await self._finalize_run(run_id, sources)
         if self._screener is not None:
-            summary = await self._screen(summary)
+            summary = await self._screen(summary, collector.entries)
         return await self._notify_if_needed(summary)
 
-    async def _process_source(self, run_id: UUID, source: RssSource) -> None:
-        """单源分段：网络/翻译在事务外执行，持久化与 checkpoint 在同一事务提交。"""
+    async def _reset_for_retry(self, run_id: UUID) -> None:
+        """把 failed/中断于 screening 的 run 重置为可整体重跑的 running 状态。"""
+        async with self._factory.begin() as session:
+            run = await session.get(RssDiscoveryRun, run_id, with_for_update=True)
+            if run is None:
+                raise RuntimeError("RSS 任务记录不存在")
+            run.status = "running"
+            run.finished_at = None
+            run.processed_source_ids = []
+            run.fetched_count = 0
+            run.new_count = 0
+            run.candidate_count = 0
+            run.failure_count = 0
+            run.errors = []
+            await session.flush()
+
+    async def _process_source(self, run_id: UUID, source: RssSource, collector: _RunEntryCollector) -> None:
+        """单源分段：网络/翻译在事务外执行，统计与 checkpoint 在同一事务提交（条目只进内存）。"""
         fetch_error: str | None = None
         entries: tuple[FeedEntry, ...] = ()
         try:
@@ -156,7 +213,7 @@ class RssDiscoveryService:
                 return  # 源在本轮中被人工删除：跳过且不占 checkpoint
             new_count = 0
             for entry, translated in zip(entries, localized, strict=True):
-                new_count += await _save_if_new(session, run_id, db_source, entry, translated)
+                new_count += collector.add(db_source, entry, translated)
 
             now = utc_now()
             db_source.last_fetched_at = now
@@ -210,28 +267,33 @@ class RssDiscoveryService:
             await session.flush()
             return _summary(run)
 
-    async def _screen(self, summary: RssRunSummary) -> RssRunSummary:
+    async def _screen(self, summary: RssRunSummary, entries: tuple[FetchedEntry, ...]) -> RssRunSummary:
         screener = self._screener
         if screener is None:
             return summary
         try:
-            candidate_count = await screener.screen_run(summary.run_id)
+            candidate_count = await screener.screen_run(summary.run_id, entries)
             error_type = None
         except Exception as exc:
-            candidate_count = summary.candidate_count
+            candidate_count = 0
             error_type = type(exc).__name__
         async with self._factory.begin() as session:
             run = await session.get(RssDiscoveryRun, summary.run_id, with_for_update=True)
             if run is None:
                 raise RuntimeError("RSS 任务记录不存在")
-            run.candidate_count = candidate_count
             if error_type is not None:
-                run.status = "partial"
+                # 候选写入是 run 关键步骤：失败 = run 失败（status=failed），checkpoint 立即回退
+                # （重试整体重跑），不发成功汇总（finished_at 保持 None，_notify_if_needed 跳过）；
+                # 计数与 errors 保留供观测，下轮重跑入口 _reset_for_retry 清零重新累计
+                run.status = "failed"
+                run.finished_at = None
+                run.processed_source_ids = []
                 run.failure_count += 1
-                run.errors = [*run.errors, {"stage": "screening", "error_type": error_type}]
+                run.errors = [*run.errors, {"stage": "candidate_write", "error_type": error_type}]
             else:
+                run.candidate_count = candidate_count
                 run.status = "partial" if run.errors else "completed"
-            run.finished_at = utc_now()
+                run.finished_at = utc_now()
             await session.flush()
             return _summary(run)
 
@@ -354,46 +416,6 @@ class RssDiscoveryService:
         return int(count or 0)
 
 
-async def _save_if_new(
-    session: AsyncSession,
-    run_id: UUID,
-    source: RssSource,
-    entry: FeedEntry,
-    localized: LocalizedEntry,
-) -> int:
-    url_key = _digest(_canonical_url(entry.url)) if entry.url else None
-    guid_key = _digest(f"{source.id}:{entry.guid}") if entry.guid else None
-    title_key = _digest(normalize_keyword(entry.title))
-    conditions = [RssItem.title_key == title_key]
-    if url_key is not None:
-        conditions.append(RssItem.url_key == url_key)
-    if guid_key is not None:
-        conditions.append(RssItem.guid_key == guid_key)
-    existing = await session.scalar(select(RssItem).where(or_(*conditions)).limit(1))
-    if existing is not None:
-        existing.last_seen_at = utc_now()
-        return 0
-    session.add(
-        RssItem(
-            source_id=source.id,
-            first_seen_run_id=run_id,
-            source_name=source.name,
-            guid=entry.guid,
-            url=entry.url,
-            url_key=url_key,
-            guid_key=guid_key,
-            title_key=title_key,
-            title=entry.title,
-            summary=entry.summary,
-            title_zh=localized.title_zh,
-            summary_zh=localized.summary_zh,
-            published_at=entry.published_at,
-        )
-    )
-    await session.flush()
-    return 1
-
-
 def _summary(run: RssDiscoveryRun) -> RssRunSummary:
     return RssRunSummary(
         run.id,
@@ -415,6 +437,15 @@ async def _enabled_sources(session: AsyncSession) -> list[RssSource]:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _dedupe_key(source: RssSource, entry: FeedEntry) -> str:
+    """去重键（带键型前缀，自描述）：URL 规范化 > GUID（源作用域）> 归一化标题。"""
+    if entry.url:
+        return f"url:{_digest(_canonical_url(entry.url))}"
+    if entry.guid:
+        return f"guid:{_digest(f'{source.id}:{entry.guid}')}"
+    return f"title:{_digest(normalize_keyword(entry.title))}"
 
 
 def _canonical_url(value: str) -> str:
