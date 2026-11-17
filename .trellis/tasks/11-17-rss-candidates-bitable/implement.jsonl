@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "RSS 管线与候选条目核心契约，本任务直接改造对象"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "飞书 tenant token、错误脱敏、通知纪律，共享 OpenAPI 基座需遵循"}
+{"file": ".trellis/spec/reven-server/backend/integration-provider-contract.md", "reason": "集成配置模型契约，资源绑定挂在其上"}
+{"file": ".trellis/spec/reven-server/backend/database-guidelines.md", "reason": "新增 feishu_resource_bindings 表与删除 rss_items 的迁移规范"}
+{"file": ".trellis/spec/web/frontend/component-guidelines.md", "reason": "飞书集成卡片内绑定管理 UI 需遵循"}
+{"file": ".trellis/spec/web/frontend/state-management.md", "reason": "工作台数据层切换到 Bitable 的状态管理约定"}

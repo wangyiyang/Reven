@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/reven-server/backend/rss-materials-contract.md", "reason": "核对 RSS 改造是否符合契约及需同步更新的条款"}
+{"file": ".trellis/spec/reven-server/backend/feishu-app-notification-contract.md", "reason": "核对飞书调用错误处理与脱敏纪律"}
+{"file": ".trellis/spec/reven-server/backend/quality-guidelines.md", "reason": "质量门槛核对"}
+{"file": ".trellis/spec/web/frontend/quality-guidelines.md", "reason": "前端质量门槛核对"}
