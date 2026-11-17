@@ -8,8 +8,9 @@ startup; Task 13 wires this router into ``create_app``.
 import json
 from collections.abc import AsyncIterator
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -20,6 +21,12 @@ from reven.api.schemas.integrations import (
     PUT_MODELS,
     AgentLlmIntegrationPut,
     AgentModelTestResponse,
+    BindingTestResponse,
+    BindingTestStageResult,
+    FeishuBitableBindingConfig,
+    FeishuResourceBindingCreate,
+    FeishuResourceBindingResponse,
+    FeishuResourceBindingUpdate,
     IntegrationPut,
     IntegrationResponse,
     SetDefaultModelRequest,
@@ -27,14 +34,17 @@ from reven.api.schemas.integrations import (
     to_response,
 )
 from reven.integrations.agent_llm.service import test_agent_llm_connection
+from reven.integrations.bindings import FeishuResourceBindingService
 from reven.integrations.credentials import IntegrationCredentials
 from reven.integrations.embedding.service import test_embedding_connection
+from reven.integrations.feishu_bot.bitable import probe_rss_candidates_binding
 from reven.integrations.feishu_bot.service import test_feishu_bot_connection
-from reven.integrations.models import Integration
+from reven.integrations.models import FeishuResourceBinding, Integration
 from reven.integrations.providers import AGENT_LLM_PROVIDER
 from reven.integrations.service import ConnectionTestAdapter, IntegrationError, IntegrationService
 from reven.integrations.translation.aliyun import test_aliyun_translation
 from reven.integrations.translation.baidu import test_baidu_translation
+from reven.provider_clients import ProviderClients
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -269,3 +279,145 @@ async def test_connection(
         return _error_response(exc)
     await session.commit()
     return _to_response(service, integration)
+
+
+# --- 飞书资源绑定（/api/integrations/feishu_bot/bindings） ---
+
+
+def get_provider_clients(request: Request) -> ProviderClients:
+    """lifespan 构建的 provider 客户端单例；未初始化（无库/密钥降级）时显式失败。"""
+    clients = getattr(request.app.state, "provider_clients", None)
+    if not isinstance(clients, ProviderClients):
+        raise RuntimeError("app.state.provider_clients 未初始化")
+    return clients
+
+
+ProviderClientsDep = Annotated[ProviderClients, Depends(get_provider_clients)]
+
+
+def _binding_response(binding: FeishuResourceBinding) -> FeishuResourceBindingResponse:
+    return FeishuResourceBindingResponse(
+        id=binding.id,
+        resource_type=binding.resource_type,
+        purpose=binding.purpose,
+        config=dict(binding.config),
+        enabled=binding.enabled,
+        created_at=binding.created_at,
+        updated_at=binding.updated_at,
+    )
+
+
+def _bitable_config_of(binding: FeishuResourceBinding) -> FeishuBitableBindingConfig:
+    """读回绑定 config 并复验 schema（写路径已校验，此处防御历史脏数据）。"""
+    try:
+        return FeishuBitableBindingConfig.model_validate(binding.config)
+    except ValidationError as exc:
+        raise IntegrationError(
+            status_code=500,
+            code="BINDING_CONFIG_INVALID",
+            message="绑定配置数据无效，请更新或重新创建绑定",
+        ) from exc
+
+
+@router.get("/feishu_bot/bindings", response_model=list[FeishuResourceBindingResponse])
+async def list_feishu_bindings(session: SessionDep) -> list[FeishuResourceBindingResponse]:
+    bindings = await FeishuResourceBindingService(session).list_bindings()
+    return [_binding_response(binding) for binding in bindings]
+
+
+@router.post("/feishu_bot/bindings", response_model=FeishuResourceBindingResponse)
+async def create_feishu_binding(
+    body: FeishuResourceBindingCreate, session: SessionDep
+) -> FeishuResourceBindingResponse | JSONResponse:
+    service = FeishuResourceBindingService(session)
+    try:
+        binding = await service.create_binding(
+            resource_type=body.resource_type,
+            purpose=body.purpose,
+            config=body.config.model_dump(mode="json"),
+            enabled=body.enabled,
+        )
+    except IntegrationError as exc:
+        return _error_response(exc)
+    await session.commit()
+    return _binding_response(binding)
+
+
+@router.put("/feishu_bot/bindings/{binding_id}", response_model=FeishuResourceBindingResponse)
+async def update_feishu_binding(
+    binding_id: UUID, body: FeishuResourceBindingUpdate, session: SessionDep
+) -> FeishuResourceBindingResponse | JSONResponse:
+    service = FeishuResourceBindingService(session)
+    try:
+        binding = await service.update_config(binding_id, config=body.config.model_dump(mode="json"))
+    except IntegrationError as exc:
+        return _error_response(exc)
+    await session.commit()
+    return _binding_response(binding)
+
+
+@router.post("/feishu_bot/bindings/{binding_id}/enable", response_model=FeishuResourceBindingResponse)
+async def enable_feishu_binding(binding_id: UUID, session: SessionDep) -> FeishuResourceBindingResponse | JSONResponse:
+    service = FeishuResourceBindingService(session)
+    try:
+        binding = await service.set_enabled(binding_id, enabled=True)
+    except IntegrationError as exc:
+        return _error_response(exc)
+    await session.commit()
+    return _binding_response(binding)
+
+
+@router.post("/feishu_bot/bindings/{binding_id}/disable", response_model=FeishuResourceBindingResponse)
+async def disable_feishu_binding(binding_id: UUID, session: SessionDep) -> FeishuResourceBindingResponse | JSONResponse:
+    service = FeishuResourceBindingService(session)
+    try:
+        binding = await service.set_enabled(binding_id, enabled=False)
+    except IntegrationError as exc:
+        return _error_response(exc)
+    await session.commit()
+    return _binding_response(binding)
+
+
+@router.delete(
+    "/feishu_bot/bindings/{binding_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def delete_feishu_binding(binding_id: UUID, session: SessionDep) -> Response:
+    service = FeishuResourceBindingService(session)
+    try:
+        await service.delete_binding(binding_id)
+    except IntegrationError as exc:
+        return _error_response(exc)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/feishu_bot/bindings/{binding_id}/test", response_model=BindingTestResponse)
+async def test_feishu_binding(
+    binding_id: UUID, session: SessionDep, clients: ProviderClientsDep
+) -> BindingTestResponse | JSONResponse:
+    """真实探针：字段校验 → 只读查询 → 创建测试记录 → 删除之；任一步失败返回失败阶段。"""
+    service = FeishuResourceBindingService(session)
+    try:
+        binding = await service.get_binding(binding_id)
+        config = _bitable_config_of(binding)
+    except IntegrationError as exc:
+        return _error_response(exc)
+    async with clients.feishu_bot() as bot:
+        if bot is None:
+            return BindingTestResponse(
+                success=False,
+                failed_stage=None,
+                stages=[],
+                message="飞书应用机器人未启用或凭证不可用",
+            )
+        result = await probe_rss_candidates_binding(bot.api, app_token=config.app_token, table_id=config.table_id)
+    return BindingTestResponse(
+        success=result.success,
+        failed_stage=result.failed_stage,
+        stages=[
+            BindingTestStageResult(stage=stage.stage, success=stage.success, message=stage.message)
+            for stage in result.stages
+        ],
+    )

@@ -6,8 +6,9 @@ material: only ``secret_configured`` and an irreversible ``secret_hint``.
 """
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -243,3 +244,58 @@ def to_response(integration: Integration) -> IntegrationResponse:
         last_error=integration.last_error,
         last_latency_ms=integration.last_latency_ms,
     )
+
+
+# --- 飞书资源绑定（feishu_resource_bindings） ---
+
+
+class FeishuBitableBindingConfig(_Strict):
+    """bitable 绑定配置：目标多维表格的 app_token + table_id。"""
+
+    app_token: Annotated[str, Field(min_length=1, max_length=256, pattern=r"^\S+$")]
+    table_id: Annotated[str, Field(min_length=1, max_length=256, pattern=r"^\S+$")]
+
+
+class FeishuResourceBindingCreate(_Strict):
+    """创建资源绑定：resource_type/purpose 白名单（Literal 校验，未知值 422）。"""
+
+    resource_type: Literal["bitable"]
+    purpose: Literal["rss_candidates"]
+    config: FeishuBitableBindingConfig
+    enabled: bool = False
+
+
+class FeishuResourceBindingUpdate(_Strict):
+    """更新资源绑定：仅允许替换 config；启停走 enable/disable 端点。"""
+
+    config: FeishuBitableBindingConfig
+
+
+class FeishuResourceBindingResponse(BaseModel):
+    id: UUID
+    resource_type: str
+    purpose: str
+    config: dict[str, object]
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class BindingTestStageResult(BaseModel):
+    """绑定测试单个阶段结果（stage ∈ fields/search/create/delete）。"""
+
+    stage: str
+    success: bool
+    message: str | None = None
+
+
+class BindingTestResponse(BaseModel):
+    """绑定测试整体结果：stages 只含已执行阶段；failed_stage 为首个失败阶段。
+
+    凭证不可用等前置失败：success=False、failed_stage=None、stages 为空。
+    """
+
+    success: bool
+    failed_stage: str | None
+    stages: list[BindingTestStageResult]
+    message: str | None = None

@@ -37,7 +37,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
                 "talent_experiences, talent_educations, talent_interactions, talents, "
                 "finance_entries, projects, sops, notification_logs, "
                 "brand_versions, channel_template_versions, brand_assets, "
-                "integrations, auth_sessions, "
+                "feishu_resource_bindings, integrations, auth_sessions, "
                 "system_state RESTART IDENTITY CASCADE"
             )
         )
