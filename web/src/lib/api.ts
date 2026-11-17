@@ -31,7 +31,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
     throw new ApiError(
       response.status,
       typeof error?.code === "string" ? error.code : "request_failed",
-      typeof error?.message === "string" ? error.message : undefined,
+      errorMessage(error),
     )
   }
   if (response.status === 204) return undefined as T
@@ -50,4 +50,19 @@ function parseJson(text: string): unknown {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// 优先 {message}；FastAPI 校验错误（422）回退 {detail: string | [{msg, …}]}，
+// 保证后端返回的可读校验信息能透传到 toast/面板
+function errorMessage(error: Record<string, unknown> | null): string | undefined {
+  if (typeof error?.message === "string") return error.message
+  const detail = error?.detail
+  if (typeof detail === "string") return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (isObject(item) && typeof item.msg === "string" ? item.msg : ""))
+      .filter(Boolean)
+    if (messages.length > 0) return messages.join("；")
+  }
+  return undefined
 }

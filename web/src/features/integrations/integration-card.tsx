@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { AgentLlmModelsEditor } from "./agent-llm-models-editor"
 import { modelEntriesForSave, modelRefOf, parseModelEntries } from "./agent-llm-model-entries"
+import { FeishuBindingsSection } from "./feishu-bindings-section"
 import type { RssRunHealth } from "./integration-api"
 import type { AgentModelEntry, FieldDefinition, Integration, Provider, ProviderController, ProviderDefinition } from "./types"
 
@@ -168,6 +169,8 @@ export function IntegrationCard({ definition, controller }: IntegrationCardProps
         {busy !== null && <LoaderCircle aria-label="处理中" className="animate-spin text-[var(--muted)]" size={18} />}
         </div>
       </footer>
+
+      {feishu && <FeishuBindingsSection disabled={disabled} integration={integration} />}
 
       <ConfirmDialog
         busy={busy !== null}

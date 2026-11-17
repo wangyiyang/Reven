@@ -28,6 +28,38 @@ export interface AgentModelEntry {
   enabled: boolean
 }
 
+/** 飞书多维表格绑定配置（resource_type=bitable / purpose=rss_candidates） */
+export interface FeishuBitableBindingConfig {
+  app_token: string
+  table_id: string
+}
+
+/** 飞书资源绑定（GET /integrations/feishu_bot/bindings 响应元素） */
+export interface FeishuResourceBinding {
+  id: string
+  resource_type: string
+  purpose: string
+  config: FeishuBitableBindingConfig
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** 绑定测试单个阶段结果（stage ∈ fields/search/create/delete） */
+export interface BindingTestStage {
+  stage: string
+  success: boolean
+  message: string | null
+}
+
+/** 绑定测试整体结果（POST /integrations/feishu_bot/bindings/{id}/test 响应） */
+export interface BindingTestResult {
+  success: boolean
+  failed_stage: string | null
+  stages: BindingTestStage[]
+  message: string | null
+}
+
 /** 单个模型的连接测试结果（POST /integrations/agent-llm/test {model_ref} 响应） */
 export interface AgentModelTestResult {
   ref: string
