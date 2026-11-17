@@ -1,6 +1,6 @@
 """RSS 内存筛选：run 内抓取条目 → 候选分组（不落 PG 条目，向量依旧不持久化）。
 
-- 输入为 discovery 收集的 FetchedEntry 内存列表（权威存储为 Bitable，不再查 rss_items）；
+- 输入为 discovery 收集的 FetchedEntry 内存列表（候选权威存储为 Bitable，PG 不保存条目级数据）；
 - 关键词配置仍存 PG（运维状态）；embedding 失败按既有语义降级为字面/BM25 信号；
 - 只返回 candidate 分组（filtered 不落任何存储，历史重筛能力取消）。
 """

@@ -11,7 +11,7 @@ from reven.rss.embedding import (
     KeywordEmbeddingService,
     SiliconFlowEmbeddingClient,
 )
-from reven.rss.models import RssItem, RssKeyword
+from reven.rss.models import RssKeyword
 from reven.rss.repository import RssSettingsRepository
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -247,7 +247,6 @@ async def test_keyword_vectors_are_cached_and_invalidated_when_term_changes(
 
     assert await service.refresh() == 1
     assert embedder.calls == [("AI agents",), ("AI systems",)]
-    assert "embedding" not in RssItem.__table__.columns
 
 
 @pytest.mark.anyio

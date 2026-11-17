@@ -15,12 +15,11 @@ from reven.rss.bitable_writer import BitableCandidateWriter
 from reven.rss.discovery import FeedEntry, LocalizedEntry, RssDiscoveryService
 from reven.rss.embedding import BGE_M3_DIMENSION, BGE_M3_MODEL, EmbedOutcome, KeywordEmbeddingService
 from reven.rss.factory import RssCandidatePipeline
-from reven.rss.models import RssItem, RssSource
+from reven.rss.models import RssSource
 from reven.rss.repository import RssSettingsRepository
 from reven.rss.screening import RssScreeningEngine
 from reven.rss.screening_service import RssScreeningService
 from reven.security.secrets import SecretBox
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -169,7 +168,3 @@ async def test_rss_discovery_writes_candidates_to_bitable_idempotently(
     assert fields["原文链接"] == {"link": "https://example.com/agent-1", "text": "AI 智能体架构"}
     assert fields["去重键"].startswith("url:")
     assert record["client_token"].startswith(f"{first.run_id}:")
-
-    # 条目不落 PG
-    async with factory() as session:
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0

@@ -9,8 +9,8 @@ from reven.rss.discovery import (
     PartialLocalizationError,
     RssDiscoveryService,
 )
-from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
-from sqlalchemy import func, select
+from reven.rss.models import RssDiscoveryRun, RssSource
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 RUN_DATE = date(2026, 9, 1)
@@ -80,8 +80,6 @@ async def test_checkpoint_resume_skips_already_processed_sources(db_session: Asy
         stored_run = await session.get(RssDiscoveryRun, run.id)
         assert stored_run is not None
         assert sorted(stored_run.processed_source_ids) == sorted(str(s.id) for s in sources)
-        # beta/gamma 条目只进内存（候选权威存储为 Bitable）；alpha 此前中断未提交，由 checkpoint 保证不重抓
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio
@@ -371,8 +369,6 @@ async def test_checkpoint_resume_after_full_crash_skips_committed_sources(db_ses
         assert run is not None and run.status == "running"
         # 前两次 fetch 成功提交 checkpoint；第三次进程被杀未提交
         assert sorted(run.processed_source_ids) == sorted(str(s.id) for s in sources if s.name in feed.fetched_names)
-        # 条目不落 PG：rss_items 始终为空
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
     # 进程重启：新 service 实例；feed 还剩第 3 个源待抓（calls 计数继续，3 不再触发崩溃）
     recovered = RssDiscoveryService(factory, feed, _EchoLocalizer(), _RecordingNotifier())
@@ -383,7 +379,6 @@ async def test_checkpoint_resume_after_full_crash_skips_committed_sources(db_ses
         run = await session.get(RssDiscoveryRun, result.run_id)
         assert run is not None
         assert sorted(run.processed_source_ids) == sorted(str(s.id) for s in sources)
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio

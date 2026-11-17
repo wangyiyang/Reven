@@ -23,10 +23,9 @@ from reven.rss.factory import (
     RssDiscoveryJob,
     _UnavailableSiliconFlow,
 )
-from reven.rss.models import RssItem, RssSource
+from reven.rss.models import RssSource
 from reven.rss.repository import RssSettingsRepository
 from reven.security.secrets import SecretBox
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 TEST_MASTER_KEY = base64.urlsafe_b64encode(b"t" * 32).decode()
@@ -171,7 +170,7 @@ async def test_discovery_tick_uses_db_translation_without_qwen(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DB 机翻（百度）参与管线：翻译结果随候选直写 Bitable；rss_items 不再落条目。"""
+    """DB 机翻（百度）参与管线：翻译结果随候选直写 Bitable；条目不落 PG。"""
     db_session.add_all(
         [
             RssSource(name="Example", feed_url="https://example.com/feed.xml", enabled=True),
@@ -229,5 +228,3 @@ async def test_discovery_tick_uses_db_translation_without_qwen(
     assert record["fields"]["标题"] == "智能体系统"
     assert record["fields"]["状态"] == "candidate"
     assert record["fields"]["命中关键词"] == "智能体系统"
-    async with factory() as session:
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0

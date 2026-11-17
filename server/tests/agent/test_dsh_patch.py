@@ -81,7 +81,7 @@ def test_patch_injects_keyword_ops_behavior_instructions() -> None:
     # 话术要素：语义匹配生效、下次每日抓取后生效
     assert "语义匹配" in suffix
     assert "下次每日抓取" in suffix
-    # 命中数估计（hit_count）已随 rss_items 条目库退役，话术不得再引用
+    # 命中数估计（hit_count）已随候选条目库退役，话术不得再引用
     assert "hit_count" not in suffix
     # embedding pending 降级话术
     assert "embedding_status" in suffix

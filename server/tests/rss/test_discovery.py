@@ -8,7 +8,7 @@ from reven.rss.discovery import (
     PartialLocalizationError,
     RssDiscoveryService,
 )
-from reven.rss.models import RssDiscoveryRun, RssItem, RssSource
+from reven.rss.models import RssDiscoveryRun, RssSource
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -105,8 +105,6 @@ async def test_daily_discovery_is_idempotent_and_sends_one_summary(
     assert len(notifier.notifications) == 1
     async with factory() as session:
         assert await session.scalar(select(func.count()).select_from(RssDiscoveryRun)) == 1
-        # 候选权威存储为 Bitable：rss_items 不再有条目写入
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio
@@ -206,8 +204,6 @@ async def test_translation_failure_is_explicitly_degraded_and_still_notifies(
             {"stage": "translation", "error_type": "RuntimeError"},
             {"stage": "translation", "error_type": "RuntimeError"},
         ]
-        # 条目不再落 PG（降级原文仅存在于 run 内存，供当轮筛选）
-        assert await session.scalar(select(func.count()).select_from(RssItem)) == 0
 
 
 @pytest.mark.anyio

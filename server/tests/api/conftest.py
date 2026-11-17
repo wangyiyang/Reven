@@ -78,7 +78,7 @@ def workbench() -> Iterator[tuple[TestClient, async_sessionmaker]]:
         async with engine.begin() as connection:
             await connection.execute(
                 text(
-                    "TRUNCATE rss_items, rss_discovery_runs, rss_keywords, rss_sources, "
+                    "TRUNCATE rss_discovery_runs, rss_keywords, rss_sources, "
                     "crm_follow_ups, crm_contacts, crm_customers, "
                     "talent_experiences, talent_educations, talent_interactions, talents, "
                     "finance_entries, projects, "

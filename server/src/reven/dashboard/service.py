@@ -2,7 +2,7 @@
 
 只做"读 + SQL 计数"，不新增表、不改任何现有接口；CRM 待跟进清单复用
 `CrmRepository.list_due_follow_ups`（与飞书每日提醒同源），不新写查询逻辑。
-RSS 候选/已保存计数来自 Bitable 候选存储（rss_items 不再是候选权威存储）；
+RSS 候选/已保存计数来自 Bitable 候选存储（PG 不保存条目级候选数据）；
 候选存储不可用时错误向上抛，由路由映射为 503，不静默降级为 0。
 "今日"统一按 Asia/Shanghai 日历日（对齐 CRM repository 的 due 过滤口径）。
 返回纯数据 dataclass，响应模型由 API 层拥有（对齐"响应类由 API 拥有"约定）。
