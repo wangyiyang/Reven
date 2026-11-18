@@ -40,6 +40,7 @@ class AgentService:
         return frozenset(self._overrides.values())
 
     async def model_state(self, session_id: str) -> SessionModelState:
+        await self._runtime.refresh()
         entries = await self._credentials.agent_llm_models() if self._credentials is not None else None
         available_refs = tuple(entry.ref for entry in entries or ())
         default_ref = self._runtime.default_model_ref

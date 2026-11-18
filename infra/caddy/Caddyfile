@@ -40,3 +40,8 @@
 reven.wangyiyang.cc {
 	import site_common
 }
+
+# dev 域名 301 重定向到主站（统一入口与 TLS 证书）
+dev.wangyiyang.cc {
+	redir https://reven.wangyiyang.cc{uri} permanent
+}

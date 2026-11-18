@@ -351,3 +351,63 @@ async def test_chat_timeout_without_external_session_id(tmp_path: Path, monkeypa
     assert exc_info.value.code == "AGENT_CHAT_TIMEOUT"
     assert runtime._session_aliases == {}
     await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_runtime_reload_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    started_configs: list[AgentConfig] = []
+    closed_count = 0
+
+    class DummyHarness:
+        def close(self) -> None:
+            nonlocal closed_count
+            closed_count += 1
+
+    monkeypatch.setattr(
+        "reven.agent.runtime._launch",
+        lambda cfg, mcp: (started_configs.append(cfg), DummyHarness())[1],
+    )
+
+    runtime = AgentRuntime(None)
+    assert not runtime.configured
+    assert not runtime.available
+
+    # 1. 尝试 reload 为 None：返回 False，无变更
+    changed = await runtime.reload_config(None)
+    assert changed is False
+    assert not runtime.configured
+
+    # 2. 从 None reload 为有效配置：启动
+    cfg1 = _make_config(tmp_path / "cfg1")
+    changed = await runtime.reload_config(cfg1)
+    assert changed is True
+    assert runtime.configured
+    assert runtime.available
+    assert len(started_configs) == 1
+
+    # 3. 相同配置 reload：返回 False，不重复启动
+    changed = await runtime.reload_config(cfg1)
+    assert changed is False
+    assert len(started_configs) == 1
+
+    # 4. 更新为不同配置：关闭旧 harness，启动新 harness
+    cfg2 = AgentConfig(
+        provider="deepseek-official",
+        model="deepseek-v4-full",
+        base_url=None,
+        api_key="new-key",
+        dsh_home=tmp_path / "cfg2",
+        cwd=tmp_path / "cfg2",
+    )
+    changed = await runtime.reload_config(cfg2)
+    assert changed is True
+    assert runtime.default_model_ref == "deepseek-official/deepseek-v4-full"
+    assert closed_count == 1
+    assert len(started_configs) == 2
+
+    # 5. reload 为 None：关闭并变为 unconfigured
+    changed = await runtime.reload_config(None)
+    assert changed is True
+    assert not runtime.configured
+    assert not runtime.available
+    assert closed_count == 2

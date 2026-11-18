@@ -102,6 +102,10 @@ class AgentRuntime:
         self._session_aliases: dict[str, str] = {}
 
     @property
+    def config(self) -> AgentConfig | None:
+        return self._config
+
+    @property
     def configured(self) -> bool:
         return self._config is not None
 
@@ -116,6 +120,27 @@ class AgentRuntime:
         if self._config is None:
             return None
         return model_ref_of(self._config.provider, self._config.model)
+
+    async def refresh(self) -> None:
+        """本地运行时刷新契约；本地已是最新，为空操作。"""
+        pass
+
+    async def reload_config(self, new_config: AgentConfig | None) -> bool:
+        """热更新默认模型配置并清理缓存池（若配置未变且正常运行则为空操作）。返回是否有变更。"""
+        if self._config == new_config and (self._harness is not None or self._start_failed or new_config is None):
+            return False
+        old_harness = self._harness
+        self._harness = None
+        self._start_failed = False
+        self._config = new_config
+        pool = tuple(self._harness_pool.values())
+        self._harness_pool.clear()
+        for instance in (old_harness, *pool):
+            if instance is not None:
+                await to_thread.run_sync(instance.close)
+        if self._config is not None:
+            await self.start()
+        return True
 
     async def start(self) -> None:
         """拉起 dsh 子进程并完成 initialize 握手；未配置或已失败时为空操作。
